@@ -63,7 +63,7 @@ class PiperSpeechEngine(
                         if (voice.id == VOICE_ID) ALD_SHA256 else null)
                     downloadFile(voice.configUrl ?: error("Falta URL de configuración"), config)
                 } else {
-                    val archive = File(model.parentFile, "\${voice.id}.tar.gz.part")
+                    val archive = File(model.parentFile, "${voice.id}.tar.gz.part")
                     try {
                         downloadFile(voice.archiveUrl ?: error("Falta URL del paquete"), archive)
                         extractVoiceArchive(archive, model, config)
@@ -73,7 +73,7 @@ class PiperSpeechEngine(
                 }
             }
             check(isVoiceInstalled(context, voice.id)) {
-                "La voz \${voice.name} no superó la validación. El modelo o su configuración están incompletos."
+                "La voz ${voice.name} no superó la validación. El modelo o su configuración están incompletos."
             }
         }
 
@@ -87,7 +87,7 @@ class PiperSpeechEngine(
             }
             try {
                 connection.connect()
-                check(connection.responseCode in 200..299) { "Descarga HTTP \${connection.responseCode}" }
+                check(connection.responseCode in 200..299) { "Descarga HTTP ${connection.responseCode}" }
                 connection.inputStream.use { input ->
                     temp.outputStream().buffered().use { output -> input.copyTo(output) }
                 }
@@ -96,7 +96,7 @@ class PiperSpeechEngine(
                     "El modelo oficial no coincide con su huella SHA-256."
                 }
                 if (target.exists()) target.delete()
-                check(temp.renameTo(target)) { "No se pudo guardar \${target.name}" }
+                check(temp.renameTo(target)) { "No se pudo guardar ${target.name}" }
             } finally {
                 connection.disconnect()
                 temp.delete()
@@ -119,11 +119,29 @@ class PiperSpeechEngine(
                         when {
                             name.endsWith(".onnx", ignoreCase = true) && !name.endsWith(".encoder.onnx") &&
                                 !name.endsWith(".decoder.onnx") -> {
-                                tar.copyTo(modelTemp.outputStream().buffered())
+                                modelTemp.outputStream().buffered().use { output ->
+                                    val buffer = ByteArray(64 * 1024)
+                                    var remaining = entry.size
+                                    while (remaining > 0) {
+                                        val count = tar.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                                        if (count < 0) throw IOException("Modelo ONNX truncado dentro del paquete.")
+                                        output.write(buffer, 0, count)
+                                        remaining -= count
+                                    }
+                                }
                                 foundModel = true
                             }
                             name.endsWith(".onnx.json", ignoreCase = true) -> {
-                                tar.copyTo(configTemp.outputStream().buffered())
+                                configTemp.outputStream().buffered().use { output ->
+                                    val buffer = ByteArray(16 * 1024)
+                                    var remaining = entry.size
+                                    while (remaining > 0) {
+                                        val count = tar.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                                        if (count < 0) throw IOException("Configuración JSON truncada dentro del paquete.")
+                                        output.write(buffer, 0, count)
+                                        remaining -= count
+                                    }
+                                }
                                 foundConfig = true
                             }
                         }
@@ -132,7 +150,8 @@ class PiperSpeechEngine(
                 check(foundModel && foundConfig) { "El paquete comunitario no contiene el modelo ONNX y su JSON." }
                 check(modelTemp.length() > 20_000_000L) { "El modelo extraído está incompleto." }
                 val configJson = JSONObject(configTemp.readText())
-                check(configJson.optJSONObject("audio")?.optInt("sample_rate", 0) in 8_000..48_000) {
+                val sampleRate = configJson.optJSONObject("audio")?.optInt("sample_rate", 0) ?: 0
+                check(sampleRate in 8_000..48_000) {
                     "El modelo no contiene una configuración de audio válida."
                 }
                 if (model.exists()) model.delete()
