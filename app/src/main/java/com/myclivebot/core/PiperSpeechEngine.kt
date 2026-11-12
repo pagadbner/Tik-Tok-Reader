@@ -26,7 +26,8 @@ class PiperSpeechEngine(
     context: Context,
     private val voiceId: String = PiperVoiceCatalog.DEFAULT_VOICE_ID,
     private val volume: Float = 1.0f,
-    private val speed: Float = 1.0f
+    private val speed: Float = 1.0f,
+    private val effectProfile: String = VoiceEffectProfile.NATURAL.id
 ) : SpeechEngine {
     private val appContext = context.applicationContext
     @Volatile private var engine: PiperEngine? = null
@@ -231,6 +232,7 @@ class PiperSpeechEngine(
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
         val totalFrames = AtomicLong(0L)
+        val audioProcessor = VoiceAudioProcessor(VoiceEffectProfile.fromId(effectProfile), sampleRate)
         currentTrack = track
         try {
             track.setVolume(volume.coerceIn(0f, 1f))
@@ -242,9 +244,7 @@ class PiperSpeechEngine(
             piper.synthesize(text.take(500), synthOptions = synthOptions, onSamples = { samples ->
                 if (samples.isNotEmpty()) {
                     totalFrames.addAndGet(samples.size.toLong())
-                    val pcm = ShortArray(samples.size) { index ->
-                        (samples[index].coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt().toShort()
-                    }
+                    val pcm = audioProcessor.process(samples)
                     var offset = 0
                     while (offset < pcm.size) {
                         val written = track.write(pcm, offset, pcm.size - offset, AudioTrack.WRITE_BLOCKING)
