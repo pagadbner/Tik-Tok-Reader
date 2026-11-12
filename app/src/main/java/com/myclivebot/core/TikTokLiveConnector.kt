@@ -27,7 +27,8 @@ import java.util.zip.GZIPInputStream
  */
 class TikTokLiveConnector(
     private val onComment: (LiveComment) -> Unit,
-    private val onStatus: (String) -> Unit
+    private val onStatus: (String) -> Unit,
+    private val onEvent: (LiveEvent) -> Unit = {}
 ) : Closeable {
 
     companion object {
@@ -297,31 +298,50 @@ class TikTokLiveConnector(
         if (logId != 0L) webSocket.send(ByteString.of(*encodeAck(logId)))
 
         result.messages(1).forEach { raw ->
-            if (raw.bool(6) || raw.string(1) != "WebcastChatMessage") return@forEach
-            val chat = ProtoMessage(raw.bytes(2))
-            val user = chat.message(2)
-            val identity = chat.message(18)
-            val comment = chat.string(3).trim()
-            if (comment.isBlank()) return@forEach
-
+            if (raw.bool(6)) return@forEach
+            val type = raw.string(1)
+            val payloadMessage = ProtoMessage(raw.bytes(2))
             val messageId = raw.long(3).toString()
             if (messageId != "0" && !rememberMessage(messageId)) return@forEach
 
-            val userId = user?.long(1)?.toString().orEmpty()
-            val nickname = user?.string(3)?.takeIf { it.isNotBlank() }
-                ?: user?.string(38)?.takeIf { it.isNotBlank() }
-                ?: "Usuario"
-
-            onComment(
-                LiveComment(
-                    userId = userId,
-                    displayName = nickname,
-                    text = comment,
-                    isModerator = identity?.bool(5) == true
-                )
-            )
+            when (type) {
+                "WebcastChatMessage" -> {
+                    val user = payloadMessage.message(2)
+                    val identity = payloadMessage.message(18)
+                    val comment = payloadMessage.string(3).trim()
+                    if (comment.isBlank()) return@forEach
+                    onComment(
+                        LiveComment(
+                            userId = user?.long(1)?.toString().orEmpty(),
+                            displayName = displayName(user),
+                            text = comment,
+                            isModerator = identity?.bool(5) == true,
+                            // TikTok User.follow_status is field 1024; unknown/zero is not treated as a follower.
+                            isFollower = user?.let { it.long(1024) > 0L }
+                        )
+                    )
+                }
+                "WebcastSocialMessage" -> {
+                    val user = payloadMessage.message(2)
+                    // Current public webcast schema: action=1 is follow; action=3 is share.
+                    if (payloadMessage.long(4) == 1L) {
+                        onEvent(LiveEvent(LiveEventType.FOLLOW, displayName(user)))
+                    }
+                }
+                "WebcastGiftMessage" -> {
+                    val user = payloadMessage.message(7)
+                    val repeatCount = payloadMessage.long(5).coerceAtLeast(1L)
+                    val detail = if (repeatCount > 1L) "x$repeatCount" else ""
+                    onEvent(LiveEvent(LiveEventType.GIFT, displayName(user), detail))
+                }
+            }
         }
     }
+
+    private fun displayName(user: ProtoMessage?): String =
+        user?.string(3)?.takeIf { it.isNotBlank() }
+            ?: user?.string(38)?.takeIf { it.isNotBlank() }
+            ?: "Usuario"
 
     @Synchronized
     private fun rememberMessage(id: String): Boolean {
