@@ -19,7 +19,8 @@ class DynamicPiperSpeechEngine(
         val voiceId: String,
         val volume: Float,
         val speed: Float,
-        val randomVoices: Boolean
+        val randomVoices: Boolean,
+        val effectProfile: String
     )
 
     private val appContext = context.applicationContext
@@ -63,9 +64,9 @@ class DynamicPiperSpeechEngine(
     }
 
     private fun engineFor(voiceId: String, current: Config): PiperSpeechEngine {
-        val key = "${voiceId}|${current.volume}|${current.speed}"
+        val key = "${voiceId}|${current.volume}|${current.speed}|${current.effectProfile}"
         val selected = engines.getOrPut(key) {
-            PiperSpeechEngine(appContext, voiceId, current.volume, current.speed)
+            PiperSpeechEngine(appContext, voiceId, current.volume, current.speed, current.effectProfile)
         }
         // Keep a small cache so slider adjustments do not retain unlimited native models.
         if (engines.size > 2) {
@@ -80,6 +81,7 @@ class DynamicPiperSpeechEngine(
         voiceId = settings.voiceId,
         volume = settings.volume.coerceIn(0f, 1f),
         speed = settings.speed.coerceIn(0.65f, 1.5f),
-        randomVoices = settings.randomVoices
+        randomVoices = settings.randomVoices,
+        effectProfile = settings.voiceEffectProfile
     )
 }
