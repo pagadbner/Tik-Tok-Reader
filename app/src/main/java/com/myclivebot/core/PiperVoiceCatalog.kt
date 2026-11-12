@@ -34,6 +34,30 @@ object PiperVoiceCatalog {
             configUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/ald/medium/es_MX-ald-medium.onnx.json?download=true"
         ),
         PiperVoice(
+            id = "es_ES-davefx-medium",
+            name = "DaveFX · Español de España",
+            description = "Voz oficial Piper · calidad medium · licencia por revisar",
+            official = true,
+            modelUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx?download=true",
+            configUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx.json?download=true"
+        ),
+        PiperVoice(
+            id = "es_ES-sharvard-medium",
+            name = "Sharvard · Español de España",
+            description = "Voz oficial Piper · calidad medium · licencia por revisar",
+            official = true,
+            modelUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx?download=true",
+            configUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx.json?download=true"
+        ),
+        PiperVoice(
+            id = "es_AR-daniela-high",
+            name = "Daniela · Español argentino",
+            description = "Voz oficial Piper · calidad high · licencia por revisar",
+            official = true,
+            modelUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_AR/daniela/high/es_AR-daniela-high.onnx?download=true",
+            configUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_AR/daniela/high/es_AR-daniela-high.onnx.json?download=true"
+        ),
+        PiperVoice(
             id = "es_MX-alan-medium",
             name = "Alan · Comunidad",
             description = "Voz comunitaria en español · experimental (MX/ES)",
