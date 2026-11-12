@@ -36,7 +36,7 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     // Public TikTok LIVE Webcast reader (community reverse-engineered client).
-    implementation("com.github.jwdeveloper.TikTok-Live-Java:Client:1.0.6-Release")
+    implementation("com.github.jwdeveloper.TikTok-Live-Java:Client:1.13.0-Release")
     // Offline neural Piper engine; native dependencies are prepared by CI.
     implementation("dev.ihorshevchuk.piper:piper-engine")
     testImplementation("junit:junit:4.13.2")
