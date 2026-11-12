@@ -146,9 +146,14 @@ class BotForegroundService : Service() {
                 if (!PiperSpeechEngine.isVoiceInstalled(this, voiceId)) {
                     updateStatus("Descarga primero la voz seleccionada")
                 } else {
-                    val testSettings = (activeSettings ?: ReaderSettings()).copy(voiceId = voiceId, volume = volume, speed = speed, randomVoices = false)
-                    ensureSpeechQueue(30, testSettings)
-                    speechQueue?.enqueue("Prueba de voz en español de México. El lector está preparado.")
+                    serviceScope.launch(Dispatchers.IO) {
+                        val testEngine = PiperSpeechEngine(this@BotForegroundService, voiceId, volume, speed)
+                        try {
+                            testEngine.speak("Prueba de voz en español de México. El lector está preparado.")
+                        } finally {
+                            testEngine.release()
+                        }
+                    }
                     updateStatus("Reproduciendo prueba Piper")
                 }
             }
