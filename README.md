@@ -91,7 +91,9 @@ No se solicita la contraseña de TikTok ni se almacena una cookie de sesión de 
 
 ## Hoja de ruta
 
-El modelo CE-Legacy exacto compartido para Cortana requiere aceptar acceso en Hugging Face; se ofrece una variante pública distinta del mismo creador. El modelo encontrado para Jefe Maestro pertenece a otro formato de voz/ONNX y no es compatible con el motor Piper actual, por lo que no se incorpora a este catálogo.\n\nEl desarrollo se dividirá en etapas pequeñas para proteger la conexión y el servidor local. La IP pública no se falsifica ni se rota desde Android; el cliente mantiene un User-Agent coherente y usa reintentos moderados, cookies y diagnósticos sin intentar evadir controles de TikTok:
+El modelo CE-Legacy exacto compartido para Cortana requiere aceptar acceso en Hugging Face; se ofrece una variante pública distinta del mismo creador. El modelo encontrado para Jefe Maestro pertenece a otro formato de voz/ONNX y no es compatible con el motor Piper actual, por lo que no se incorpora a este catálogo.
+
+El desarrollo se dividirá en etapas pequeñas para proteger la conexión y el servidor local. La IP pública no se falsifica ni se rota desde Android; el cliente mantiene un User-Agent coherente y usa reintentos moderados, cookies y diagnósticos sin intentar evadir controles de TikTok:
 
 | Etapa | Objetivo |
 |---|---|
