@@ -154,7 +154,7 @@ class BotForegroundService : Service() {
                     serviceScope.launch(Dispatchers.IO) {
                         val testEngine = PiperSpeechEngine(this@BotForegroundService, voiceId, volume, speed)
                         try {
-                            testEngine.speak("Prueba de voz en español de México. El lector está preparado.")
+                            testEngine.speak(PiperVoiceCatalog.find(voiceId).testPhrase)
                         } finally {
                             testEngine.release()
                         }
