@@ -102,7 +102,7 @@ class PiperSpeechEngine(
                 }
                 check(temp.length() > 100L) { "Archivo de voz vacío o inválido" }
                 if (expectedSha256 != null) check(sha256(temp) == expectedSha256) {
-                    "El modelo oficial no coincide con su huella SHA-256."
+                    "El modelo descargado no coincide con su huella SHA-256."
                 }
                 if (target.exists()) target.delete()
                 check(temp.renameTo(target)) { "No se pudo guardar ${target.name}" }
