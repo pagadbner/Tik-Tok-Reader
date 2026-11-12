@@ -78,3 +78,17 @@ El cambio elimina la dependencia que causaba el error de resolución de java.net
 4. No solicitar ni almacenar credenciales de TikTok.
 5. Ejecutar pruebas y workflow después de cada cambio.
 6. Actualizar este documento cuando cambie la arquitectura o el estado de validación.
+
+
+## Actualización v0.7 — ajustes de lectura y voces
+- Preferencias de lectura guardadas localmente con SharedPreferences.
+- Historial local de hasta ocho nombres de usuario recientes.
+- Opciones: leer nombre, leer solo nombre, ignorar emojis y eliminar signos/símbolos.
+- Moderación: palabras bloqueadas, usuarios ignorados y tamaño de cola.
+- Volumen de salida y velocidad de síntesis ajustables.
+- Selector de ocho voces con modelos descargables a petición.
+- Voz oficial recomendada: es_MX-claude-high; alternativa oficial: es_MX-ald-medium.
+- Voces comunitarias opcionales: Alan, Alicia, Carla, Gabriela, Mario y Mireya. Se obtienen del repositorio AIHeaven/piper_unofficial_voices; son experimentales, no se redistribuyen dentro de la APK y la licencia individual debe revisarse antes de cualquier uso comercial.
+- El pie de la interfaz ahora muestra “BY ROXI”.
+
+La arquitectura de conexión no forma parte de esta actualización: TikTokLiveConnector.kt y LocalBridgeServer.kt deben permanecer intactos. Las voces se descargan una por una y se guardan en el almacenamiento privado de la aplicación.
