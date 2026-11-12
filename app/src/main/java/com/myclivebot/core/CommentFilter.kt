@@ -16,13 +16,18 @@ data class ReaderSettings(
     val onlyUsername: Boolean = false,
     val volume: Float = 1.0f,
     val speed: Float = 1.0f,
-    val voiceId: String = PiperVoiceCatalog.DEFAULT_VOICE_ID
+    val voiceId: String = PiperVoiceCatalog.DEFAULT_VOICE_ID,
+    val followerOnlyChat: Boolean = false,
+    val readFollows: Boolean = true,
+    val readGifts: Boolean = true,
+    val randomVoices: Boolean = false
 )
 
 class CommentFilter {
     private val lastByUser = ConcurrentHashMap<String, Pair<String, Long>>()
 
     fun shouldRead(comment: LiveComment, settings: ReaderSettings): Boolean {
+        if (settings.followerOnlyChat && comment.isFollower != true) return false
         val userKey = comment.userId.ifBlank { comment.displayName }.trim().lowercase()
         val ignored = settings.ignoredUsers.map { it.trim().removePrefix("@").lowercase() }
             .filter { it.isNotEmpty() }.toSet()
