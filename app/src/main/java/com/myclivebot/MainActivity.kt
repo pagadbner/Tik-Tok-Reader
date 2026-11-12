@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.*
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -268,7 +269,7 @@ private fun SectionHeader(number: String, title: String, subtitle: String) {
     }
 }
 
-private fun splitList(value: String): List<String> = value.split(',', '\\n').map { it.trim() }.filter { it.isNotEmpty() }
+private fun splitList(value: String): List<String> = value.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }
 
 @Composable
 private fun SettingSwitch(title: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
