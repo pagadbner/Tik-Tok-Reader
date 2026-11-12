@@ -44,6 +44,17 @@ class CommentFilterTest {
         assertEquals("Hola todos live 123", result)
     }
 
+    @Test fun catalogIncludesCortanaAndJarvisWithExpectedLanguages() {
+        val cortana = PiperVoiceCatalog.find("es_MX-cortana-19669-epoch-high")
+        val jarvis = PiperVoiceCatalog.find("en_us-jarvis-ucm-high")
+
+        assertEquals("es", cortana.language)
+        assertEquals("en", jarvis.language)
+        assertTrue(cortana.expectedSha256?.isNotBlank() == true)
+        assertTrue(jarvis.expectedSha256?.isNotBlank() == true)
+        assertTrue(jarvis.testPhrase.startsWith("Hello"))
+    }
+
     @Test fun canReadOnlyTheUsername() {
         val filter = CommentFilter()
         val result = filter.toSpeech(
