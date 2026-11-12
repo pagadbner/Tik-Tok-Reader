@@ -35,6 +35,7 @@ class TikTokLiveConnector(
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"
         private const val HEARTBEAT_SECONDS = 10L
         private val WS_HOSTS = listOf("webcast-ws.tiktok.com", "webcast-ws.us.tiktok.com")
+        @Volatile private var cachedTtwid: String? = null
     }
 
     private val http = OkHttpClient.Builder()
@@ -131,26 +132,38 @@ class TikTokLiveConnector(
     }
 
     private fun fetchAnonymousDeviceCookie(): String {
+        cachedTtwid?.takeIf { it.isNotBlank() }?.let { return it }
         val request = Request.Builder()
             .url("https://www.tiktok.com/")
             .header("User-Agent", USER_AGENT)
             .header("Accept", "text/html,application/xhtml+xml")
             .header("Accept-Language", "es-MX,es;q=0.9,en;q=0.8")
+            .header("Cache-Control", "no-cache")
             .build()
 
-        http.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("No se pudo inicializar la sesión pública de TikTok (HTTP ${response.code}).")
-            }
-            val cookie = response.headers.values("Set-Cookie")
-                .firstNotNullOfOrNull { header ->
-                    header.split(";").firstOrNull()?.trim()
-                        ?.takeIf { it.startsWith("ttwid=") }
-                        ?.substringAfter("ttwid=")
+        var lastHttpCode: Int? = null
+        repeat(8) { attempt ->
+            http.newCall(request).execute().use { response ->
+                lastHttpCode = response.code
+                val cookie = response.headers.values("Set-Cookie")
+                    .firstNotNullOfOrNull { header ->
+                        header.substringBefore(";").trim()
+                            .takeIf { it.startsWith("ttwid=") }
+                            ?.substringAfter("ttwid=")
+                            ?.takeIf { it.isNotBlank() }
+                    }
+                if (cookie != null) {
+                    cachedTtwid = cookie
+                    return cookie
                 }
-            return cookie?.takeIf { it.isNotBlank() }
-                ?: throw IOException("TikTok no entregó la cookie anónima ttwid.")
+                if (response.code == 403 || response.code == 429) {
+                    throw IOException("TikTok limitó la preparación anónima (HTTP ${response.code}). Espera un momento e inténtalo de nuevo.")
+                }
+            }
+            if (attempt < 7) Thread.sleep(750L)
         }
+        val suffix = lastHttpCode?.let { " (último HTTP $it)" }.orEmpty()
+        throw IOException("TikTok no entregó la cookie anónima ttwid después de 8 intentos$suffix. Comprueba la red e inténtalo de nuevo.")
     }
 
     @Synchronized
