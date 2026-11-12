@@ -80,7 +80,7 @@ class TikTokLiveConnector(
                 openWebSocket(0)
             } catch (error: Exception) {
                 if (!stopped) {
-                    onStatus("No se pudo preparar la conexión: \${error.message ?: "error de red"}")
+                    onStatus("No se pudo preparar la conexión: ${error.message ?: "error de red"}")
                 }
             }
         }
@@ -109,7 +109,7 @@ class TikTokLiveConnector(
         http.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                throw IOException("TikTok respondió HTTP \${response.code} al buscar el LIVE.")
+                throw IOException("TikTok respondió HTTP ${response.code} al buscar el LIVE.")
             }
             if (body.isBlank()) throw IOException("TikTok devolvió una respuesta vacía.")
             val json = JSONObject(body)
@@ -140,7 +140,7 @@ class TikTokLiveConnector(
 
         http.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw IOException("No se pudo inicializar la sesión pública de TikTok (HTTP \${response.code}).")
+                throw IOException("No se pudo inicializar la sesión pública de TikTok (HTTP ${response.code}).")
             }
             val cookie = response.headers.values("Set-Cookie")
                 .firstNotNullOfOrNull { header ->
