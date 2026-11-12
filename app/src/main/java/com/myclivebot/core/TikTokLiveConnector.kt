@@ -459,16 +459,17 @@ class TikTokLiveConnector(
         }
     }
 
-    private fun readProtoVarint(bytes: ByteArray, start: Int): Pair<Long, Int> {
-        var position = start
-        var value = 0L
-        var shift = 0
-        while (position < bytes.size && shift < 70) {
-            val byte = bytes[position++].toInt() and 0xff
-            value = value or ((byte and 0x7f).toLong() shl shift)
-            if ((byte and 0x80) == 0) return value to position
-            shift += 7
-        }
-        throw IOException("Invalid or truncated protobuf varint")
+}
+
+private fun readProtoVarint(bytes: ByteArray, start: Int): Pair<Long, Int> {
+    var position = start
+    var value = 0L
+    var shift = 0
+    while (position < bytes.size && shift < 70) {
+        val byte = bytes[position++].toInt() and 0xff
+        value = value or ((byte and 0x7f).toLong() shl shift)
+        if ((byte and 0x80) == 0) return value to position
+        shift += 7
     }
+    throw IOException("Invalid or truncated protobuf varint")
 }
