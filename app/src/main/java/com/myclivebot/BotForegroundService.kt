@@ -134,7 +134,7 @@ class BotForegroundService : Service() {
                     activeVolume = next.volume
                     activeSpeed = next.speed
                     activeVoiceId = next.voiceId
-                    updateStatus("Ajustes aplicados en vivo · sin reconectar")
+                    localBridge?.publish("settings", JSONObject().put("value", "updated"))
                 }
             }
 
