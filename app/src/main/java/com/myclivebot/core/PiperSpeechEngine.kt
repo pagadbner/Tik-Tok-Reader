@@ -6,74 +6,143 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import dev.ihorshevchuk.piper.engine.PiperCreateOptions
 import dev.ihorshevchuk.piper.engine.PiperEngine
+import dev.ihorshevchuk.piper.engine.PiperSynthesizeOptions
+import java.io.BufferedInputStream
 import java.io.File
+import java.io.FileInputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
+import org.json.JSONObject
 
-/** On-device Piper neural TTS. The Spanish model is downloaded once by the user. */
-class PiperSpeechEngine(context: Context) : SpeechEngine {
+/** On-device Piper neural TTS with selectable voice, volume and speaking speed. */
+class PiperSpeechEngine(
+    context: Context,
+    private val voiceId: String = PiperVoiceCatalog.DEFAULT_VOICE_ID,
+    private val volume: Float = 1.0f,
+    private val speed: Float = 1.0f
+) : SpeechEngine {
     private val appContext = context.applicationContext
     @Volatile private var engine: PiperEngine? = null
     @Volatile private var currentTrack: AudioTrack? = null
 
     companion object {
         const val VOICE_ID = "es_MX-ald-medium"
-        private const val MODEL_URL = "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/ald/medium/es_MX-ald-medium.onnx?download=true"
-        private const val CONFIG_URL = "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/ald/medium/es_MX-ald-medium.onnx.json?download=true"
-        private const val MODEL_SHA256 = "019b3803293c93e34a206dd2e53a3889209a514e786fd7144f7b70196c579b63"
+        private const val ALD_SHA256 = "019b3803293c93e34a206dd2e53a3889209a514e786fd7144f7b70196c579b63"
 
-        fun modelFile(context: Context) = File(context.filesDir, "voices/$VOICE_ID.onnx")
-        fun isVoiceInstalled(context: Context): Boolean {
-            val model = modelFile(context)
-            val config = File(model.absolutePath + ".json")
-            return model.isFile && model.length() > 50_000_000L && config.isFile &&
-                runCatching { config.readText().contains("\"code\": \"es_MX\"") }.getOrDefault(false)
+        fun modelFile(context: Context) = PiperVoiceCatalog.modelFile(context, VOICE_ID)
+        fun isVoiceInstalled(context: Context): Boolean = isVoiceInstalled(context, VOICE_ID)
+
+        fun isVoiceInstalled(context: Context, id: String): Boolean {
+            val model = PiperVoiceCatalog.modelFile(context, id)
+            val config = PiperVoiceCatalog.configFile(context, id)
+            if (!model.isFile || model.length() < 20_000_000L || !config.isFile || config.length() < 100L) return false
+            return runCatching {
+                val json = JSONObject(config.readText())
+                json.optJSONObject("audio")?.optInt("sample_rate", 0)?.let { it in 8_000..48_000 } == true &&
+                    json.optJSONObject("phoneme_id_map") != null
+            }.getOrDefault(false)
         }
 
-        suspend fun downloadVoice(context: Context) = withContext(Dispatchers.IO) {
-            val model = modelFile(context)
-            val config = File(model.absolutePath + ".json")
+        suspend fun downloadVoice(context: Context) = downloadVoice(context, VOICE_ID)
+
+        suspend fun downloadVoice(context: Context, id: String) = withContext(Dispatchers.IO) {
+            val voice = PiperVoiceCatalog.find(id)
+            val model = PiperVoiceCatalog.modelFile(context, voice.id)
+            val config = PiperVoiceCatalog.configFile(context, voice.id)
             model.parentFile?.mkdirs()
-            if (!model.exists() || model.length() < 50_000_000L || sha256(model) != MODEL_SHA256) {
-                downloadAtomically(MODEL_URL, model, MODEL_SHA256)
+            if (!isVoiceInstalled(context, voice.id)) {
+                if (voice.official) {
+                    downloadFile(voice.modelUrl ?: error("Falta URL del modelo"), model,
+                        if (voice.id == VOICE_ID) ALD_SHA256 else null)
+                    downloadFile(voice.configUrl ?: error("Falta URL de configuración"), config)
+                } else {
+                    val archive = File(model.parentFile, "\${voice.id}.tar.gz.part")
+                    try {
+                        downloadFile(voice.archiveUrl ?: error("Falta URL del paquete"), archive)
+                        extractVoiceArchive(archive, model, config)
+                    } finally {
+                        archive.delete()
+                    }
+                }
             }
-            if (!config.exists() || config.length() < 100L || !config.readText().contains("\"code\": \"es_MX\"")) {
-                downloadAtomically(CONFIG_URL, config)
+            check(isVoiceInstalled(context, voice.id)) {
+                "La voz \${voice.name} no superó la validación. El modelo o su configuración están incompletos."
             }
-            require(isVoiceInstalled(context)) { "La descarga de la voz Piper no se pudo validar." }
         }
 
-        private fun downloadAtomically(url: String, target: File, expectedSha256: String? = null) {
+        private fun downloadFile(url: String, target: File, expectedSha256: String? = null) {
             val temp = File(target.parentFile, target.name + ".part")
             val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 20_000
-                readTimeout = 120_000
+                connectTimeout = 25_000
+                readTimeout = 180_000
                 instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "TikTokLiveReader-Android")
+                setRequestProperty("User-Agent", "TikLBot-Android")
             }
             try {
                 connection.connect()
-                check(connection.responseCode in 200..299) { "Descarga HTTP ${connection.responseCode}" }
+                check(connection.responseCode in 200..299) { "Descarga HTTP \${connection.responseCode}" }
                 connection.inputStream.use { input ->
                     temp.outputStream().buffered().use { output -> input.copyTo(output) }
                 }
                 check(temp.length() > 100L) { "Archivo de voz vacío o inválido" }
                 if (expectedSha256 != null) check(sha256(temp) == expectedSha256) {
-                    "La voz descargada no coincide con su huella SHA-256."
-                }
-                temp.inputStream().use { stream ->
-                    val first = stream.read()
-                    check(first >= 0 && first != '<'.code) { "El servidor no devolvió un modelo de voz válido" }
+                    "El modelo oficial no coincide con su huella SHA-256."
                 }
                 if (target.exists()) target.delete()
-                check(temp.renameTo(target)) { "No se pudo guardar ${target.name}" }
+                check(temp.renameTo(target)) { "No se pudo guardar \${target.name}" }
             } finally {
                 connection.disconnect()
-                if (temp.exists()) temp.delete()
+                temp.delete()
+            }
+        }
+
+        private fun extractVoiceArchive(archive: File, model: File, config: File) {
+            val modelTemp = File(model.parentFile, model.name + ".part")
+            val configTemp = File(config.parentFile, config.name + ".part")
+            var foundModel = false
+            var foundConfig = false
+            try {
+                TarArchiveInputStream(
+                    GzipCompressorInputStream(BufferedInputStream(FileInputStream(archive)))
+                ).use { tar ->
+                    while (true) {
+                        val entry = tar.nextEntry ?: break
+                        if (!entry.isFile || entry.size <= 0L) continue
+                        val name = entry.name.substringAfterLast('/')
+                        when {
+                            name.endsWith(".onnx", ignoreCase = true) && !name.endsWith(".encoder.onnx") &&
+                                !name.endsWith(".decoder.onnx") -> {
+                                tar.copyTo(modelTemp.outputStream().buffered())
+                                foundModel = true
+                            }
+                            name.endsWith(".onnx.json", ignoreCase = true) -> {
+                                tar.copyTo(configTemp.outputStream().buffered())
+                                foundConfig = true
+                            }
+                        }
+                    }
+                }
+                check(foundModel && foundConfig) { "El paquete comunitario no contiene el modelo ONNX y su JSON." }
+                check(modelTemp.length() > 20_000_000L) { "El modelo extraído está incompleto." }
+                val configJson = JSONObject(configTemp.readText())
+                check(configJson.optJSONObject("audio")?.optInt("sample_rate", 0) in 8_000..48_000) {
+                    "El modelo no contiene una configuración de audio válida."
+                }
+                if (model.exists()) model.delete()
+                if (config.exists()) config.delete()
+                check(modelTemp.renameTo(model) && configTemp.renameTo(config)) {
+                    "No se pudo instalar el paquete de voz."
+                }
+            } finally {
+                modelTemp.delete()
+                configTemp.delete()
             }
         }
 
@@ -93,24 +162,25 @@ class PiperSpeechEngine(context: Context) : SpeechEngine {
 
     override suspend fun initialize() = withContext(Dispatchers.IO) {
         if (engine != null) return@withContext
-        check(isVoiceInstalled(appContext)) { "Primero descarga la voz Piper español desde la aplicación." }
+        check(isVoiceInstalled(appContext, voiceId)) {
+            "Primero descarga la voz seleccionada desde el catálogo."
+        }
         copyAssetTreeIfNeeded("espeak-ng-data", File(appContext.filesDir, "espeak-ng-data"))
-        val model = modelFile(appContext)
-        check(sha256(model) == MODEL_SHA256) { "El modelo Piper está dañado. Vuelve a descargar la voz." }
-        engine = PiperEngine(
-            PiperCreateOptions(
-                modelPath = model.absolutePath,
-                configPath = model.absolutePath + ".json",
-                espeakDataPath = File(appContext.filesDir, "espeak-ng-data").absolutePath
-            ),
-            appFilesDir = appContext.filesDir
-        ).also { it.memoryThresholdBytes = 450L * 1024L * 1024L }
+        val model = PiperVoiceCatalog.modelFile(appContext, voiceId)
+        val options = PiperCreateOptions(
+            modelPath = model.absolutePath,
+            configPath = model.absolutePath + ".json",
+            espeakDataPath = File(appContext.filesDir, "espeak-ng-data").absolutePath
+        )
+        engine = PiperEngine(options, appFilesDir = appContext.filesDir)
+            .also { it.memoryThresholdBytes = 450L * 1024L * 1024L }
     }
 
     override suspend fun speak(text: String) = withContext(Dispatchers.IO) {
         initialize()
         val piper = engine ?: error("Piper no está inicializado")
-        val sampleRate = 22_050
+        val config = JSONObject(PiperVoiceCatalog.configFile(appContext, voiceId).readText())
+        val sampleRate = config.optJSONObject("audio")?.optInt("sample_rate", 22_050) ?: 22_050
         val minBuffer = AudioTrack.getMinBufferSize(
             sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
         ).coerceAtLeast(4096)
@@ -134,8 +204,13 @@ class PiperSpeechEngine(context: Context) : SpeechEngine {
         val totalFrames = AtomicLong(0L)
         currentTrack = track
         try {
+            track.setVolume(volume.coerceIn(0f, 1f))
             track.play()
-            piper.synthesize(text.take(500), onSamples = { samples ->
+            val defaultOptions = piper.defaultSynthesizeOptions()
+            val synthOptions = defaultOptions.copy(
+                lengthScale = (1f / speed.coerceIn(0.65f, 1.5f)).coerceIn(0.67f, 1.54f)
+            )
+            piper.synthesize(text.take(500), synthOptions = synthOptions, onSamples = { samples ->
                 if (samples.isNotEmpty()) {
                     totalFrames.addAndGet(samples.size.toLong())
                     val pcm = ShortArray(samples.size) { index ->
@@ -150,13 +225,11 @@ class PiperSpeechEngine(context: Context) : SpeechEngine {
                 }
             })
             val expectedFrames = totalFrames.get()
-            val deadline = System.currentTimeMillis() + 30_000L
+            val deadline = System.currentTimeMillis() + 45_000L
             while (track.playState == AudioTrack.PLAYSTATE_PLAYING &&
                 track.playbackHeadPosition.toLong() < expectedFrames &&
                 System.currentTimeMillis() < deadline
-            ) {
-                Thread.sleep(15)
-            }
+            ) Thread.sleep(15)
         } finally {
             runCatching { track.stop() }
             track.release()
@@ -182,7 +255,9 @@ class PiperSpeechEngine(context: Context) : SpeechEngine {
         val children = appContext.assets.list(assetPath).orEmpty()
         if (children.isEmpty()) {
             target.parentFile?.mkdirs()
-            appContext.assets.open(assetPath).use { input -> target.outputStream().use { output -> input.copyTo(output) } }
+            appContext.assets.open(assetPath).use { input ->
+                target.outputStream().use { output -> input.copyTo(output) }
+            }
         } else {
             target.mkdirs()
             children.forEach { child -> copyAssetTreeIfNeeded("$assetPath/$child", File(target, child)) }
