@@ -2,9 +2,9 @@
 
 Aplicación Android nativa (Kotlin + Jetpack Compose) para leer comentarios públicos de TikTok LIVE mediante síntesis neuronal Piper ejecutada localmente en el teléfono.
 
-> Estado del proyecto: versión de desarrollo 0.9.0. El conector usa el protocolo Webcast comunitario de TikTok; no es una API oficial y puede verse afectado por cambios o límites del servicio.
+> Estado del proyecto: versión de desarrollo 0.9.1. El conector usa el protocolo Webcast comunitario de TikTok; no es una API oficial y puede verse afectado por cambios o límites del servicio.
 
-## Funciones disponibles en 0.9.0
+## Funciones disponibles en 0.9.1
 
 ### Conexión y servicio
 - Conexión a un LIVE público por nombre de usuario.
@@ -24,9 +24,12 @@ Aplicación Android nativa (Kotlin + Jetpack Compose) para leer comentarios púb
 
 ### Voces
 - Síntesis Piper sin enviar el texto del comentario a un servicio TTS remoto.
-- Catálogo descargable de voces en español de México, España y Argentina.
+- Catálogo descargable de voces Piper en español de México, España y Argentina.
+- Nueva voz Cortana de Halo en español latino (variante pública de HirCoir; no es el checkpoint CE-Legacy exacto del enlace compartido).
+- Nueva voz Jarvis en inglés estadounidense; requiere descargar aproximadamente 114 MB y leerá los comentarios con pronunciación inglesa.
+- La selección aleatoria de voces se limita al idioma de la voz seleccionada para no alternar accidentalmente entre español e inglés.
 - Los modelos se descargan bajo demanda y se guardan en el almacenamiento privado de la app.
-- Los modelos comunitarios son experimentales; comprueba la licencia de cada modelo antes de redistribuirlo o usarlo comercialmente.
+- Los modelos comunitarios son experimentales; comprueba la licencia de cada modelo antes de redistribuirlo o usarlo comercialmente. Las fichas de las variantes Cortana pública y Jarvis no muestran una licencia de redistribución clara.
 
 ### Cola y telemetría local
 - Cola de voz acotada para comentarios.
@@ -88,11 +91,11 @@ No se solicita la contraseña de TikTok ni se almacena una cookie de sesión de 
 
 ## Hoja de ruta
 
-El desarrollo se dividirá en etapas pequeñas para proteger la conexión y el servidor local. La IP pública no se falsifica ni se rota desde Android; el cliente mantiene un User-Agent coherente y usa reintentos moderados, cookies y diagnósticos sin intentar evadir controles de TikTok:
+El modelo CE-Legacy exacto compartido para Cortana requiere aceptar acceso en Hugging Face; se ofrece una variante pública distinta del mismo creador. El modelo encontrado para Jefe Maestro pertenece a otro formato de voz/ONNX y no es compatible con el motor Piper actual, por lo que no se incorpora a este catálogo.\n\nEl desarrollo se dividirá en etapas pequeñas para proteger la conexión y el servidor local. La IP pública no se falsifica ni se rota desde Android; el cliente mantiene un User-Agent coherente y usa reintentos moderados, cookies y diagnósticos sin intentar evadir controles de TikTok:
 
 | Etapa | Objetivo |
 |---|---|
-| 0.9.x | Panel de comentarios LIVE, limpieza de nombres hablados y mayor resiliencia al obtener la cookie anónima `ttwid`. |
+| 0.9.x | Panel LIVE, limpieza de nombres, resiliencia `ttwid` y voces adicionales Cortana/Jarvis. |
 | 0.10.x | Comandos personalizados, bienvenida, alertas de regalos detalladas y metas configurables. |
 | 0.11.x | Favoritos, usuarios prioritarios, antispam ampliado y controles de moderación basados solo en metadatos disponibles. |
 | 0.12.x | Historial local ampliado, estadísticas y exportación CSV. |
