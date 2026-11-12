@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.IBinder
 import com.myclivebot.core.CommentFilter
 import com.myclivebot.core.CommentPipeline
+import com.myclivebot.core.DynamicPiperSpeechEngine
 import com.myclivebot.core.LocalBridgeServer
 import com.myclivebot.core.PiperSpeechEngine
 import com.myclivebot.core.PiperVoiceCatalog
@@ -27,6 +28,7 @@ class BotForegroundService : Service() {
         const val ACTION_START = "com.myclivebot.START"
         const val ACTION_STOP = "com.myclivebot.STOP"
         const val ACTION_TEST_VOICE = "com.myclivebot.TEST_VOICE"
+        const val ACTION_UPDATE_SETTINGS = "com.myclivebot.UPDATE_SETTINGS"
         const val ACTION_STATUS = "com.myclivebot.STATUS"
         const val EXTRA_STATUS = "reader_status"
         const val EXTRA_USERNAME = "username"
@@ -40,18 +42,24 @@ class BotForegroundService : Service() {
         const val EXTRA_VOLUME = "speech_volume"
         const val EXTRA_SPEED = "speech_speed"
         const val EXTRA_VOICE_ID = "voice_id"
+        const val EXTRA_FOLLOWER_ONLY = "follower_only_chat"
+        const val EXTRA_READ_FOLLOWS = "read_follows"
+        const val EXTRA_READ_GIFTS = "read_gifts"
+        const val EXTRA_RANDOM_VOICES = "random_voices"
         private const val CHANNEL_ID = "live_bot_status"
         private const val NOTIFICATION_ID = 4101
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var piper: PiperSpeechEngine? = null
+    private var piper: DynamicPiperSpeechEngine? = null
     private var speechQueue: SpeechQueueWorker? = null
     private var connector: TikTokLiveConnector? = null
     private var localBridge: LocalBridgeServer? = null
     private var activeVoiceId: String? = null
     private var activeVolume: Float? = null
     private var activeSpeed: Float? = null
+    private var activeSettings: ReaderSettings? = null
+    private var pipeline: CommentPipeline? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -82,6 +90,8 @@ class BotForegroundService : Service() {
             ACTION_STOP -> {
                 connector?.disconnect()
                 connector = null
+                pipeline = null
+                activeSettings = null
                 speechQueue?.close()
                 speechQueue = null
                 kotlinx.coroutines.runBlocking(Dispatchers.IO) { runCatching { piper?.stop() } }
@@ -101,18 +111,7 @@ class BotForegroundService : Service() {
                     stopSelf(startId)
                     return START_NOT_STICKY
                 }
-                val settings = ReaderSettings(
-                    readUsername = intent.getBooleanExtra(EXTRA_READ_USERNAME, true),
-                    blockedWords = intent.getStringArrayListExtra(EXTRA_BLOCKED_WORDS)?.toSet().orEmpty(),
-                    ignoredUsers = intent.getStringArrayListExtra(EXTRA_IGNORED_USERS)?.toSet().orEmpty(),
-                    maxQueueSize = intent.getIntExtra(EXTRA_MAX_QUEUE, 30).coerceIn(5, 100),
-                    ignoreEmojis = intent.getBooleanExtra(EXTRA_IGNORE_EMOJIS, true),
-                    ignoreSymbols = intent.getBooleanExtra(EXTRA_IGNORE_SYMBOLS, false),
-                    onlyUsername = intent.getBooleanExtra(EXTRA_ONLY_USERNAME, false),
-                    volume = intent.getFloatExtra(EXTRA_VOLUME, 1.0f).coerceIn(0f, 1f),
-                    speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f).coerceIn(0.65f, 1.5f),
-                    voiceId = intent.getStringExtra(EXTRA_VOICE_ID) ?: PiperVoiceCatalog.DEFAULT_VOICE_ID
-                )
+                val settings = readSettings(intent)
                 if (!PiperSpeechEngine.isVoiceInstalled(this, settings.voiceId)) {
                     updateStatus("Descarga primero la voz seleccionada")
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -120,6 +119,23 @@ class BotForegroundService : Service() {
                     return START_NOT_STICKY
                 }
                 startReader(username, settings)
+            }
+
+            ACTION_UPDATE_SETTINGS -> {
+                val previous = activeSettings
+                if (previous != null) {
+                    var next = readSettings(intent)
+                    if (!PiperSpeechEngine.isVoiceInstalled(this, next.voiceId)) {
+                        next = next.copy(voiceId = previous.voiceId)
+                    }
+                    activeSettings = next
+                    pipeline?.updateSettings(next)
+                    piper?.update(next)
+                    activeVolume = next.volume
+                    activeSpeed = next.speed
+                    activeVoiceId = next.voiceId
+                    updateStatus("Ajustes aplicados en vivo · sin reconectar")
+                }
             }
 
             ACTION_TEST_VOICE -> {
@@ -130,7 +146,8 @@ class BotForegroundService : Service() {
                 if (!PiperSpeechEngine.isVoiceInstalled(this, voiceId)) {
                     updateStatus("Descarga primero la voz seleccionada")
                 } else {
-                    ensureSpeechQueue(30, voiceId, volume, speed)
+                    val testSettings = (activeSettings ?: ReaderSettings()).copy(voiceId = voiceId, volume = volume, speed = speed, randomVoices = false)
+                    ensureSpeechQueue(30, testSettings)
                     speechQueue?.enqueue("Prueba de voz en español de México. El lector está preparado.")
                     updateStatus("Reproduciendo prueba Piper")
                 }
@@ -149,11 +166,14 @@ class BotForegroundService : Service() {
         connector = null
         speechQueue?.close()
         speechQueue = null
-        ensureSpeechQueue(settings.maxQueueSize, settings.voiceId, settings.volume, settings.speed)
-        val pipeline = CommentPipeline(CommentFilter(), speechQueue!!, settings)
+        activeSettings = settings
+        ensureSpeechQueue(settings.maxQueueSize, settings)
+        val livePipeline = CommentPipeline(CommentFilter(), speechQueue!!, settings)
+        pipeline = livePipeline
         val liveConnector = TikTokLiveConnector(
-            onComment = { comment -> pipeline.onComment(comment) },
-            onStatus = ::updateStatus
+            onComment = { comment -> livePipeline.onComment(comment) },
+            onStatus = ::updateStatus,
+            onEvent = { event -> livePipeline.onEvent(event) }
         )
         connector = liveConnector
         serviceScope.launch(Dispatchers.IO) {
@@ -162,22 +182,36 @@ class BotForegroundService : Service() {
         }
     }
 
-    private fun ensureSpeechQueue(capacity: Int, voiceId: String, volume: Float, speed: Float) {
-        val needsRebuild = piper == null || activeVoiceId != voiceId ||
-            activeVolume != volume || activeSpeed != speed
-        if (needsRebuild) {
-            speechQueue?.close()
-            speechQueue = null
-            piper?.release()
-            piper = PiperSpeechEngine(this, voiceId, volume, speed)
-            activeVoiceId = voiceId
-            activeVolume = volume
-            activeSpeed = speed
+    private fun ensureSpeechQueue(capacity: Int, settings: ReaderSettings) {
+        if (piper == null) {
+            piper = DynamicPiperSpeechEngine(this, settings)
+        } else {
+            piper?.update(settings)
         }
+        activeVoiceId = settings.voiceId
+        activeVolume = settings.volume
+        activeSpeed = settings.speed
         if (speechQueue == null) {
             speechQueue = SpeechQueueWorker(piper!!, serviceScope, capacity = capacity)
         }
     }
+
+    private fun readSettings(intent: Intent) = ReaderSettings(
+        readUsername = intent.getBooleanExtra(EXTRA_READ_USERNAME, true),
+        blockedWords = intent.getStringArrayListExtra(EXTRA_BLOCKED_WORDS)?.toSet().orEmpty(),
+        ignoredUsers = intent.getStringArrayListExtra(EXTRA_IGNORED_USERS)?.toSet().orEmpty(),
+        maxQueueSize = intent.getIntExtra(EXTRA_MAX_QUEUE, 30).coerceIn(5, 100),
+        ignoreEmojis = intent.getBooleanExtra(EXTRA_IGNORE_EMOJIS, true),
+        ignoreSymbols = intent.getBooleanExtra(EXTRA_IGNORE_SYMBOLS, false),
+        onlyUsername = intent.getBooleanExtra(EXTRA_ONLY_USERNAME, false),
+        volume = intent.getFloatExtra(EXTRA_VOLUME, 1.0f).coerceIn(0f, 1f),
+        speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f).coerceIn(0.65f, 1.5f),
+        voiceId = intent.getStringExtra(EXTRA_VOICE_ID) ?: PiperVoiceCatalog.DEFAULT_VOICE_ID,
+        followerOnlyChat = intent.getBooleanExtra(EXTRA_FOLLOWER_ONLY, false),
+        readFollows = intent.getBooleanExtra(EXTRA_READ_FOLLOWS, true),
+        readGifts = intent.getBooleanExtra(EXTRA_READ_GIFTS, true),
+        randomVoices = intent.getBooleanExtra(EXTRA_RANDOM_VOICES, false)
+    )
 
     private fun updateStatus(status: String) {
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(status))
@@ -192,6 +226,8 @@ class BotForegroundService : Service() {
         connector = null
         speechQueue?.close()
         speechQueue = null
+        pipeline = null
+        activeSettings = null
         stopLocalBridge()
         kotlinx.coroutines.runBlocking(Dispatchers.IO) {
             runCatching { piper?.stop() }
