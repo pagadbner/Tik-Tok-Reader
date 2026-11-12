@@ -8,11 +8,13 @@ data class PiperVoice(
     val official: Boolean,
     val modelUrl: String? = null,
     val configUrl: String? = null,
-    val archiveUrl: String? = null
+    val archiveUrl: String? = null,
+    val expectedSha256: String? = null,
+    val language: String = "es",
+    val testPhrase: String = "Prueba de voz en español de México. El lector está preparado.",
+    val licenseNote: String = if (official) "Modelo del catálogo Piper; consulta su MODEL_CARD."
+        else "Modelo comunitario; revisa su licencia antes de redistribuirlo o usarlo comercialmente."
 ) {
-    val licenseNote: String
-        get() = if (official) "Modelo del catálogo Piper; consulta su MODEL_CARD."
-        else "Modelo comunitario sin licencia de redistribución verificada; uso opcional bajo tu criterio."
 }
 
 object PiperVoiceCatalog {
@@ -24,6 +26,28 @@ object PiperVoiceCatalog {
             official = true,
             modelUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/claude/high/es_MX-claude-high.onnx?download=true",
             configUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/claude/high/es_MX-claude-high.onnx.json?download=true"
+        ),
+        PiperVoice(
+            id = "es_MX-cortana-19669-epoch-high",
+            name = "Cortana · Halo (México)",
+            description = "Piper ONNX · español latino · variante pública de HirCoir",
+            official = true,
+            modelUrl = "https://huggingface.co/spaces/HirCoir/Piper-TTS-Spanish/resolve/main/es_MX-cortana-19669-epoch-high.onnx",
+            configUrl = "https://huggingface.co/spaces/HirCoir/Piper-TTS-Spanish/resolve/main/es_MX-cortana-19669-epoch-high.onnx.json",
+            expectedSha256 = "f4871e05fdb55e56f85877c9c9ef1279faa879e2dfaa707e7ebcb81d2f6c2f8b",
+            licenseNote = "Modelo comunitario publicado por HirCoir; el modelo de la ficha CE-Legacy que compartiste es otra variante y requiere aceptar acceso en Hugging Face."
+        ),
+        PiperVoice(
+            id = "en_us-jarvis-ucm-high",
+            name = "Jarvis · MCU (English)",
+            description = "Piper ONNX · inglés estadounidense · descarga aproximada de 114 MB",
+            official = true,
+            modelUrl = "https://huggingface.co/spaces/HirCoir/Piper-TTS-Spanish/resolve/main/en_us-jarvis_ucm-high.onnx",
+            configUrl = "https://huggingface.co/spaces/HirCoir/Piper-TTS-Spanish/resolve/main/en_us-jarvis_ucm-high.onnx.json",
+            expectedSha256 = "cfda5b06b59bfcf25d74b1dbabbb4e14fcc6451d53fa2f4fbbefd398f787b5d8",
+            language = "en",
+            testPhrase = "Hello. I am Jarvis. The live reader is ready.",
+            licenseNote = "Modelo comunitario publicado por HirCoir; licencia de redistribución no indicada en la ficha consultada."
         ),
         PiperVoice(
             id = "es_MX-ald-medium",
