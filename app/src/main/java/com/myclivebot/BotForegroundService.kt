@@ -12,7 +12,7 @@ import com.myclivebot.core.CommentPipeline
 import com.myclivebot.core.PiperSpeechEngine
 import com.myclivebot.core.ReaderSettings
 import com.myclivebot.core.SpeechQueueWorker
-import com.myclivebot.core.TikTokLiveConnector
+import com.myclivebot.core.TikTokLiveConnector\nimport com.myclivebot.core.LocalBridgeServer\nimport org.json.JSONObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -38,11 +38,11 @@ class BotForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var piper: PiperSpeechEngine? = null
     private var speechQueue: SpeechQueueWorker? = null
-    private var connector: TikTokLiveConnector? = null
+    private var connector: TikTokLiveConnector? = null\n    private var localBridge: LocalBridgeServer? = null
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        createNotificationChannel()\n        localBridge = LocalBridgeServer { command, value ->\n            when (command) {\n                "ping" -> localBridge?.publish("pong", JSONObject().put("value", value))\n                "status" -> localBridge?.publish("status", JSONObject().put("value", "running"))\n            }\n        }.also { bridge ->\n            runCatching { bridge.start() }.onFailure { updateStatus("Servidor local: ${it.message ?: "no disponible"}") }\n        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -125,7 +125,7 @@ class BotForegroundService : Service() {
 
     private fun updateStatus(status: String) {
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(status))
-        sendBroadcast(Intent(ACTION_STATUS).setPackage(packageName).putExtra(EXTRA_STATUS, status))
+        sendBroadcast(Intent(ACTION_STATUS).setPackage(packageName).putExtra(EXTRA_STATUS, status))\n        localBridge?.publish("status", JSONObject().put("value", status))
     }
 
     override fun onDestroy() {
