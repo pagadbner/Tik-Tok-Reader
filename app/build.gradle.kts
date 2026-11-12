@@ -12,8 +12,8 @@ android {
         applicationId = "com.myclivebot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 6
+        versionName = "0.6.0"
     }
 
     buildFeatures { compose = true }
@@ -35,8 +35,13 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    // Public TikTok LIVE Webcast reader (community reverse-engineered client).
-    implementation("com.github.jwdeveloper.TikTok-Live-Java:Client:1.13.0-Release")
+
+    // Android-native HTTPS and WebSocket transport; no JVM-only TikTok client.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // WebSocket bridge hosted locally inside this APK.
+    implementation("org.java-websocket:Java-WebSocket:1.5.5")
+
     // Offline neural Piper engine; native dependencies are prepared by CI.
     implementation("dev.ihorshevchuk.piper:piper-engine")
     testImplementation("junit:junit:4.13.2")
