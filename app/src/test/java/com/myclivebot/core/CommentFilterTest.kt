@@ -1,5 +1,6 @@
 package com.myclivebot.core
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -23,5 +24,32 @@ class CommentFilterTest {
         assertTrue(filter.shouldRead(LiveComment("1", "Ana", "hola", receivedAt = 10_000), settings))
         assertFalse(filter.shouldRead(LiveComment("1", "Ana", "hola", receivedAt = 12_000), settings))
         assertTrue(filter.shouldRead(LiveComment("1", "Ana", "hola", receivedAt = 16_000), settings))
+    }
+
+    @Test fun removesEmojiFromSpeechText() {
+        val filter = CommentFilter()
+        val result = filter.toSpeech(
+            LiveComment("1", "Ana", "Hola 😍🔥 qué tal 👋"),
+            ReaderSettings(readUsername = false, ignoreEmojis = true)
+        )
+        assertEquals("Hola qué tal", result)
+    }
+
+    @Test fun removesSymbolsAndPunctuationWhenEnabled() {
+        val filter = CommentFilter()
+        val result = filter.toSpeech(
+            LiveComment("1", "Ana", "¡Hola!!! @todos #live 123"),
+            ReaderSettings(readUsername = false, ignoreSymbols = true)
+        )
+        assertEquals("Hola todos live 123", result)
+    }
+
+    @Test fun canReadOnlyTheUsername() {
+        val filter = CommentFilter()
+        val result = filter.toSpeech(
+            LiveComment("1", "Ana_01", "Este comentario no debe leerse 😍"),
+            ReaderSettings(onlyUsername = true, ignoreEmojis = true)
+        )
+        assertEquals("Ana01", result)
     }
 }
