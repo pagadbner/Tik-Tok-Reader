@@ -138,7 +138,7 @@ private fun BotApp(
 
     var username by remember { mutableStateOf(prefs.getString("last_username", "").orEmpty()) }
     var recentUsernames by remember {
-        mutableStateOf(prefs.getStringSet("recent_usernames", emptySet()).orEmpty().toList().take(8))
+        mutableStateOf(prefs.getStringSet("recent_usernames", mutableSetOf<String>()).orEmpty().toList().take(8))
     }
     var readUsername by remember { mutableStateOf(prefs.getBoolean("read_username", true)) }
     var onlyUsername by remember { mutableStateOf(prefs.getBoolean("only_username", false)) }
