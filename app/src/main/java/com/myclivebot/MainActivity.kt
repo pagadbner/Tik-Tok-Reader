@@ -46,12 +46,32 @@ private val Violet = Color(0xFF9B86FF)
 private val Cyan = Color(0xFF69DED2)
 private val Muted = Color(0xFFB8BBD0)
 
+private data class LiveCommentUi(val username: String, val message: String, val receivedAt: Long)
+
 class MainActivity : ComponentActivity() {
     private val readerStatus = mutableStateOf("Detenido")
+    private val liveComments = mutableStateListOf<LiveCommentUi>()
     private var statusReceiverRegistered = false
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            readerStatus.value = intent?.getStringExtra(BotForegroundService.EXTRA_STATUS) ?: return
+            when (intent?.action) {
+                BotForegroundService.ACTION_STATUS -> {
+                    readerStatus.value = intent.getStringExtra(BotForegroundService.EXTRA_STATUS) ?: return
+                }
+                BotForegroundService.ACTION_COMMENT -> {
+                    val message = intent.getStringExtra(BotForegroundService.EXTRA_COMMENT_TEXT).orEmpty()
+                    if (message.isNotBlank()) {
+                        liveComments.add(
+                            LiveCommentUi(
+                                username = intent.getStringExtra(BotForegroundService.EXTRA_COMMENT_USERNAME).orEmpty(),
+                                message = message,
+                                receivedAt = intent.getLongExtra(BotForegroundService.EXTRA_COMMENT_TIME, System.currentTimeMillis())
+                            )
+                        )
+                        while (liveComments.size > 60) liveComments.removeAt(0)
+                    }
+                }
+            }
         }
     }
     private val notificationPermission =
@@ -63,6 +83,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             BotApp(
                 externalStatus = readerStatus.value,
+                liveComments = liveComments,
                 onStart = { username, settings ->
                     val intent = Intent(this, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_START)
@@ -129,7 +150,10 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         if (!statusReceiverRegistered) {
-            val filter = IntentFilter(BotForegroundService.ACTION_STATUS)
+            val filter = IntentFilter().apply {
+                addAction(BotForegroundService.ACTION_STATUS)
+                addAction(BotForegroundService.ACTION_COMMENT)
+            }
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
             else {
                 @Suppress("DEPRECATION")
@@ -152,6 +176,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun BotApp(
     externalStatus: String,
+    liveComments: List<LiveCommentUi>,
     onStart: (String, ReaderSettings) -> Unit,
     onStop: () -> Unit,
     onUpdateSettings: (ReaderSettings) -> Unit,
@@ -319,6 +344,42 @@ private fun BotApp(
                                 ) { Icon(Icons.Default.PlayArrow, null); Text(" INICIAR", fontWeight = FontWeight.Bold) }
                                 OutlinedButton(onClick = { onStop(); status = "Detenido" }, modifier = Modifier.weight(1f).height(54.dp), shape = RoundedCornerShape(17.dp)) {
                                     Icon(Icons.Default.Stop, null); Text(" DETENER", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    SectionHeader("LIVE", "Comentarios del directo", "Mensajes recibidos en tiempo real")
+                    GlassCard {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("CHAT EN VIVO", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                                Spacer(Modifier.weight(1f))
+                                Text("${liveComments.size} / 60", color = Muted, style = MaterialTheme.typography.labelSmall)
+                            }
+                            if (liveComments.isEmpty()) {
+                                Text(
+                                    "Los comentarios aparecerán aquí cuando el lector se conecte y reciba mensajes.",
+                                    color = Muted,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            } else {
+                                Column(
+                                    Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+                                    verticalArrangement = Arrangement.spacedBy(9.dp)
+                                ) {
+                                    liveComments.asReversed().forEach { comment ->
+                                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Text(
+                                                comment.username.ifBlank { "Usuario" },
+                                                color = Cyan,
+                                                fontWeight = FontWeight.Bold,
+                                                style = MaterialTheme.typography.labelMedium
+                                            )
+                                            Text(comment.message, color = Color(0xFFF4F1FF), style = MaterialTheme.typography.bodyMedium)
+                                        }
+                                        HorizontalDivider(color = Color.White.copy(alpha = .08f))
+                                    }
                                 }
                             }
                         }

@@ -2,19 +2,20 @@
 
 Aplicación Android nativa (Kotlin + Jetpack Compose) para leer comentarios públicos de TikTok LIVE mediante síntesis neuronal Piper ejecutada localmente en el teléfono.
 
-> Estado del proyecto: versión de desarrollo 0.8.0. El conector usa el protocolo Webcast comunitario de TikTok; no es una API oficial y puede verse afectado por cambios o límites del servicio.
+> Estado del proyecto: versión de desarrollo 0.9.0. El conector usa el protocolo Webcast comunitario de TikTok; no es una API oficial y puede verse afectado por cambios o límites del servicio.
 
-## Funciones disponibles en 0.8.0
+## Funciones disponibles en 0.9.0
 
 ### Conexión y servicio
 - Conexión a un LIVE público por nombre de usuario.
 - Servicio Android en primer plano con notificación persistente.
 - Servidor WebSocket integrado en el proceso de la app, disponible únicamente en `127.0.0.1:8765`.
-- Reintentos para obtener la cookie anónima `ttwid` y reutilización en reconexiones.
+- Captura de `ttwid` tanto en la respuesta final como en las redirecciones HTTP; caché temporal y diagnóstico de respuestas sin cookie.
 - El puente local no se expone a la red Wi-Fi ni a Internet.
 
 ### Lectura, moderación y eventos
 - Lectura de comentarios en español con filtros de palabras y usuarios ignorados.
+- Limpieza del nombre hablado: conserva solo letras Unicode y espacios; elimina emojis, números y símbolos. Si no queda ninguna letra, lee solo el comentario.
 - Lectura opcional del nombre, emojis y símbolos.
 - Filtro local para leer solo comentarios cuyo estado de seguidor venga confirmado por TikTok.
 - Avisos de nuevos seguidores y regalos, si el evento llega desde Webcast.
@@ -30,7 +31,8 @@ Aplicación Android nativa (Kotlin + Jetpack Compose) para leer comentarios púb
 ### Cola y telemetría local
 - Cola de voz acotada para comentarios.
 - Carril prioritario separado para anuncios de seguidores y regalos: se reproducen antes de los comentarios pendientes, sin interrumpir la frase que ya está sonando.
-- Contadores de comentarios recibidos, filtrados y encolados, eventos recibidos y tamaño de cola.
+- Panel de comentarios LIVE dentro de la aplicación, actualizado en tiempo real y limitado a los 60 mensajes más recientes.
+- El puente local emite cada comentario como `live_comment`, además de las estadísticas.
 - El puente local emite un mensaje WebSocket `live_stats` al recibir comentarios o eventos. Ejemplo:
 
 ```json
@@ -86,14 +88,14 @@ No se solicita la contraseña de TikTok ni se almacena una cookie de sesión de 
 
 ## Hoja de ruta
 
-El desarrollo se dividirá en etapas pequeñas para proteger la conexión y el servidor local:
+El desarrollo se dividirá en etapas pequeñas para proteger la conexión y el servidor local. La IP pública no se falsifica ni se rota desde Android; el cliente mantiene un User-Agent coherente y usa reintentos moderados, cookies y diagnósticos sin intentar evadir controles de TikTok:
 
 | Etapa | Objetivo |
 |---|---|
-| 0.9.x | Perfiles de voz Jarvis/Cortana inspirados (sin clonar voces protegidas), voces de memes, efectos DSP y escenas LIVE. |
+| 0.9.x | Panel de comentarios LIVE, limpieza de nombres hablados y mayor resiliencia al obtener la cookie anónima `ttwid`. |
 | 0.10.x | Comandos personalizados, bienvenida, alertas de regalos detalladas y metas configurables. |
 | 0.11.x | Favoritos, usuarios prioritarios, antispam ampliado y controles de moderación basados solo en metadatos disponibles. |
-| 0.12.x | Panel de sesión, estadísticas, historial local y exportación CSV. |
+| 0.12.x | Historial local ampliado, estadísticas y exportación CSV. |
 | 0.13.x | API local documentada e integración con OBS; panel remoto solo tras añadir autenticación y protección de red. |
 | 1.0.0 | Rediseño del centro de control, perfiles/escenas, copia de seguridad y arquitectura de extensiones segura. |
 

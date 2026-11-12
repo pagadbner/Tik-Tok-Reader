@@ -63,16 +63,33 @@ class CommentFilter {
     }
 
     fun toSpeech(comment: LiveComment, settings: ReaderSettings): String {
-        val safeName = sanitize(comment.displayName.ifBlank { "Usuario" }.take(40), settings)
-            .ifBlank { "Usuario" }
+        val safeName = sanitizeUsername(comment.displayName.take(80))
         if (settings.onlyUsername) return safeName
 
         var safeText = comment.text.trim()
             .replace(Regex("\\s+"), " ")
             .replace(Regex("https?://\\S+", RegexOption.IGNORE_CASE), " enlace ")
         safeText = sanitize(safeText, settings)
-        if (safeText.isBlank()) return if (settings.readUsername) safeName else ""
-        return (if (settings.readUsername) "$safeName dice: " else "") + safeText
+        if (safeText.isBlank()) return if (settings.readUsername && safeName.isNotBlank()) "$safeName dice" else ""
+        val spokenName = if (settings.readUsername && safeName.isNotBlank()) "$safeName dice: " else ""
+        return spokenName + safeText
+    }
+
+    /** Keeps letters and meaningful spaces only; digits, emoji and decorative symbols are never spoken. */
+    private fun sanitizeUsername(input: String): String {
+        val output = StringBuilder(input.length)
+        var pendingSpace = false
+        input.codePoints().forEach { codePoint ->
+            when {
+                Character.isLetter(codePoint) -> {
+                    if (pendingSpace && output.isNotEmpty()) output.append(' ')
+                    output.appendCodePoint(codePoint)
+                    pendingSpace = false
+                }
+                Character.isWhitespace(codePoint) -> pendingSpace = output.isNotEmpty()
+            }
+        }
+        return output.toString().trim()
     }
 
     private fun sanitize(input: String, settings: ReaderSettings): String {
