@@ -41,7 +41,9 @@ class DynamicPiperSpeechEngine(
         lock.withLock {
             val current = config.get()
             val voiceId = if (current.randomVoices) {
+                val selectedLanguage = PiperVoiceCatalog.find(current.voiceId).language
                 val installed = PiperVoiceCatalog.voices.asSequence()
+                    .filter { it.language == selectedLanguage }
                     .map { it.id }
                     .filter { PiperSpeechEngine.isVoiceInstalled(appContext, it) }
                     .toList()
