@@ -12,8 +12,8 @@ android {
         applicationId = "com.myclivebot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.6.0"
+        versionCode = 7
+        versionName = "0.7.0"
     }
 
     buildFeatures { compose = true }
@@ -38,6 +38,7 @@ dependencies {
 
     // Android-native HTTPS and WebSocket transport; no JVM-only TikTok client.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.apache.commons:commons-compress:1.27.1")
 
     // WebSocket bridge hosted locally inside this APK.
     implementation("org.java-websocket:Java-WebSocket:1.5.5")
