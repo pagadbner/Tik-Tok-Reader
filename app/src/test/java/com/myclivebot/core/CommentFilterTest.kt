@@ -52,4 +52,12 @@ class CommentFilterTest {
         )
         assertEquals("Ana_01", result)
     }
+    @Test fun usernameOnlyModeDoesNotFilterByCommentBody() {
+        val filter = CommentFilter()
+        val settings = ReaderSettings(onlyUsername = true, blockedWords = setOf("spoiler"))
+        val comment = LiveComment("1", "Ana", "esto contiene spoiler")
+        assertTrue(filter.shouldRead(comment, settings))
+        assertEquals("Ana", filter.toSpeech(comment, settings))
+    }
+
 }
