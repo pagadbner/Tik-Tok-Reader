@@ -2,7 +2,7 @@ package com.myclivebot.core
 
 import java.util.concurrent.ConcurrentHashMap
 
-/** User-configurable moderation plus a small anti-spam memory. */
+/** User-configurable reading, moderation and speech settings. */
 data class ReaderSettings(
     val readUsername: Boolean = true,
     val ignoreModerators: Boolean = false,
@@ -10,7 +10,13 @@ data class ReaderSettings(
     val ignoredUsers: Set<String> = emptySet(),
     val maxQueueSize: Int = 30,
     val suppressDuplicatesSeconds: Long = 5,
-    val maxCommentLength: Int = 300
+    val maxCommentLength: Int = 300,
+    val ignoreEmojis: Boolean = true,
+    val ignoreSymbols: Boolean = false,
+    val onlyUsername: Boolean = false,
+    val volume: Float = 1.0f,
+    val speed: Float = 1.0f,
+    val voiceId: String = PiperVoiceCatalog.DEFAULT_VOICE_ID
 )
 
 class CommentFilter {
@@ -18,8 +24,9 @@ class CommentFilter {
 
     fun shouldRead(comment: LiveComment, settings: ReaderSettings): Boolean {
         val userKey = comment.userId.ifBlank { comment.displayName }.trim().lowercase()
-        val ignored = settings.ignoredUsers.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet()
-        if (userKey in ignored || comment.displayName.trim().lowercase() in ignored) return false
+        val ignored = settings.ignoredUsers.map { it.trim().removePrefix("@").lowercase() }
+            .filter { it.isNotEmpty() }.toSet()
+        if (userKey in ignored || comment.displayName.trim().removePrefix("@").lowercase() in ignored) return false
         if (settings.ignoreModerators && comment.isModerator) return false
 
         val cleanText = comment.text.trim().replace(Regex("\\s+"), " ")
@@ -34,22 +41,14 @@ class CommentFilter {
         val duplicateWindow = settings.suppressDuplicatesSeconds.coerceAtLeast(0) * 1_000
         var isDuplicate = false
         lastByUser.compute(userKey) { _, previous ->
-            if (
-                previous != null &&
-                previous.first == normalized &&
-                now >= previous.second &&
-                now - previous.second <= duplicateWindow
+            if (previous != null && previous.first == normalized &&
+                now >= previous.second && now - previous.second <= duplicateWindow
             ) {
-                // Keep the timestamp of the last accepted message. Rejected duplicates
-                // must not extend the suppression window indefinitely.
                 isDuplicate = true
                 previous
-            } else {
-                normalized to now
-            }
+            } else normalized to now
         }
         if (isDuplicate) return false
-        // Keep the anti-spam cache bounded for long-running LIVE sessions.
         if (lastByUser.size > 2_000) {
             val cutoff = now - 60_000
             lastByUser.entries.removeIf { it.value.second < cutoff }
@@ -58,9 +57,38 @@ class CommentFilter {
     }
 
     fun toSpeech(comment: LiveComment, settings: ReaderSettings): String {
-        val safeName = comment.displayName.ifBlank { "Usuario" }.take(40)
-        val safeText = comment.text.trim().replace(Regex("\\s+"), " ")
+        val safeName = sanitize(comment.displayName.ifBlank { "Usuario" }.take(40), settings)
+            .ifBlank { "Usuario" }
+        if (settings.onlyUsername) return safeName
+
+        var safeText = comment.text.trim()
+            .replace(Regex("\\s+"), " ")
             .replace(Regex("https?://\\S+", RegexOption.IGNORE_CASE), " enlace ")
+        safeText = sanitize(safeText, settings)
+        if (safeText.isBlank()) return if (settings.readUsername) safeName else ""
         return (if (settings.readUsername) "$safeName dice: " else "") + safeText
+    }
+
+    private fun sanitize(input: String, settings: ReaderSettings): String {
+        val output = StringBuilder(input.length)
+        input.codePoints().forEach { codePoint ->
+            if (settings.ignoreEmojis && isEmoji(codePoint)) return@forEach
+            if (settings.ignoreSymbols && !Character.isLetterOrDigit(codePoint) && !Character.isWhitespace(codePoint)) {
+                return@forEach
+            }
+            output.appendCodePoint(codePoint)
+        }
+        return output.toString().replace(Regex("\\s+"), " ").trim()
+    }
+
+    private fun isEmoji(codePoint: Int): Boolean {
+        return codePoint in 0x1F000..0x1FAFF ||
+            codePoint in 0x2600..0x27BF ||
+            codePoint in 0x2300..0x23FF ||
+            codePoint in 0xFE00..0xFE0F ||
+            codePoint in 0x1F1E6..0x1F1FF ||
+            codePoint in 0x1F3FB..0x1F3FF ||
+            codePoint == 0x200D ||
+            codePoint == 0x20E3
     }
 }
