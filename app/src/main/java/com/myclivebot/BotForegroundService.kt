@@ -69,7 +69,7 @@ class BotForegroundService : Service() {
         }
         localBridge = bridge
         runCatching { bridge.start() }
-            .onFailure { updateStatus("Servidor local: \${it.message ?: "no disponible"}") }
+            .onFailure { updateStatus("Servidor local: ${it.message ?: "no disponible"}") }
     }
 
     private fun stopLocalBridge() {
@@ -158,7 +158,7 @@ class BotForegroundService : Service() {
         connector = liveConnector
         serviceScope.launch(Dispatchers.IO) {
             runCatching { liveConnector.connect(username) }
-                .onFailure { updateStatus("No se pudo conectar: \${it.message ?: "error desconocido"}") }
+                .onFailure { updateStatus("No se pudo conectar: ${it.message ?: "error desconocido"}") }
         }
     }
 
