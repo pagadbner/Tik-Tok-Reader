@@ -41,8 +41,40 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK, NDK and CMake
+      # sdkmanager is interactive when one or more Android SDK licenses
+      # have not yet been accepted on the runner. Feed affirmative answers
+      # before installing any SDK/NDK/CMake packages.
+      - name: Accept Android SDK licenses
+        shell: bash
         run: |
+          set -euo pipefail
+          sdkmanager --licenses <<'LICENSES'
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          y
+          LICENSES
+
+      - name: Install Android SDK, NDK and CMake
+        shell: bash
+        run: |
+          set -euo pipefail
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-35" \
@@ -55,15 +87,33 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
+      - name: Verify build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          java -version
+          gradle --version
+          sdkmanager --list_installed
+          test -d "$ANDROID_HOME/ndk/27.0.12077973"
+          test -d "$ANDROID_HOME/cmake/3.22.1"
+
       - name: Prepare Piper native dependencies and Spanish runtime assets
-        run: ./scripts/prepare-piper-assets.sh
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/prepare-piper-assets.sh
+          ./scripts/prepare-piper-assets.sh
 
       - name: Run unit tests and build APK
-        run: gradle testDebugUnitTest assembleDebug --no-daemon --stacktrace
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle testDebugUnitTest assembleDebug --no-daemon --stacktrace
 
       - name: Verify APK and show size
         shell: bash
         run: |
+          set -euo pipefail
           APK="app/build/outputs/apk/debug/app-debug.apk"
           test -s "$APK"
           echo "APK=$APK"
