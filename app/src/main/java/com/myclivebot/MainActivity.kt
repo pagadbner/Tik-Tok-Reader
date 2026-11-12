@@ -305,7 +305,7 @@ private fun BotApp(
                             Box {
                                 OutlinedButton(onClick = { voiceMenuExpanded = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(15.dp)) {
                                     Icon(Icons.Default.RecordVoiceOver, null, tint = Violet)
-                                    Text("  \${selectedVoice.name}", modifier = Modifier.weight(1f))
+                                    Text("  ${selectedVoice.name}", modifier = Modifier.weight(1f))
                                     Icon(Icons.Default.ExpandMore, null)
                                 }
                                 DropdownMenu(expanded = voiceMenuExpanded, onDismissRequest = { voiceMenuExpanded = false }) {
@@ -370,7 +370,7 @@ private fun BotApp(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("Volumen", fontWeight = FontWeight.SemiBold)
                                     Spacer(Modifier.weight(1f))
-                                    Text("\${(volume * 100).toInt()}%", color = Cyan, fontWeight = FontWeight.Bold)
+                                    Text("${(volume * 100).toInt()}%", color = Cyan, fontWeight = FontWeight.Bold)
                                 }
                                 Slider(value = volume, onValueChange = { volume = it }, valueRange = 0f..1f)
                             }
