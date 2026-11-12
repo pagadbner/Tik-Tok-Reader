@@ -39,13 +39,18 @@ class PiperSpeechEngine(
         fun modelFile(context: Context) = PiperVoiceCatalog.modelFile(context, VOICE_ID)
         fun isVoiceInstalled(context: Context): Boolean = isVoiceInstalled(context, VOICE_ID)
 
+        private fun isSpanishLocale(code: String?): Boolean {
+            val normalized = code?.trim()?.replace('-', '_')?.lowercase() ?: return false
+            return normalized == "es" || normalized.startsWith("es_")
+        }
+
         fun isVoiceInstalled(context: Context, id: String): Boolean {
             val model = PiperVoiceCatalog.modelFile(context, id)
             val config = PiperVoiceCatalog.configFile(context, id)
             if (!model.isFile || model.length() < 20_000_000L || !config.isFile || config.length() < 100L) return false
             return runCatching {
                 val json = JSONObject(config.readText())
-                json.optJSONObject("language")?.optString("code") == "es_MX" &&
+                isSpanishLocale(json.optJSONObject("language")?.optString("code")) &&
                     json.optJSONObject("audio")?.optInt("sample_rate", 0)?.let { it in 8_000..48_000 } == true &&
                     json.optJSONObject("phoneme_id_map") != null
             }.getOrDefault(false)
@@ -151,8 +156,9 @@ class PiperSpeechEngine(
                 check(foundModel && foundConfig) { "El paquete comunitario no contiene el modelo ONNX y su JSON." }
                 check(modelTemp.length() > 20_000_000L) { "El modelo extraído está incompleto." }
                 val configJson = JSONObject(configTemp.readText())
-                check(configJson.optJSONObject("language")?.optString("code") == "es_MX") {
-                    "El paquete no corresponde a una voz es-MX."
+                val localeCode = configJson.optJSONObject("language")?.optString("code")
+                check(isSpanishLocale(localeCode)) {
+                    "El paquete no corresponde a una voz en español (es, es-ES o es-MX)."
                 }
                 val sampleRate = configJson.optJSONObject("audio")?.optInt("sample_rate", 0) ?: 0
                 check(sampleRate in 8_000..48_000) {
