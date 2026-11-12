@@ -52,6 +52,14 @@ class CommentFilterTest {
         )
         assertEquals("Ana_01", result)
     }
+    @Test fun followerOnlyModeRejectsUnknownAndNonFollowers() {
+        val filter = CommentFilter()
+        val settings = ReaderSettings(followerOnlyChat = true)
+        assertFalse(filter.shouldRead(LiveComment("1", "Ana", "hola", isFollower = null), settings))
+        assertFalse(filter.shouldRead(LiveComment("2", "Luis", "hola", isFollower = false), settings))
+        assertTrue(filter.shouldRead(LiveComment("3", "Mia", "hola", isFollower = true), settings))
+    }
+
     @Test fun usernameOnlyModeDoesNotFilterByCommentBody() {
         val filter = CommentFilter()
         val settings = ReaderSettings(onlyUsername = true, blockedWords = setOf("spoiler"))
