@@ -2,7 +2,7 @@
 
 Aplicación Android nativa (Kotlin + Jetpack Compose) para leer comentarios públicos de TikTok LIVE mediante síntesis neuronal Piper ejecutada localmente en el teléfono.
 
-> Estado del proyecto: versión de desarrollo 0.8.0. El conector usa el protocolo Webcast comunitario de TikTok; no es una API oficial y puede verse afectado por cambios o límites del servicio.
+> Estado del proyecto: versión 0.9.0 en desarrollo. El conector usa el protocolo Webcast comunitario de TikTok; no es una API oficial y puede verse afectado por cambios o límites del servicio.
 
 ## Funciones disponibles en 0.8.0
 
