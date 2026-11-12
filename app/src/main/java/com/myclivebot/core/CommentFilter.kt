@@ -29,7 +29,8 @@ class CommentFilter {
         if (userKey in ignored || comment.displayName.trim().removePrefix("@").lowercase() in ignored) return false
         if (settings.ignoreModerators && comment.isModerator) return false
 
-        val cleanText = comment.text.trim().replace(Regex("\\s+"), " ")
+        val sourceToFilter = if (settings.onlyUsername) comment.displayName else comment.text
+        val cleanText = sourceToFilter.trim().replace(Regex("\\s+"), " ")
         if (cleanText.isBlank() || cleanText.length > settings.maxCommentLength.coerceAtLeast(1)) return false
         val normalized = cleanText.lowercase()
         if (settings.blockedWords.any { word ->
