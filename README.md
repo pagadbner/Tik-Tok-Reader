@@ -84,7 +84,7 @@ No se solicita la contraseña de TikTok ni se almacena una cookie de sesión de 
 - El servidor WebSocket está limitado a loopback. No debe exponerse a la LAN sin autenticación, control de acceso y una revisión de seguridad.
 - No se ha validado el comportamiento en todos los modelos de Android ni en una transmisión real después de cada cambio; las pruebas de CI no sustituyen las pruebas en dispositivo.
 
-## Hoja de ruta
+## Perfiles de voz y escenas (0.9.0 en desarrollo)\n\n- Perfiles DSP locales Natural, Jarvis, Cortana, Meme y DJ sobre el PCM generado por Piper. Son efectos de audio inspirados; no son clones de voces protegidas.\n- Efectos aplicados después de la síntesis, sin enviar audio ni texto a servicios remotos.\n- Escenas rápidas Gaming, Charlando, Música y Memes que aplican perfiles y preferencias de lectura.\n- Selección del perfil y prueba de voz desde la app; los cambios de perfil se envían al servicio activo sin reconectar el LIVE.\n- Pruebas unitarias para salida PCM acotada y fallback de perfiles desconocidos.\n\n## Hoja de ruta
 
 El desarrollo se dividirá en etapas pequeñas para proteger la conexión y el servidor local:
 
