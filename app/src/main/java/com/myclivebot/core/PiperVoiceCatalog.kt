@@ -36,42 +36,42 @@ object PiperVoiceCatalog {
         PiperVoice(
             id = "es_MX-alan-medium",
             name = "Alan · Comunidad",
-            description = "Voz mexicana comunitaria · experimental",
+            description = "Voz comunitaria en español · experimental (MX/ES)",
             official = false,
             archiveUrl = "https://huggingface.co/AIHeaven/piper_unofficial_voices/resolve/main/es/es_MX-alan-medium.tar.gz?download=true"
         ),
         PiperVoice(
             id = "es_MX-alicia-medium",
             name = "Alicia · Comunidad",
-            description = "Voz mexicana comunitaria · experimental",
+            description = "Voz comunitaria en español · experimental (MX/ES)",
             official = false,
             archiveUrl = "https://huggingface.co/AIHeaven/piper_unofficial_voices/resolve/main/es/es_MX-alicia-medium.tar.gz?download=true"
         ),
         PiperVoice(
             id = "es_MX-carla-medium",
             name = "Carla · Comunidad",
-            description = "Voz mexicana comunitaria · experimental",
+            description = "Voz comunitaria en español · experimental (MX/ES)",
             official = false,
             archiveUrl = "https://huggingface.co/AIHeaven/piper_unofficial_voices/resolve/main/es/es_MX-carla-medium.tar.gz?download=true"
         ),
         PiperVoice(
             id = "es_MX-gabriela-medium",
             name = "Gabriela · Comunidad",
-            description = "Voz mexicana comunitaria · experimental",
+            description = "Voz comunitaria en español · experimental (MX/ES)",
             official = false,
             archiveUrl = "https://huggingface.co/AIHeaven/piper_unofficial_voices/resolve/main/es/es_MX-gabriela-medium.tar.gz?download=true"
         ),
         PiperVoice(
             id = "es_MX-mario-medium",
             name = "Mario · Comunidad",
-            description = "Voz mexicana comunitaria · experimental",
+            description = "Voz comunitaria en español · experimental (MX/ES)",
             official = false,
             archiveUrl = "https://huggingface.co/AIHeaven/piper_unofficial_voices/resolve/main/es/es_MX-mario-medium.tar.gz?download=true"
         ),
         PiperVoice(
             id = "es_MX-mireya-medium",
             name = "Mireya · Comunidad",
-            description = "Voz mexicana comunitaria · experimental",
+            description = "Voz comunitaria en español · experimental (MX/ES)",
             official = false,
             archiveUrl = "https://huggingface.co/AIHeaven/piper_unofficial_voices/resolve/main/es/es_MX-mireya-medium.tar.gz?download=true"
         )
