@@ -64,7 +64,7 @@ class PiperSpeechEngine(
             val config = PiperVoiceCatalog.configFile(context, voice.id)
             model.parentFile?.mkdirs()
             if (!isVoiceInstalled(context, voice.id)) {
-                if (voice.official) {
+                if (voice.directDownload) {
                     downloadFile(
                         voice.modelUrl ?: error("Falta URL del modelo"),
                         model,
