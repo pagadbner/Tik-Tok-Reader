@@ -52,6 +52,8 @@ class CommentFilterTest {
         assertEquals("en", jarvis.language)
         assertTrue(cortana.expectedSha256?.isNotBlank() == true)
         assertTrue(jarvis.expectedSha256?.isNotBlank() == true)
+        assertTrue(cortana.directDownload)
+        assertTrue(jarvis.directDownload)
         assertTrue(jarvis.testPhrase.startsWith("Hello"))
     }
 
