@@ -176,9 +176,15 @@ class BotForegroundService : Service() {
         val livePipeline = CommentPipeline(CommentFilter(), speechQueue!!, settings)
         pipeline = livePipeline
         val liveConnector = TikTokLiveConnector(
-            onComment = { comment -> livePipeline.onComment(comment) },
+            onComment = { comment ->
+                livePipeline.onComment(comment)
+                publishLiveStats()
+            },
             onStatus = ::updateStatus,
-            onEvent = { event -> livePipeline.onEvent(event) }
+            onEvent = { event ->
+                livePipeline.onEvent(event)
+                publishLiveStats()
+            }
         )
         connector = liveConnector
         serviceScope.launch(Dispatchers.IO) {
@@ -217,6 +223,20 @@ class BotForegroundService : Service() {
         readGifts = intent.getBooleanExtra(EXTRA_READ_GIFTS, true),
         randomVoices = intent.getBooleanExtra(EXTRA_RANDOM_VOICES, false)
     )
+
+    private fun publishLiveStats() {
+        val stats = pipeline?.stats() ?: return
+        localBridge?.publish(
+            "live_stats",
+            JSONObject()
+                .put("comments_received", stats.commentsReceived)
+                .put("comments_filtered", stats.commentsFiltered)
+                .put("comments_queued", stats.commentsQueued)
+                .put("events_received", stats.eventsReceived)
+                .put("events_queued", stats.eventsQueued)
+                .put("speech_queue_size", stats.speechQueueSize)
+        )
+    }
 
     private fun updateStatus(status: String) {
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(status))
