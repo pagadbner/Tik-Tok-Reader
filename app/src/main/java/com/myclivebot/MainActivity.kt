@@ -14,6 +14,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,11 +29,14 @@ import androidx.compose.ui.draw.*
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.myclivebot.core.PiperSpeechEngine
+import com.myclivebot.core.PiperVoiceCatalog
+import com.myclivebot.core.ReaderSettings
 import kotlinx.coroutines.launch
 
 private val Night = Color(0xFF090B18)
@@ -49,7 +53,8 @@ class MainActivity : ComponentActivity() {
             readerStatus.value = intent?.getStringExtra(BotForegroundService.EXTRA_STATUS) ?: return
         }
     }
-    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,27 +62,40 @@ class MainActivity : ComponentActivity() {
         setContent {
             BotApp(
                 externalStatus = readerStatus.value,
-                voiceInitiallyInstalled = PiperSpeechEngine.isVoiceInstalled(this),
-                onStart = { username, readName, blocked, ignored, maxQueue ->
+                onStart = { username, settings ->
                     val intent = Intent(this, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_START)
                         .putExtra(BotForegroundService.EXTRA_USERNAME, username)
-                        .putExtra(BotForegroundService.EXTRA_READ_USERNAME, readName)
-                        .putStringArrayListExtra(BotForegroundService.EXTRA_BLOCKED_WORDS, ArrayList(blocked))
-                        .putStringArrayListExtra(BotForegroundService.EXTRA_IGNORED_USERS, ArrayList(ignored))
-                        .putExtra(BotForegroundService.EXTRA_MAX_QUEUE, maxQueue)
+                        .putExtra(BotForegroundService.EXTRA_READ_USERNAME, settings.readUsername)
+                        .putStringArrayListExtra(BotForegroundService.EXTRA_BLOCKED_WORDS, ArrayList(settings.blockedWords))
+                        .putStringArrayListExtra(BotForegroundService.EXTRA_IGNORED_USERS, ArrayList(settings.ignoredUsers))
+                        .putExtra(BotForegroundService.EXTRA_MAX_QUEUE, settings.maxQueueSize)
+                        .putExtra(BotForegroundService.EXTRA_IGNORE_EMOJIS, settings.ignoreEmojis)
+                        .putExtra(BotForegroundService.EXTRA_IGNORE_SYMBOLS, settings.ignoreSymbols)
+                        .putExtra(BotForegroundService.EXTRA_ONLY_USERNAME, settings.onlyUsername)
+                        .putExtra(BotForegroundService.EXTRA_VOLUME, settings.volume)
+                        .putExtra(BotForegroundService.EXTRA_SPEED, settings.speed)
+                        .putExtra(BotForegroundService.EXTRA_VOICE_ID, settings.voiceId)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
                 },
-                onStop = { startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_STOP)) },
-                onTestVoice = {
-                    val intent = Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_TEST_VOICE)
+                onStop = {
+                    startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_STOP))
+                },
+                onTestVoice = { voiceId, volume, speed ->
+                    val intent = Intent(this, BotForegroundService::class.java)
+                        .setAction(BotForegroundService.ACTION_TEST_VOICE)
+                        .putExtra(BotForegroundService.EXTRA_VOICE_ID, voiceId)
+                        .putExtra(BotForegroundService.EXTRA_VOLUME, volume)
+                        .putExtra(BotForegroundService.EXTRA_SPEED, speed)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
                 },
-                onDownloadVoice = { callback ->
+                onDownloadVoice = { voiceId, callback ->
                     lifecycleScope.launch {
-                        runCatching { PiperSpeechEngine.downloadVoice(this@MainActivity) }
+                        runCatching { PiperSpeechEngine.downloadVoice(this@MainActivity, voiceId) }
                             .onSuccess { runOnUiThread { callback(null) } }
-                            .onFailure { error -> runOnUiThread { callback(error.message ?: "Error descargando la voz") } }
+                            .onFailure { error ->
+                                runOnUiThread { callback(error.message ?: "Error descargando la voz") }
+                            }
                     }
                 }
             )
@@ -89,7 +107,10 @@ class MainActivity : ComponentActivity() {
         if (!statusReceiverRegistered) {
             val filter = IntentFilter(BotForegroundService.ACTION_STATUS)
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-            else { @Suppress("DEPRECATION") registerReceiver(statusReceiver, filter) }
+            else {
+                @Suppress("DEPRECATION")
+                registerReceiver(statusReceiver, filter)
+            }
             statusReceiverRegistered = true
         }
     }
@@ -107,30 +128,64 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun BotApp(
     externalStatus: String,
-    voiceInitiallyInstalled: Boolean,
-    onStart: (String, Boolean, List<String>, List<String>, Int) -> Unit,
+    onStart: (String, ReaderSettings) -> Unit,
     onStop: () -> Unit,
-    onTestVoice: () -> Unit,
-    onDownloadVoice: ((String?) -> Unit) -> Unit
+    onTestVoice: (String, Float, Float) -> Unit,
+    onDownloadVoice: (String, (String?) -> Unit) -> Unit
 ) {
-    var username by remember { mutableStateOf("") }
-    var readUsername by remember { mutableStateOf(true) }
-    var maxQueue by remember { mutableStateOf("30") }
-    var blockedWords by remember { mutableStateOf("") }
-    var ignoredUsers by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE) }
+
+    var username by remember { mutableStateOf(prefs.getString("last_username", "").orEmpty()) }
+    var recentUsernames by remember {
+        mutableStateOf(prefs.getStringSet("recent_usernames", emptySet()).orEmpty().toList().take(8))
+    }
+    var readUsername by remember { mutableStateOf(prefs.getBoolean("read_username", true)) }
+    var onlyUsername by remember { mutableStateOf(prefs.getBoolean("only_username", false)) }
+    var ignoreEmojis by remember { mutableStateOf(prefs.getBoolean("ignore_emojis", true)) }
+    var ignoreSymbols by remember { mutableStateOf(prefs.getBoolean("ignore_symbols", false)) }
+    var maxQueue by remember { mutableStateOf(prefs.getInt("max_queue", 30).toString()) }
+    var blockedWords by remember { mutableStateOf(prefs.getString("blocked_words", "").orEmpty()) }
+    var ignoredUsers by remember { mutableStateOf(prefs.getString("ignored_users", "").orEmpty()) }
+    var volume by remember { mutableFloatStateOf(prefs.getFloat("volume", 0.90f).coerceIn(0f, 1f)) }
+    var speed by remember { mutableFloatStateOf(prefs.getFloat("speed", 1.0f).coerceIn(0.65f, 1.5f)) }
+    var voiceId by remember {
+        mutableStateOf(prefs.getString("voice_id", PiperVoiceCatalog.DEFAULT_VOICE_ID) ?: PiperVoiceCatalog.DEFAULT_VOICE_ID)
+    }
     var status by remember { mutableStateOf("Detenido") }
-    var voiceInstalled by remember { mutableStateOf(voiceInitiallyInstalled) }
-    var voiceStatus by remember { mutableStateOf(if (voiceInstalled) "Voz Piper es-MX instalada" else "Voz Piper es-MX pendiente de descarga") }
+    var voiceInstalled by remember(voiceId) { mutableStateOf(PiperSpeechEngine.isVoiceInstalled(context, voiceId)) }
     var downloading by remember { mutableStateOf(false) }
+    var voiceError by remember { mutableStateOf("") }
+    var voiceMenuExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(externalStatus) { status = externalStatus }
+    LaunchedEffect(username) { prefs.edit().putString("last_username", username).apply() }
+    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId) {
+        prefs.edit()
+            .putBoolean("read_username", readUsername)
+            .putBoolean("only_username", onlyUsername)
+            .putBoolean("ignore_emojis", ignoreEmojis)
+            .putBoolean("ignore_symbols", ignoreSymbols)
+            .putInt("max_queue", maxQueue.toIntOrNull()?.coerceIn(5, 100) ?: 30)
+            .putString("blocked_words", blockedWords)
+            .putString("ignored_users", ignoredUsers)
+            .putFloat("volume", volume)
+            .putFloat("speed", speed)
+            .putString("voice_id", voiceId)
+            .apply()
+    }
+
+    val selectedVoice = PiperVoiceCatalog.find(voiceId)
     val connected = status.contains("Conectado", true) && !status.contains("no se pudo", true)
     val pulse by animateFloatAsState(if (connected) 1f else 0.72f, label = "statusPulse")
-    LaunchedEffect(externalStatus) { status = externalStatus }
 
-    MaterialTheme(colorScheme = darkColorScheme(
-        primary = Violet, secondary = Cyan, background = Night, surface = Panel,
-        onBackground = Color(0xFFF4F1FF), onSurface = Color(0xFFF4F1FF),
-        surfaceVariant = Color(0xFF292D45), onSurfaceVariant = Muted
-    )) {
+    MaterialTheme(
+        colorScheme = darkColorScheme(
+            primary = Violet, secondary = Cyan, background = Night, surface = Panel,
+            onBackground = Color(0xFFF4F1FF), onSurface = Color(0xFFF4F1FF),
+            surfaceVariant = Color(0xFF292D45), onSurfaceVariant = Muted
+        )
+    ) {
         Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF17152D), Night, Color(0xFF101D2C))))) {
             Box(Modifier.align(Alignment.TopEnd).padding(top = 50.dp, end = 8.dp).size(190.dp).blur(75.dp).background(Violet.copy(alpha = .22f), RoundedCornerShape(100)))
             Box(Modifier.align(Alignment.BottomStart).padding(bottom = 100.dp, start = 0.dp).size(170.dp).blur(75.dp).background(Cyan.copy(alpha = .13f), RoundedCornerShape(100)))
@@ -169,11 +224,28 @@ private fun BotApp(
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Button(
                                     onClick = {
-                                        val clean = username.trim().removePrefix("@")
+                                        val clean = username.trim().removePrefix("@").substringBefore("/")
                                         when {
                                             clean.isBlank() -> status = "Escribe el usuario de TikTok"
-                                            !voiceInstalled -> status = "Descarga primero la voz Piper"
-                                            else -> { onStart(clean, readUsername, splitList(blockedWords), splitList(ignoredUsers), maxQueue.toIntOrNull()?.coerceIn(5, 100) ?: 30); status = "Servicio iniciado · conectando…" }
+                                            !voiceInstalled -> status = "Descarga primero la voz seleccionada"
+                                            else -> {
+                                                recentUsernames = (listOf(clean) + recentUsernames.filterNot { it.equals(clean, true) }).take(8)
+                                                prefs.edit().putStringSet("recent_usernames", recentUsernames.toSet()).apply()
+                                                val settings = ReaderSettings(
+                                                    readUsername = readUsername,
+                                                    blockedWords = splitList(blockedWords).toSet(),
+                                                    ignoredUsers = splitList(ignoredUsers).toSet(),
+                                                    maxQueueSize = maxQueue.toIntOrNull()?.coerceIn(5, 100) ?: 30,
+                                                    ignoreEmojis = ignoreEmojis,
+                                                    ignoreSymbols = ignoreSymbols,
+                                                    onlyUsername = onlyUsername,
+                                                    volume = volume,
+                                                    speed = speed,
+                                                    voiceId = voiceId
+                                                )
+                                                onStart(clean, settings)
+                                                status = "Servicio iniciado · conectando…"
+                                            }
                                         }
                                     },
                                     modifier = Modifier.weight(1f).height(54.dp),
@@ -190,15 +262,35 @@ private fun BotApp(
                     SectionHeader("01", "Conexión TikTok LIVE", "Introduce el usuario del creador")
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            OutlinedTextField(value = username, onValueChange = { username = it }, label = { Text("Usuario de TikTok") }, placeholder = { Text("@ejemplo_usuario") }, leadingIcon = { Icon(Icons.Default.AlternateEmail, null, tint = Violet) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp))
+                            OutlinedTextField(
+                                value = username,
+                                onValueChange = { username = it },
+                                label = { Text("Usuario de TikTok") },
+                                placeholder = { Text("@ejemplo_usuario") },
+                                leadingIcon = { Icon(Icons.Default.AlternateEmail, null, tint = Violet) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                            if (recentUsernames.isNotEmpty()) {
+                                Text("USUARIOS RECIENTES", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    recentUsernames.forEach { recent ->
+                                        AssistChip(onClick = { username = recent }, label = { Text("@$recent") })
+                                    }
+                                }
+                            }
                             Text("El creador debe tener un LIVE activo. No se solicita contraseña ni cookies.", color = Muted, style = MaterialTheme.typography.bodySmall)
                         }
                     }
 
-                    SectionHeader("02", "Lectura y moderación", "Controla qué comentarios llegan a la voz")
+                    SectionHeader("02", "Lectura y moderación", "Personaliza qué contenido se convierte en voz")
                     GlassCard {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                             SettingSwitch("Leer nombre del usuario", readUsername) { readUsername = it }
+                            SettingSwitch("Leer solo el nombre (omitir comentarios)", onlyUsername) { onlyUsername = it }
+                            SettingSwitch("Ignorar emojis", ignoreEmojis) { ignoreEmojis = it }
+                            SettingSwitch("Ignorar símbolos y signos", ignoreSymbols) { ignoreSymbols = it }
                             HorizontalDivider(color = Color.White.copy(alpha = .09f))
                             OutlinedTextField(value = blockedWords, onValueChange = { blockedWords = it }, label = { Text("Palabras bloqueadas · separadas por coma") }, modifier = Modifier.fillMaxWidth(), minLines = 2, shape = RoundedCornerShape(16.dp))
                             OutlinedTextField(value = ignoredUsers, onValueChange = { ignoredUsers = it }, label = { Text("Usuarios ignorados · separados por coma") }, modifier = Modifier.fillMaxWidth(), minLines = 2, shape = RoundedCornerShape(16.dp))
@@ -206,41 +298,114 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("03", "Voz neuronal Piper", "Español de México · procesamiento local")
+                    SectionHeader("03", "Voces mexicanas Piper", "Modelos descargables · síntesis completamente local")
                     GlassCard {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.RecordVoiceOver, null, tint = Cyan, modifier = Modifier.size(28.dp))
-                                Spacer(Modifier.width(10.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text("Piper TTS · es-MX", fontWeight = FontWeight.Bold)
-                                    Text(voiceStatus, color = Muted, style = MaterialTheme.typography.bodySmall)
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("SELECCIONA UNA VOZ", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                            Box {
+                                OutlinedButton(onClick = { voiceMenuExpanded = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(15.dp)) {
+                                    Icon(Icons.Default.RecordVoiceOver, null, tint = Violet)
+                                    Text("  \${selectedVoice.name}", modifier = Modifier.weight(1f))
+                                    Icon(Icons.Default.ExpandMore, null)
                                 }
-                                Surface(color = if (voiceInstalled) Cyan.copy(alpha = .16f) else Violet.copy(alpha = .16f), shape = RoundedCornerShape(50)) {
-                                    Text(if (voiceInstalled) "LISTA" else "PENDIENTE", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = if (voiceInstalled) Cyan else Violet, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                            if (!voiceInstalled) {
-                                Button(enabled = !downloading, onClick = {
-                                    downloading = true
-                                    voiceStatus = "Descargando modelo de voz…"
-                                    onDownloadVoice { error ->
-                                        downloading = false
-                                        if (error == null) { voiceInstalled = true; voiceStatus = "Voz Piper es-MX instalada y verificada" }
-                                        else voiceStatus = "Error: $error"
+                                DropdownMenu(expanded = voiceMenuExpanded, onDismissRequest = { voiceMenuExpanded = false }) {
+                                    PiperVoiceCatalog.voices.forEach { voice ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Column {
+                                                    Text(voice.name, fontWeight = FontWeight.SemiBold)
+                                                    Text(voice.description, style = MaterialTheme.typography.bodySmall, color = Muted)
+                                                }
+                                            },
+                                            onClick = {
+                                                voiceId = voice.id
+                                                voiceInstalled = PiperSpeechEngine.isVoiceInstalled(context, voice.id)
+                                                voiceError = ""
+                                                voiceMenuExpanded = false
+                                            }
+                                        )
                                     }
-                                }, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(15.dp)) {
-                                    if (downloading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Icon(Icons.Default.Download, null)
-                                    Text(if (downloading) " DESCARGANDO…" else " DESCARGAR VOZ")
                                 }
                             }
-                            OutlinedButton(onClick = onTestVoice, modifier = Modifier.fillMaxWidth().height(50.dp), enabled = voiceInstalled, shape = RoundedCornerShape(15.dp)) {
-                                Icon(Icons.Default.VolumeUp, null); Text(" PROBAR VOZ")
+                            Text(selectedVoice.description, color = Muted, style = MaterialTheme.typography.bodySmall)
+                            if (!selectedVoice.official) {
+                                Text("Voz comunitaria experimental. El modelo se descarga gratis desde su repositorio, pero su licencia y calidad pueden variar; no se incluye en la APK.", color = Color(0xFFFFD18A), style = MaterialTheme.typography.bodySmall)
                             }
-                            Text("Una vez instalada, la síntesis se realiza sin enviar comentarios a servidores externos.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(color = if (voiceInstalled) Cyan.copy(alpha = .16f) else Violet.copy(alpha = .16f), shape = RoundedCornerShape(50)) {
+                                    Text(if (voiceInstalled) "INSTALADA" else "NO INSTALADA", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = if (voiceInstalled) Cyan else Violet, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(Modifier.weight(1f))
+                                if (!voiceInstalled) {
+                                    Button(
+                                        enabled = !downloading,
+                                        onClick = {
+                                            downloading = true
+                                            voiceError = ""
+                                            onDownloadVoice(voiceId) { error ->
+                                                downloading = false
+                                                if (error == null) {
+                                                    voiceInstalled = PiperSpeechEngine.isVoiceInstalled(context, voiceId)
+                                                    voiceError = if (voiceInstalled) "Voz instalada y validada." else "No se pudo validar el modelo."
+                                                } else voiceError = error
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(14.dp)
+                                    ) {
+                                        if (downloading) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                                        else Icon(Icons.Default.Download, null)
+                                        Text(if (downloading) " DESCARGANDO" else " DESCARGAR")
+                                    }
+                                }
+                            }
+                            if (voiceError.isNotBlank()) Text(voiceError, color = if (voiceInstalled) Cyan else Color(0xFFFFA6A6), style = MaterialTheme.typography.bodySmall)
+                            Text("Las voces oficiales Piper disponibles para México son Ald (medium) y Claude (high). Las demás son modelos comunitarios experimentales.", color = Muted, style = MaterialTheme.typography.bodySmall)
                         }
                     }
-                    Text("TIKTOK LIVE READER  •  v0.6  •  SIN DISCORD", modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), color = Muted.copy(alpha = .7f), style = MaterialTheme.typography.labelSmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center, letterSpacing = 1.sp)
+
+                    SectionHeader("04", "Controles de voz", "Ajusta la reproducción a tu gusto")
+                    GlassCard {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Volumen", fontWeight = FontWeight.SemiBold)
+                                    Spacer(Modifier.weight(1f))
+                                    Text("\${(volume * 100).toInt()}%", color = Cyan, fontWeight = FontWeight.Bold)
+                                }
+                                Slider(value = volume, onValueChange = { volume = it }, valueRange = 0f..1f)
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Velocidad de lectura", fontWeight = FontWeight.SemiBold)
+                                    Spacer(Modifier.weight(1f))
+                                    Text(String.format(java.util.Locale.US, "%.2fx", speed), color = Cyan, fontWeight = FontWeight.Bold)
+                                }
+                                Slider(value = speed, onValueChange = { speed = it }, valueRange = 0.65f..1.5f)
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Lenta", color = Muted, style = MaterialTheme.typography.labelSmall)
+                                    Text("Rápida", color = Muted, style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                            OutlinedButton(
+                                onClick = { onTestVoice(voiceId, volume, speed) },
+                                modifier = Modifier.fillMaxWidth().height(50.dp),
+                                enabled = voiceInstalled && !downloading,
+                                shape = RoundedCornerShape(15.dp)
+                            ) {
+                                Icon(Icons.Default.VolumeUp, null)
+                                Text("  PROBAR VOZ")
+                            }
+                        }
+                    }
+
+                    Text(
+                        "TIKTOK LIVE READER  •  v0.7  •  BY ROXI",
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        color = Muted.copy(alpha = .7f),
+                        style = MaterialTheme.typography.labelSmall,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        letterSpacing = 1.sp
+                    )
                 }
             }
         }
@@ -250,7 +415,9 @@ private fun BotApp(
 @Composable
 private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth().shadow(18.dp, RoundedCornerShape(24.dp)).border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = .24f), Violet.copy(alpha = .22f), Color.White.copy(alpha = .04f))), RoundedCornerShape(24.dp)).animateContentSize(),
+        modifier = Modifier.fillMaxWidth().shadow(18.dp, RoundedCornerShape(24.dp))
+            .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = .24f), Violet.copy(alpha = .22f), Color.White.copy(alpha = .04f))), RoundedCornerShape(24.dp))
+            .animateContentSize(),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = Panel),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -269,7 +436,8 @@ private fun SectionHeader(number: String, title: String, subtitle: String) {
     }
 }
 
-private fun splitList(value: String): List<String> = value.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+private fun splitList(value: String): List<String> =
+    value.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }
 
 @Composable
 private fun SettingSwitch(title: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
