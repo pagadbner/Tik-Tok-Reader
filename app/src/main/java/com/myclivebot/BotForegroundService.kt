@@ -46,6 +46,7 @@ class BotForegroundService : Service() {
         const val EXTRA_READ_FOLLOWS = "read_follows"
         const val EXTRA_READ_GIFTS = "read_gifts"
         const val EXTRA_RANDOM_VOICES = "random_voices"
+        const val EXTRA_VOICE_EFFECT = "voice_effect_profile"
         private const val CHANNEL_ID = "live_bot_status"
         private const val NOTIFICATION_ID = 4101
     }
@@ -147,7 +148,8 @@ class BotForegroundService : Service() {
                     updateStatus("Descarga primero la voz seleccionada")
                 } else {
                     serviceScope.launch(Dispatchers.IO) {
-                        val testEngine = PiperSpeechEngine(this@BotForegroundService, voiceId, volume, speed)
+                        val effect = intent.getStringExtra(EXTRA_VOICE_EFFECT) ?: com.myclivebot.core.VoiceEffectProfile.NATURAL.id
+                        val testEngine = PiperSpeechEngine(this@BotForegroundService, voiceId, volume, speed, effect)
                         try {
                             testEngine.speak("Prueba de voz en español de México. El lector está preparado.")
                         } finally {
@@ -221,7 +223,8 @@ class BotForegroundService : Service() {
         followerOnlyChat = intent.getBooleanExtra(EXTRA_FOLLOWER_ONLY, false),
         readFollows = intent.getBooleanExtra(EXTRA_READ_FOLLOWS, true),
         readGifts = intent.getBooleanExtra(EXTRA_READ_GIFTS, true),
-        randomVoices = intent.getBooleanExtra(EXTRA_RANDOM_VOICES, false)
+        randomVoices = intent.getBooleanExtra(EXTRA_RANDOM_VOICES, false),
+        voiceEffectProfile = intent.getStringExtra(EXTRA_VOICE_EFFECT) ?: com.myclivebot.core.VoiceEffectProfile.NATURAL.id
     )
 
     private fun publishLiveStats() {
