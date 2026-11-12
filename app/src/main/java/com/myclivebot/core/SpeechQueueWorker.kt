@@ -1,24 +1,46 @@
 package com.myclivebot.core
 
+import java.util.ArrayDeque
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/** A single consumer guarantees strict FIFO speech: a new comment never interrupts the current one. */
+/**
+ * Single speech consumer with two bounded lanes. Important LIVE events are spoken
+ * before queued chat messages, but never interrupt audio that is already playing.
+ */
 class SpeechQueueWorker(
     private val engine: SpeechEngine,
     scope: CoroutineScope,
     capacity: Int = 30,
+    private val priorityCapacity: Int = 16,
     private val onSpoken: (String) -> Unit = {}
 ) {
-    private val channel = Channel<String>(capacity.coerceAtLeast(1))
+    private val lock = Any()
+    private val normalQueue = ArrayDeque<String>()
+    private val priorityQueue = ArrayDeque<String>()
+    private val normalCapacity = capacity.coerceAtLeast(1)
+    private val importantCapacity = priorityCapacity.coerceAtLeast(1)
+    private val wake = Channel<Unit>(Channel.CONFLATED)
 
     init {
         scope.launch {
-            for (text in channel) {
+            while (isActive) {
+                val next = synchronized(lock) {
+                    when {
+                        priorityQueue.isNotEmpty() -> priorityQueue.removeFirst()
+                        normalQueue.isNotEmpty() -> normalQueue.removeFirst()
+                        else -> null
+                    }
+                }
+                if (next == null) {
+                    if (wake.receiveCatching().getOrNull() == null) break
+                    continue
+                }
                 try {
-                    engine.speak(text)
-                    onSpoken(text)
+                    engine.speak(next)
+                    onSpoken(next)
                 } catch (_: Exception) {
                     // A failed utterance must not kill the worker or block later comments.
                 }
@@ -26,7 +48,26 @@ class SpeechQueueWorker(
         }
     }
 
-    /** Returns false when the bounded queue is full. */
-    fun enqueue(text: String): Boolean = text.isNotBlank() && channel.trySend(text).isSuccess
-    fun close() = channel.close()
+    /** Returns false when the selected bounded lane is full. */
+    fun enqueue(text: String, priority: Boolean = false): Boolean {
+        if (text.isBlank()) return false
+        val accepted = synchronized(lock) {
+            val queue = if (priority) priorityQueue else normalQueue
+            val limit = if (priority) importantCapacity else normalCapacity
+            if (queue.size >= limit) false else {
+                queue.addLast(text)
+                true
+            }
+        }
+        if (accepted) wake.trySend(Unit)
+        return accepted
+    }
+
+    fun queuedCount(): Int = synchronized(lock) {
+        priorityQueue.size + normalQueue.size
+    }
+
+    fun close() {
+        wake.close()
+    }
 }
