@@ -11,6 +11,7 @@ import com.myclivebot.core.CommentFilter
 import com.myclivebot.core.CommentPipeline
 import com.myclivebot.core.DynamicPiperSpeechEngine
 import com.myclivebot.core.LocalBridgeServer
+import com.myclivebot.core.LiveComment
 import com.myclivebot.core.PiperSpeechEngine
 import com.myclivebot.core.PiperVoiceCatalog
 import com.myclivebot.core.ReaderSettings
@@ -30,6 +31,10 @@ class BotForegroundService : Service() {
         const val ACTION_TEST_VOICE = "com.myclivebot.TEST_VOICE"
         const val ACTION_UPDATE_SETTINGS = "com.myclivebot.UPDATE_SETTINGS"
         const val ACTION_STATUS = "com.myclivebot.STATUS"
+        const val ACTION_COMMENT = "com.myclivebot.COMMENT"
+        const val EXTRA_COMMENT_USERNAME = "comment_username"
+        const val EXTRA_COMMENT_TEXT = "comment_text"
+        const val EXTRA_COMMENT_TIME = "comment_time"
         const val EXTRA_STATUS = "reader_status"
         const val EXTRA_USERNAME = "username"
         const val EXTRA_READ_USERNAME = "read_username"
@@ -178,6 +183,7 @@ class BotForegroundService : Service() {
         val liveConnector = TikTokLiveConnector(
             onComment = { comment ->
                 livePipeline.onComment(comment)
+                publishLiveComment(comment)
                 publishLiveStats()
             },
             onStatus = ::updateStatus,
@@ -223,6 +229,24 @@ class BotForegroundService : Service() {
         readGifts = intent.getBooleanExtra(EXTRA_READ_GIFTS, true),
         randomVoices = intent.getBooleanExtra(EXTRA_RANDOM_VOICES, false)
     )
+
+    private fun publishLiveComment(comment: LiveComment) {
+        val timestamp = comment.receivedAt
+        sendBroadcast(
+            Intent(ACTION_COMMENT)
+                .setPackage(packageName)
+                .putExtra(EXTRA_COMMENT_USERNAME, comment.displayName)
+                .putExtra(EXTRA_COMMENT_TEXT, comment.text)
+                .putExtra(EXTRA_COMMENT_TIME, timestamp)
+        )
+        localBridge?.publish(
+            "live_comment",
+            JSONObject()
+                .put("username", comment.displayName)
+                .put("comment", comment.text)
+                .put("received_at", timestamp)
+        )
+    }
 
     private fun publishLiveStats() {
         val stats = pipeline?.stats() ?: return
