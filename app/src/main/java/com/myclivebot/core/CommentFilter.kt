@@ -31,11 +31,24 @@ class CommentFilter {
             }) return false
 
         val now = comment.receivedAt
-        val previous = lastByUser.put(userKey, normalized to now)
         val duplicateWindow = settings.suppressDuplicatesSeconds.coerceAtLeast(0) * 1_000
-        if (previous != null && previous.first == normalized && now - previous.second in 0..duplicateWindow) {
-            return false
+        var isDuplicate = false
+        lastByUser.compute(userKey) { _, previous ->
+            if (
+                previous != null &&
+                previous.first == normalized &&
+                now >= previous.second &&
+                now - previous.second <= duplicateWindow
+            ) {
+                // Keep the timestamp of the last accepted message. Rejected duplicates
+                // must not extend the suppression window indefinitely.
+                isDuplicate = true
+                previous
+            } else {
+                normalized to now
+            }
         }
+        if (isDuplicate) return false
         // Keep the anti-spam cache bounded for long-running LIVE sessions.
         if (lastByUser.size > 2_000) {
             val cutoff = now - 60_000
