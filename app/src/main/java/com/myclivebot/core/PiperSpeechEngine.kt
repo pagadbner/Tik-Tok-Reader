@@ -31,7 +31,7 @@ class PiperSpeechEngine(context: Context) : SpeechEngine {
             val model = modelFile(context)
             val config = File(model.absolutePath + ".json")
             return model.isFile && model.length() > 50_000_000L && config.isFile &&
-                runCatching { config.readText().contains("\"code\": \"es_MX\"") }.getOrDefault(false)
+                runCatching { config.readText().contains("\\\"code\\\": \\\"es_MX\\\"") }.getOrDefault(false)
         }
 
         suspend fun downloadVoice(context: Context) = withContext(Dispatchers.IO) {
@@ -41,7 +41,7 @@ class PiperSpeechEngine(context: Context) : SpeechEngine {
             if (!model.exists() || model.length() < 50_000_000L || sha256(model) != MODEL_SHA256) {
                 downloadAtomically(MODEL_URL, model, MODEL_SHA256)
             }
-            if (!config.exists() || config.length() < 100L || !config.readText().contains("\"code\": \"es_MX\"")) {
+            if (!config.exists() || config.length() < 100L || !config.readText().contains("\\\"code\\\": \\\"es_MX\\\"")) {
                 downloadAtomically(CONFIG_URL, config)
             }
             require(isVoiceInstalled(context)) { "La descarga de la voz Piper no se pudo validar." }
@@ -149,7 +149,6 @@ class PiperSpeechEngine(context: Context) : SpeechEngine {
                     }
                 }
             })
-            // Wait until every synthesized frame has reached the speaker.
             val expectedFrames = totalFrames.get()
             val deadline = System.currentTimeMillis() + 30_000L
             while (track.playState == AudioTrack.PLAYSTATE_PLAYING &&
@@ -168,6 +167,7 @@ class PiperSpeechEngine(context: Context) : SpeechEngine {
     override suspend fun stop() = withContext(Dispatchers.IO) {
         currentTrack?.let { runCatching { it.pause(); it.flush(); it.stop() } }
         engine?.cancel()
+        Unit
     }
 
     fun release() {
