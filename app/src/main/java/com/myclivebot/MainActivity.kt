@@ -37,6 +37,7 @@ import androidx.lifecycle.lifecycleScope
 import com.myclivebot.core.PiperSpeechEngine
 import com.myclivebot.core.PiperVoiceCatalog
 import com.myclivebot.core.ReaderSettings
+import com.myclivebot.core.VoiceEffectProfile
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 
@@ -81,6 +82,7 @@ class MainActivity : ComponentActivity() {
                         .putExtra(BotForegroundService.EXTRA_READ_FOLLOWS, settings.readFollows)
                         .putExtra(BotForegroundService.EXTRA_READ_GIFTS, settings.readGifts)
                         .putExtra(BotForegroundService.EXTRA_RANDOM_VOICES, settings.randomVoices)
+                        .putExtra(BotForegroundService.EXTRA_VOICE_EFFECT, settings.voiceEffectProfile)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
                 },
                 onUpdateSettings = { settings ->
@@ -105,12 +107,13 @@ class MainActivity : ComponentActivity() {
                 onStop = {
                     startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_STOP))
                 },
-                onTestVoice = { voiceId, volume, speed ->
+                onTestVoice = { voiceId, volume, speed, effect ->
                     val intent = Intent(this, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_TEST_VOICE)
                         .putExtra(BotForegroundService.EXTRA_VOICE_ID, voiceId)
                         .putExtra(BotForegroundService.EXTRA_VOLUME, volume)
                         .putExtra(BotForegroundService.EXTRA_SPEED, speed)
+                        .putExtra(BotForegroundService.EXTRA_VOICE_EFFECT, effect)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
                 },
                 onDownloadVoice = { voiceId, callback ->
@@ -155,7 +158,7 @@ private fun BotApp(
     onStart: (String, ReaderSettings) -> Unit,
     onStop: () -> Unit,
     onUpdateSettings: (ReaderSettings) -> Unit,
-    onTestVoice: (String, Float, Float) -> Unit,
+    onTestVoice: (String, Float, Float, String) -> Unit,
     onDownloadVoice: (String, (String?) -> Unit) -> Unit
 ) {
     val context = LocalContext.current
@@ -173,6 +176,8 @@ private fun BotApp(
     var readFollows by remember { mutableStateOf(prefs.getBoolean("read_follows", true)) }
     var readGifts by remember { mutableStateOf(prefs.getBoolean("read_gifts", true)) }
     var randomVoices by remember { mutableStateOf(prefs.getBoolean("random_voices", false)) }
+    var voiceEffectProfile by remember { mutableStateOf(prefs.getString("voice_effect_profile", VoiceEffectProfile.NATURAL.id) ?: VoiceEffectProfile.NATURAL.id) }
+    var effectMenuExpanded by remember { mutableStateOf(false) }
     var maxQueue by remember { mutableStateOf(prefs.getInt("max_queue", 30).toString()) }
     var blockedWords by remember { mutableStateOf(prefs.getString("blocked_words", "").orEmpty()) }
     var ignoredUsers by remember { mutableStateOf(prefs.getString("ignored_users", "").orEmpty()) }
@@ -189,12 +194,13 @@ private fun BotApp(
 
     LaunchedEffect(externalStatus) { status = externalStatus }
     LaunchedEffect(username) { prefs.edit().putString("last_username", username).apply() }
-    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId) {
+    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, randomVoices, voiceEffectProfile, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId) {
         prefs.edit()
             .putBoolean("follower_only_chat", followerOnlyChat)
             .putBoolean("read_follows", readFollows)
             .putBoolean("read_gifts", readGifts)
             .putBoolean("random_voices", randomVoices)
+            .putString("voice_effect_profile", voiceEffectProfile)
             .apply()
     }
 
@@ -215,7 +221,7 @@ private fun BotApp(
 
     val selectedVoice = PiperVoiceCatalog.find(voiceId)
     val connected = status.contains("Conectado", true) && !status.contains("no se pudo", true)
-    LaunchedEffect(connected, readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, voiceInstalled) {
+    LaunchedEffect(connected, readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, randomVoices, voiceEffectProfile, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, voiceInstalled) {
         if (connected && voiceInstalled) {
             delay(350)
             onUpdateSettings(
@@ -233,7 +239,8 @@ private fun BotApp(
                     followerOnlyChat = followerOnlyChat,
                     readFollows = readFollows,
                     readGifts = readGifts,
-                    randomVoices = randomVoices
+                    randomVoices = randomVoices,
+                    voiceEffectProfile = voiceEffectProfile
                 )
             )
         }
@@ -306,7 +313,8 @@ private fun BotApp(
                                                     followerOnlyChat = followerOnlyChat,
                                                     readFollows = readFollows,
                                                     readGifts = readGifts,
-                                                    randomVoices = randomVoices
+                                                    randomVoices = randomVoices,
+                                                    voiceEffectProfile = voiceEffectProfile
                                                 )
                                                 onStart(clean, settings)
                                                 status = "Servicio iniciado · conectando…"
@@ -457,8 +465,64 @@ private fun BotApp(
                                     Text("Rápida", color = Muted, style = MaterialTheme.typography.labelSmall)
                                 }
                             }
+                            Text("PERFIL DE VOZ", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                            Box {
+                                OutlinedButton(
+                                    onClick = { effectMenuExpanded = true },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(15.dp)
+                                ) {
+                                    Icon(Icons.Default.GraphicEq, null, tint = Violet)
+                                    Text("  ${VoiceEffectProfile.fromId(voiceEffectProfile).label}", modifier = Modifier.weight(1f))
+                                    Icon(Icons.Default.ExpandMore, null)
+                                }
+                                DropdownMenu(expanded = effectMenuExpanded, onDismissRequest = { effectMenuExpanded = false }) {
+                                    VoiceEffectProfile.values().forEach { profile ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Column {
+                                                    Text(profile.label, fontWeight = FontWeight.SemiBold)
+                                                    Text(profile.description, color = Muted, style = MaterialTheme.typography.bodySmall)
+                                                }
+                                            },
+                                            onClick = {
+                                                voiceEffectProfile = profile.id
+                                                effectMenuExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                            Text("Los perfiles procesan el audio localmente. Jarvis y Cortana son estilos originales inspirados, no imitaciones exactas.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            Text("ESCENAS LIVE", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                AssistChip(onClick = {
+                                    voiceEffectProfile = VoiceEffectProfile.JARVIS.id
+                                    randomVoices = false
+                                    readFollows = true
+                                    readGifts = true
+                                }, label = { Text("🎮 Gaming") })
+                                AssistChip(onClick = {
+                                    voiceEffectProfile = VoiceEffectProfile.NATURAL.id
+                                    randomVoices = false
+                                    readFollows = true
+                                    readGifts = true
+                                }, label = { Text("💬 Charlando") })
+                                AssistChip(onClick = {
+                                    voiceEffectProfile = VoiceEffectProfile.CORTANA.id
+                                    randomVoices = false
+                                    readFollows = true
+                                    readGifts = true
+                                }, label = { Text("🎵 Música") })
+                                AssistChip(onClick = {
+                                    voiceEffectProfile = VoiceEffectProfile.MEME.id
+                                    randomVoices = true
+                                    readFollows = true
+                                    readGifts = true
+                                }, label = { Text("😂 Memes") })
+                            }
                             OutlinedButton(
-                                onClick = { onTestVoice(voiceId, volume, speed) },
+                                onClick = { onTestVoice(voiceId, volume, speed, voiceEffectProfile) },
                                 modifier = Modifier.fillMaxWidth().height(50.dp),
                                 enabled = voiceInstalled && !downloading,
                                 shape = RoundedCornerShape(15.dp)
