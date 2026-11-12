@@ -45,7 +45,8 @@ class PiperSpeechEngine(
             if (!model.isFile || model.length() < 20_000_000L || !config.isFile || config.length() < 100L) return false
             return runCatching {
                 val json = JSONObject(config.readText())
-                json.optJSONObject("audio")?.optInt("sample_rate", 0)?.let { it in 8_000..48_000 } == true &&
+                json.optJSONObject("language")?.optString("code") == "es_MX" &&
+                    json.optJSONObject("audio")?.optInt("sample_rate", 0)?.let { it in 8_000..48_000 } == true &&
                     json.optJSONObject("phoneme_id_map") != null
             }.getOrDefault(false)
         }
@@ -150,6 +151,9 @@ class PiperSpeechEngine(
                 check(foundModel && foundConfig) { "El paquete comunitario no contiene el modelo ONNX y su JSON." }
                 check(modelTemp.length() > 20_000_000L) { "El modelo extraído está incompleto." }
                 val configJson = JSONObject(configTemp.readText())
+                check(configJson.optJSONObject("language")?.optString("code") == "es_MX") {
+                    "El paquete no corresponde a una voz es-MX."
+                }
                 val sampleRate = configJson.optJSONObject("audio")?.optInt("sample_rate", 0) ?: 0
                 check(sampleRate in 8_000..48_000) {
                     "El modelo no contiene una configuración de audio válida."
