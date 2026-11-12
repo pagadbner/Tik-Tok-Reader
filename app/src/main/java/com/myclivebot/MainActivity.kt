@@ -102,6 +102,7 @@ class MainActivity : ComponentActivity() {
                         .putExtra(BotForegroundService.EXTRA_READ_FOLLOWS, settings.readFollows)
                         .putExtra(BotForegroundService.EXTRA_READ_GIFTS, settings.readGifts)
                         .putExtra(BotForegroundService.EXTRA_RANDOM_VOICES, settings.randomVoices)
+                        .putExtra(BotForegroundService.EXTRA_VOICE_EFFECT, settings.voiceEffectProfile)
                     startService(intent)
                 },
                 onStop = {
