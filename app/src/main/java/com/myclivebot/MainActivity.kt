@@ -360,6 +360,8 @@ private fun BotApp(
                             SettingSwitch("Avisar cuando alguien te siga", readFollows) { readFollows = it }
                             SettingSwitch("Avisar cuando recibas regalos", readGifts) { readGifts = it }
                             SettingSwitch("Cambiar de voz aleatoriamente", randomVoices) { randomVoices = it }
+                            Text("El modo aleatorio alterna entre las voces descargadas. Si solo tienes una instalada, utilizará esa.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            Text("El filtro de seguidores depende del estado que TikTok incluya en cada comentario; si no llega ese dato, el comentario se descarta por seguridad.", color = Muted, style = MaterialTheme.typography.bodySmall)
                             HorizontalDivider(color = Color.White.copy(alpha = .09f))
                             OutlinedTextField(value = blockedWords, onValueChange = { blockedWords = it }, label = { Text("Palabras bloqueadas · separadas por coma") }, modifier = Modifier.fillMaxWidth(), minLines = 2, shape = RoundedCornerShape(16.dp))
                             OutlinedTextField(value = ignoredUsers, onValueChange = { ignoredUsers = it }, label = { Text("Usuarios ignorados · separados por coma") }, modifier = Modifier.fillMaxWidth(), minLines = 2, shape = RoundedCornerShape(16.dp))
@@ -367,7 +369,7 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("03", "Voces mexicanas Piper", "Modelos descargables · síntesis completamente local")
+                    SectionHeader("03", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local")
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("SELECCIONA UNA VOZ", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
@@ -428,7 +430,7 @@ private fun BotApp(
                                 }
                             }
                             if (voiceError.isNotBlank()) Text(voiceError, color = if (voiceInstalled) Cyan else Color(0xFFFFA6A6), style = MaterialTheme.typography.bodySmall)
-                            Text("Las voces oficiales Piper disponibles para México son Ald (medium) y Claude (high). Las demás son modelos comunitarios experimentales.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            Text("El catálogo incluye voces oficiales de México, España y Argentina, además de voces comunitarias experimentales.", color = Muted, style = MaterialTheme.typography.bodySmall)
                         }
                     }
 
