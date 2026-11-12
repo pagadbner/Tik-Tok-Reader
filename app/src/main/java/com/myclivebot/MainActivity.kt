@@ -38,6 +38,7 @@ import com.myclivebot.core.PiperSpeechEngine
 import com.myclivebot.core.PiperVoiceCatalog
 import com.myclivebot.core.ReaderSettings
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 private val Night = Color(0xFF090B18)
 private val Panel = Color(0xCC1B2036)
@@ -76,7 +77,30 @@ class MainActivity : ComponentActivity() {
                         .putExtra(BotForegroundService.EXTRA_VOLUME, settings.volume)
                         .putExtra(BotForegroundService.EXTRA_SPEED, settings.speed)
                         .putExtra(BotForegroundService.EXTRA_VOICE_ID, settings.voiceId)
+                        .putExtra(BotForegroundService.EXTRA_FOLLOWER_ONLY, settings.followerOnlyChat)
+                        .putExtra(BotForegroundService.EXTRA_READ_FOLLOWS, settings.readFollows)
+                        .putExtra(BotForegroundService.EXTRA_READ_GIFTS, settings.readGifts)
+                        .putExtra(BotForegroundService.EXTRA_RANDOM_VOICES, settings.randomVoices)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
+                },
+                onUpdateSettings = { settings ->
+                    val intent = Intent(this, BotForegroundService::class.java)
+                        .setAction(BotForegroundService.ACTION_UPDATE_SETTINGS)
+                        .putExtra(BotForegroundService.EXTRA_READ_USERNAME, settings.readUsername)
+                        .putStringArrayListExtra(BotForegroundService.EXTRA_BLOCKED_WORDS, ArrayList(settings.blockedWords))
+                        .putStringArrayListExtra(BotForegroundService.EXTRA_IGNORED_USERS, ArrayList(settings.ignoredUsers))
+                        .putExtra(BotForegroundService.EXTRA_MAX_QUEUE, settings.maxQueueSize)
+                        .putExtra(BotForegroundService.EXTRA_IGNORE_EMOJIS, settings.ignoreEmojis)
+                        .putExtra(BotForegroundService.EXTRA_IGNORE_SYMBOLS, settings.ignoreSymbols)
+                        .putExtra(BotForegroundService.EXTRA_ONLY_USERNAME, settings.onlyUsername)
+                        .putExtra(BotForegroundService.EXTRA_VOLUME, settings.volume)
+                        .putExtra(BotForegroundService.EXTRA_SPEED, settings.speed)
+                        .putExtra(BotForegroundService.EXTRA_VOICE_ID, settings.voiceId)
+                        .putExtra(BotForegroundService.EXTRA_FOLLOWER_ONLY, settings.followerOnlyChat)
+                        .putExtra(BotForegroundService.EXTRA_READ_FOLLOWS, settings.readFollows)
+                        .putExtra(BotForegroundService.EXTRA_READ_GIFTS, settings.readGifts)
+                        .putExtra(BotForegroundService.EXTRA_RANDOM_VOICES, settings.randomVoices)
+                    startService(intent)
                 },
                 onStop = {
                     startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_STOP))
@@ -130,6 +154,7 @@ private fun BotApp(
     externalStatus: String,
     onStart: (String, ReaderSettings) -> Unit,
     onStop: () -> Unit,
+    onUpdateSettings: (ReaderSettings) -> Unit,
     onTestVoice: (String, Float, Float) -> Unit,
     onDownloadVoice: (String, (String?) -> Unit) -> Unit
 ) {
@@ -144,6 +169,10 @@ private fun BotApp(
     var onlyUsername by remember { mutableStateOf(prefs.getBoolean("only_username", false)) }
     var ignoreEmojis by remember { mutableStateOf(prefs.getBoolean("ignore_emojis", true)) }
     var ignoreSymbols by remember { mutableStateOf(prefs.getBoolean("ignore_symbols", false)) }
+    var followerOnlyChat by remember { mutableStateOf(prefs.getBoolean("follower_only_chat", false)) }
+    var readFollows by remember { mutableStateOf(prefs.getBoolean("read_follows", true)) }
+    var readGifts by remember { mutableStateOf(prefs.getBoolean("read_gifts", true)) }
+    var randomVoices by remember { mutableStateOf(prefs.getBoolean("random_voices", false)) }
     var maxQueue by remember { mutableStateOf(prefs.getInt("max_queue", 30).toString()) }
     var blockedWords by remember { mutableStateOf(prefs.getString("blocked_words", "").orEmpty()) }
     var ignoredUsers by remember { mutableStateOf(prefs.getString("ignored_users", "").orEmpty()) }
@@ -160,6 +189,15 @@ private fun BotApp(
 
     LaunchedEffect(externalStatus) { status = externalStatus }
     LaunchedEffect(username) { prefs.edit().putString("last_username", username).apply() }
+    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId) {
+        prefs.edit()
+            .putBoolean("follower_only_chat", followerOnlyChat)
+            .putBoolean("read_follows", readFollows)
+            .putBoolean("read_gifts", readGifts)
+            .putBoolean("random_voices", randomVoices)
+            .apply()
+    }
+
     LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId) {
         prefs.edit()
             .putBoolean("read_username", readUsername)
@@ -177,6 +215,29 @@ private fun BotApp(
 
     val selectedVoice = PiperVoiceCatalog.find(voiceId)
     val connected = status.contains("Conectado", true) && !status.contains("no se pudo", true)
+    LaunchedEffect(connected, readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, voiceInstalled) {
+        if (connected && voiceInstalled) {
+            delay(350)
+            onUpdateSettings(
+                ReaderSettings(
+                    readUsername = readUsername,
+                    blockedWords = splitList(blockedWords).toSet(),
+                    ignoredUsers = splitList(ignoredUsers).toSet(),
+                    maxQueueSize = maxQueue.toIntOrNull()?.coerceIn(5, 100) ?: 30,
+                    ignoreEmojis = ignoreEmojis,
+                    ignoreSymbols = ignoreSymbols,
+                    onlyUsername = onlyUsername,
+                    volume = volume,
+                    speed = speed,
+                    voiceId = voiceId,
+                    followerOnlyChat = followerOnlyChat,
+                    readFollows = readFollows,
+                    readGifts = readGifts,
+                    randomVoices = randomVoices
+                )
+            )
+        }
+    }
     val pulse by animateFloatAsState(if (connected) 1f else 0.72f, label = "statusPulse")
 
     MaterialTheme(
@@ -241,7 +302,11 @@ private fun BotApp(
                                                     onlyUsername = onlyUsername,
                                                     volume = volume,
                                                     speed = speed,
-                                                    voiceId = voiceId
+                                                    voiceId = voiceId,
+                                                    followerOnlyChat = followerOnlyChat,
+                                                    readFollows = readFollows,
+                                                    readGifts = readGifts,
+                                                    randomVoices = randomVoices
                                                 )
                                                 onStart(clean, settings)
                                                 status = "Servicio iniciado · conectando…"
@@ -291,6 +356,10 @@ private fun BotApp(
                             SettingSwitch("Leer solo el nombre (omitir comentarios)", onlyUsername) { onlyUsername = it }
                             SettingSwitch("Ignorar emojis", ignoreEmojis) { ignoreEmojis = it }
                             SettingSwitch("Ignorar símbolos y signos", ignoreSymbols) { ignoreSymbols = it }
+                            SettingSwitch("Leer solo comentarios de seguidores", followerOnlyChat) { followerOnlyChat = it }
+                            SettingSwitch("Avisar cuando alguien te siga", readFollows) { readFollows = it }
+                            SettingSwitch("Avisar cuando recibas regalos", readGifts) { readGifts = it }
+                            SettingSwitch("Cambiar de voz aleatoriamente", randomVoices) { randomVoices = it }
                             HorizontalDivider(color = Color.White.copy(alpha = .09f))
                             OutlinedTextField(value = blockedWords, onValueChange = { blockedWords = it }, label = { Text("Palabras bloqueadas · separadas por coma") }, modifier = Modifier.fillMaxWidth(), minLines = 2, shape = RoundedCornerShape(16.dp))
                             OutlinedTextField(value = ignoredUsers, onValueChange = { ignoredUsers = it }, label = { Text("Usuarios ignorados · separados por coma") }, modifier = Modifier.fillMaxWidth(), minLines = 2, shape = RoundedCornerShape(16.dp))
