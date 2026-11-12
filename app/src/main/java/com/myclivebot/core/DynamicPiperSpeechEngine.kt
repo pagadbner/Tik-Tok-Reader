@@ -64,9 +64,16 @@ class DynamicPiperSpeechEngine(
 
     private fun engineFor(voiceId: String, current: Config): PiperSpeechEngine {
         val key = "${voiceId}|${current.volume}|${current.speed}"
-        return engines.getOrPut(key) {
+        val selected = engines.getOrPut(key) {
             PiperSpeechEngine(appContext, voiceId, current.volume, current.speed)
         }
+        // Keep a small cache so slider adjustments do not retain unlimited native models.
+        if (engines.size > 8) {
+            engines.keys.firstOrNull { it != key }?.let { staleKey ->
+                engines.remove(staleKey)?.release()
+            }
+        }
+        return selected
     }
 
     private fun toConfig(settings: ReaderSettings) = Config(
