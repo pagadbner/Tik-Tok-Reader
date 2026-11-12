@@ -37,6 +37,8 @@ class TikTokLiveConnector(
         private const val HEARTBEAT_SECONDS = 10L
         private val WS_HOSTS = listOf("webcast-ws.tiktok.com", "webcast-ws.us.tiktok.com")
         @Volatile private var cachedTtwid: String? = null
+        @Volatile private var cachedTtwidAt: Long = 0L
+        private const val TTWID_CACHE_TTL_MS = 4 * 60 * 60 * 1_000L
     }
 
     private val http = OkHttpClient.Builder()
@@ -133,7 +135,11 @@ class TikTokLiveConnector(
     }
 
     private fun fetchAnonymousDeviceCookie(): String {
-        cachedTtwid?.takeIf { it.isNotBlank() }?.let { return it }
+        val now = System.currentTimeMillis()
+        cachedTtwid?.takeIf {
+            it.isNotBlank() && now - cachedTtwidAt in 0 until TTWID_CACHE_TTL_MS
+        }?.let { return it }
+
         val request = Request.Builder()
             .url("https://www.tiktok.com/")
             .header("User-Agent", USER_AGENT)
@@ -143,28 +149,50 @@ class TikTokLiveConnector(
             .build()
 
         var lastHttpCode: Int? = null
-        repeat(8) { attempt ->
+        var lastContentType: String? = null
+        var lastHost: String? = null
+        var lastRedirectCount = 0
+        repeat(4) { attempt ->
             http.newCall(request).execute().use { response ->
                 lastHttpCode = response.code
-                val cookie = response.headers.values("Set-Cookie")
-                    .firstNotNullOfOrNull { header ->
-                        header.substringBefore(";").trim()
-                            .takeIf { it.startsWith("ttwid=") }
-                            ?.substringAfter("ttwid=")
-                            ?.takeIf { it.isNotBlank() }
-                    }
+                lastContentType = response.header("Content-Type")
+                lastHost = response.request.url.host
+                var previous: Response? = response
+                var redirects = 0
+                var cookie: String? = null
+                while (previous != null && redirects < 10 && cookie == null) {
+                    cookie = previous.headers.values("Set-Cookie")
+                        .firstNotNullOfOrNull { header ->
+                            header.substringBefore(";").trim()
+                                .takeIf { it.startsWith("ttwid=") }
+                                ?.substringAfter("ttwid=")
+                                ?.takeIf { it.isNotBlank() }
+                        }
+                    previous = previous.priorResponse
+                    if (previous != null) redirects++
+                }
+                lastRedirectCount = redirects
                 if (cookie != null) {
                     cachedTtwid = cookie
+                    cachedTtwidAt = System.currentTimeMillis()
                     return cookie
                 }
                 if (response.code == 403 || response.code == 429) {
-                    throw IOException("TikTok limitó la preparación anónima (HTTP ${response.code}). Espera un momento e inténtalo de nuevo.")
+                    throw IOException("TikTok limitó la preparación anónima (HTTP ${response.code}). Espera antes de volver a intentarlo; cambiar la IP desde la app no resolvería este límite.")
+                }
+                if (!response.isSuccessful) {
+                    throw IOException("TikTok respondió HTTP ${response.code} al solicitar la cookie anónima.")
                 }
             }
-            if (attempt < 7) Thread.sleep(750L)
+            if (attempt < 3) Thread.sleep(1_000L shl attempt)
         }
-        val suffix = lastHttpCode?.let { " (último HTTP $it)" }.orEmpty()
-        throw IOException("TikTok no entregó la cookie anónima ttwid después de 8 intentos$suffix. Comprueba la red e inténtalo de nuevo.")
+        val contentType = lastContentType?.substringBefore(";") ?: "desconocido"
+        throw IOException(
+            "TikTok respondió HTTP ${lastHttpCode ?: "?"} pero no envió ttwid en la respuesta ni en sus redirecciones " +
+                "(host: ${lastHost ?: "desconocido"}, tipo: $contentType, redirecciones: $lastRedirectCount). " +
+                "Esto no confirma un bloqueo de IP: TikTok pudo omitir la cookie por una respuesta regional, consentimiento o verificación anti-bot. " +
+                "Espera unos minutos, cambia de red manualmente si puedes y vuelve a probar."
+        )
     }
 
     @Synchronized
