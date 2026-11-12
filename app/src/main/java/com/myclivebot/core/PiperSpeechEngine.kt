@@ -39,9 +39,9 @@ class PiperSpeechEngine(
         fun modelFile(context: Context) = PiperVoiceCatalog.modelFile(context, VOICE_ID)
         fun isVoiceInstalled(context: Context): Boolean = isVoiceInstalled(context, VOICE_ID)
 
-        private fun isSpanishLocale(code: String?): Boolean {
+        private fun isSupportedLocale(code: String?): Boolean {
             val normalized = code?.trim()?.replace('-', '_')?.lowercase() ?: return false
-            return normalized == "es" || normalized.startsWith("es_")
+            return normalized.matches(Regex("^[a-z]{2,3}([_-][a-z0-9]{2,8})*$"))
         }
 
         fun isVoiceInstalled(context: Context, id: String): Boolean {
@@ -50,7 +50,7 @@ class PiperSpeechEngine(
             if (!model.isFile || model.length() < 20_000_000L || !config.isFile || config.length() < 100L) return false
             return runCatching {
                 val json = JSONObject(config.readText())
-                isSpanishLocale(json.optJSONObject("language")?.optString("code")) &&
+                isSupportedLocale(json.optJSONObject("language")?.optString("code")) &&
                     json.optJSONObject("audio")?.optInt("sample_rate", 0)?.let { it in 8_000..48_000 } == true &&
                     json.optJSONObject("phoneme_id_map") != null
             }.getOrDefault(false)
@@ -65,8 +65,11 @@ class PiperSpeechEngine(
             model.parentFile?.mkdirs()
             if (!isVoiceInstalled(context, voice.id)) {
                 if (voice.official) {
-                    downloadFile(voice.modelUrl ?: error("Falta URL del modelo"), model,
-                        if (voice.id == VOICE_ID) ALD_SHA256 else null)
+                    downloadFile(
+                        voice.modelUrl ?: error("Falta URL del modelo"),
+                        model,
+                        voice.expectedSha256 ?: if (voice.id == VOICE_ID) ALD_SHA256 else null
+                    )
                     downloadFile(voice.configUrl ?: error("Falta URL de configuración"), config)
                 } else {
                     val archive = File(model.parentFile, "${voice.id}.tar.gz.part")
@@ -157,8 +160,8 @@ class PiperSpeechEngine(
                 check(modelTemp.length() > 20_000_000L) { "El modelo extraído está incompleto." }
                 val configJson = JSONObject(configTemp.readText())
                 val localeCode = configJson.optJSONObject("language")?.optString("code")
-                check(isSpanishLocale(localeCode)) {
-                    "El paquete no corresponde a una voz en español (es, es-ES o es-MX)."
+                check(isSupportedLocale(localeCode)) {
+                    "El paquete no contiene un código de idioma Piper válido."
                 }
                 val sampleRate = configJson.optJSONObject("audio")?.optInt("sample_rate", 0) ?: 0
                 check(sampleRate in 8_000..48_000) {
