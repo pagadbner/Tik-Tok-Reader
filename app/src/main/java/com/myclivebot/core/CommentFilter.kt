@@ -20,7 +20,8 @@ data class ReaderSettings(
     val followerOnlyChat: Boolean = false,
     val readFollows: Boolean = true,
     val readGifts: Boolean = true,
-    val randomVoices: Boolean = false
+    val randomVoices: Boolean = false,
+    val voiceEffectProfile: String = VoiceEffectProfile.NATURAL.id
 )
 
 class CommentFilter {
