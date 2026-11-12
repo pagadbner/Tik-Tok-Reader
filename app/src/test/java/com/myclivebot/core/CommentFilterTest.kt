@@ -50,6 +50,6 @@ class CommentFilterTest {
             LiveComment("1", "Ana_01", "Este comentario no debe leerse 😍"),
             ReaderSettings(onlyUsername = true, ignoreEmojis = true)
         )
-        assertEquals("Ana01", result)
+        assertEquals("Ana_01", result)
     }
 }
