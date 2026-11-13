@@ -17,6 +17,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -252,6 +254,9 @@ private fun BotApp(
     var downloading by remember { mutableStateOf(false) }
     var voiceError by remember { mutableStateOf("") }
     var voiceMenuExpanded by remember { mutableStateOf(false) }
+    var navigationMenuExpanded by remember { mutableStateOf(false) }
+    val navigationRequesters = List(6) { remember { BringIntoViewRequester() } }
+    val navigationScope = rememberCoroutineScope()
 
     fun buildReaderSettings(): ReaderSettings = ReaderSettings(
         readUsername = readUsername,
@@ -350,17 +355,51 @@ private fun BotApp(
                     TopAppBar(
                         title = {
                             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                                Text("TIKTOK LIVE READER", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium, letterSpacing = 1.2.sp)
-                                Text("LECTOR INTELIGENTE · PIPER OFFLINE", style = MaterialTheme.typography.labelSmall, color = Cyan, letterSpacing = 1.sp)
+                                Text("TIKTOK LIVE READER", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleSmall, letterSpacing = 1.1.sp)
+                                Text("PIPER OFFLINE · CONTROL EN VIVO", style = MaterialTheme.typography.labelSmall, color = Cyan, letterSpacing = .8.sp)
                             }
                         },
-                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0x99111629))
+                        actions = {
+                            Box {
+                                IconButton(onClick = { navigationMenuExpanded = true }) {
+                                    Icon(Icons.Default.MenuOpen, contentDescription = "Abrir navegación", tint = Cyan)
+                                }
+                                DropdownMenu(
+                                    expanded = navigationMenuExpanded,
+                                    onDismissRequest = { navigationMenuExpanded = false }
+                                ) {
+                                    val destinations = listOf("Comentarios del directo", "Conexión TikTok LIVE", "Lectura y moderación", "Automatizaciones del chat", "Catálogo de voces", "Controles de voz")
+                                    destinations.forEachIndexed { index, destination ->
+                                        DropdownMenuItem(
+                                            text = { Text(destination) },
+                                            leadingIcon = {
+                                                Icon(
+                                                    when (index) {
+                                                        0 -> Icons.Default.Forum
+                                                        1 -> Icons.Default.Link
+                                                        2 -> Icons.Default.Tune
+                                                        3 -> Icons.Default.AutoAwesome
+                                                        4 -> Icons.Default.RecordVoiceOver
+                                                        else -> Icons.Default.GraphicEq
+                                                    }, contentDescription = null, tint = Violet
+                                                )
+                                            },
+                                            onClick = {
+                                                navigationMenuExpanded = false
+                                                navigationScope.launch { navigationRequesters[index].bringIntoView() }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0x77111629))
                     )
                 }
             ) { padding ->
                 Column(
-                    Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(18.dp)
+                    Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     GlassCard {
                         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -403,7 +442,7 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("LIVE", "Comentarios del directo", "Mensajes recibidos en tiempo real")
+                    SectionHeader("LIVE", "Comentarios del directo", "Mensajes recibidos en tiempo real", Modifier.bringIntoViewRequester(navigationRequesters[0]))
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -447,7 +486,7 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("01", "Conexión TikTok LIVE", "Introduce el usuario del creador")
+                    SectionHeader("01", "Conexión TikTok LIVE", "Introduce el usuario del creador", Modifier.bringIntoViewRequester(navigationRequesters[1]))
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             OutlinedTextField(
@@ -472,7 +511,7 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("02", "Lectura y moderación", "Personaliza qué contenido se convierte en voz")
+                    SectionHeader("02", "Lectura y moderación", "Personaliza qué contenido se convierte en voz", Modifier.bringIntoViewRequester(navigationRequesters[2]))
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                             SettingSwitch("Leer nombre del usuario", readUsername) { readUsername = it }
@@ -502,7 +541,7 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("03", "Automatizaciones del chat", "Comandos locales, bienvenida y alertas avanzadas")
+                    SectionHeader("03", "Automatizaciones del chat", "Comandos locales, bienvenida y alertas avanzadas", Modifier.bringIntoViewRequester(navigationRequesters[3]))
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                             SettingSwitch("Activar comandos personalizados", customCommandsEnabled) { customCommandsEnabled = it }
@@ -549,7 +588,7 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("04", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local")
+                    SectionHeader("04", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local", Modifier.bringIntoViewRequester(navigationRequesters[4]))
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("SELECCIONA UNA VOZ", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
@@ -614,7 +653,7 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("05", "Controles de voz", "Ajusta la reproducción a tu gusto")
+                    SectionHeader("05", "Controles de voz", "Ajusta la reproducción a tu gusto", Modifier.bringIntoViewRequester(navigationRequesters[5]))
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -674,19 +713,19 @@ private fun BotApp(
 @Composable
 private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth().shadow(18.dp, RoundedCornerShape(24.dp))
-            .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = .24f), Violet.copy(alpha = .22f), Color.White.copy(alpha = .04f))), RoundedCornerShape(24.dp))
+        modifier = Modifier.fillMaxWidth().shadow(14.dp, RoundedCornerShape(22.dp))
+            .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = .28f), Violet.copy(alpha = .20f), Cyan.copy(alpha = .08f))), RoundedCornerShape(22.dp))
             .animateContentSize(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Panel),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xB91B2036)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         content = content
     )
 }
 
 @Composable
-private fun SectionHeader(number: String, title: String, subtitle: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+private fun SectionHeader(number: String, title: String, subtitle: String, modifier: Modifier = Modifier) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(number, color = Violet, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelLarge)
         Column {
             Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
