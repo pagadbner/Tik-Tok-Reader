@@ -142,6 +142,11 @@ class MainActivity : ComponentActivity() {
                 onSkipNextComment = {
                     startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_SKIP_NEXT_COMMENT))
                 },
+                onSetMuted = { muted ->
+                    startService(Intent(this, BotForegroundService::class.java)
+                        .setAction(BotForegroundService.ACTION_SET_MUTE)
+                        .putExtra(BotForegroundService.EXTRA_MUTED, muted))
+                },
                 onTestVoice = { voiceId, volume, speed ->
                     val intent = Intent(this, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_TEST_VOICE)
@@ -196,6 +201,7 @@ private fun BotApp(
     onStart: (String, ReaderSettings) -> Unit,
     onStop: () -> Unit,
     onSkipNextComment: () -> Unit,
+    onSetMuted: (Boolean) -> Unit,
     onUpdateSettings: (ReaderSettings) -> Unit,
     onTestVoice: (String, Float, Float) -> Unit,
     onDownloadVoice: (String, (String?) -> Unit) -> Unit
@@ -232,6 +238,7 @@ private fun BotApp(
     var blockedWords by remember { mutableStateOf(prefs.getString("blocked_words", "").orEmpty()) }
     var ignoredUsers by remember { mutableStateOf(prefs.getString("ignored_users", "").orEmpty()) }
     var volume by remember { mutableFloatStateOf(prefs.getFloat("volume", 0.90f).coerceIn(0f, 1f)) }
+    var voiceMuted by remember { mutableStateOf(prefs.getBoolean("voice_muted", false)) }
     var speed by remember { mutableFloatStateOf(prefs.getFloat("speed", 1.0f).coerceIn(0.65f, 1.5f)) }
     var voiceId by remember {
         mutableStateOf(prefs.getString("voice_id", PiperVoiceCatalog.DEFAULT_VOICE_ID) ?: PiperVoiceCatalog.DEFAULT_VOICE_ID)
@@ -267,6 +274,7 @@ private fun BotApp(
 
     LaunchedEffect(externalStatus) { status = externalStatus }
     LaunchedEffect(username) { prefs.edit().putString("last_username", username).apply() }
+    LaunchedEffect(voiceMuted) { prefs.edit().putBoolean("voice_muted", voiceMuted).apply() }
     LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId) {
         prefs.edit()
             .putBoolean("follower_only_chat", followerOnlyChat)
@@ -613,6 +621,14 @@ private fun BotApp(
                                     Text("Lenta", color = Muted, style = MaterialTheme.typography.labelSmall)
                                     Text("Rápida", color = Muted, style = MaterialTheme.typography.labelSmall)
                                 }
+                            }
+                            OutlinedButton(
+                                onClick = { voiceMuted = !voiceMuted; onSetMuted(voiceMuted) },
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                shape = RoundedCornerShape(15.dp)
+                            ) {
+                                Icon(if (voiceMuted) Icons.Default.VolumeOff else Icons.Default.VolumeMute, null)
+                                Text(if (voiceMuted) "  ACTIVAR VOZ" else "  SILENCIAR VOZ")
                             }
                             OutlinedButton(
                                 onClick = { onTestVoice(voiceId, volume, speed) },
