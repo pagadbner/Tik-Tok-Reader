@@ -76,6 +76,10 @@ class SpeechQueueWorker(
     }
 
     fun close() {
+        synchronized(lock) {
+            normalQueue.clear()
+            priorityQueue.clear()
+        }
         wake.close()
     }
 }
