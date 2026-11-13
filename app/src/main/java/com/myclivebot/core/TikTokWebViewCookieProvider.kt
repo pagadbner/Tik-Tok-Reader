@@ -30,6 +30,7 @@ class TikTokWebViewCookieProvider(context: Context) {
         val latch = CountDownLatch(1)
         val result = AtomicReference<String?>()
         val failure = AtomicReference<String?>()
+        val webViewRef = AtomicReference<WebView?>()
         val main = Handler(Looper.getMainLooper())
 
         main.post {
@@ -77,6 +78,7 @@ class TikTokWebViewCookieProvider(context: Context) {
             }
 
             if (webView != null) {
+                webViewRef.set(webView)
                 webView.loadUrl(HOME_URL)
                 main.postDelayed({
                     if (latch.count > 0L) {
@@ -93,6 +95,11 @@ class TikTokWebViewCookieProvider(context: Context) {
         main.post {
             // CookieManager persists accepted Set-Cookie values independently of this view.
             cookies.flush()
+            webViewRef.getAndSet(null)?.apply {
+                stopLoading()
+                webViewClient = WebViewClient()
+                destroy()
+            }
         }
         return result.get() ?: throw IOException(
             failure.get() ?: "TikTok no proporcionó ttwid mediante WebView."
