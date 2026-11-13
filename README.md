@@ -2,7 +2,7 @@
 
 Aplicación Android nativa (Kotlin + Jetpack Compose) para leer comentarios públicos de TikTok LIVE mediante síntesis neuronal Piper ejecutada localmente en el teléfono.
 
-> Estado del proyecto: versión de desarrollo 0.11.0. El conector usa el protocolo Webcast comunitario de TikTok; no es una API oficial y puede verse afectado por cambios o límites del servicio.
+> Estado del proyecto: versión de desarrollo 0.11.1. El conector usa el protocolo Webcast comunitario de TikTok; no es una API oficial y puede verse afectado por cambios o límites del servicio.
 
 ## Funciones disponibles en 0.10.0
 
@@ -11,7 +11,7 @@ Aplicación Android nativa (Kotlin + Jetpack Compose) para leer comentarios púb
 - Servicio Android en primer plano con notificación persistente.
 - Servidor WebSocket integrado en el proceso de la app, disponible únicamente en `127.0.0.1:8765`.
 - Captura de `ttwid` tanto en la respuesta final como en las redirecciones HTTP; caché temporal y diagnóstico de respuestas sin cookie.
-- Recuperación alternativa mediante WebView Android invisible y no adjunto a la interfaz: no abre ventanas ni muestra un navegador. Si TikTok requiere consentimiento/verificación interactiva, informa del fallo y no intenta omitirla.
+- Recuperación alternativa mediante WebView Android invisible y no adjunto a la interfaz: no abre ventanas ni muestra un navegador. La adquisición es single-flight entre instancias: una segunda pulsación espera al intento activo y vuelve a consultar el almacén compartido antes de crear otro WebView. La búsqueda sondea `CookieManager` hasta 30 segundos; `onPageFinished` no se interpreta como prueba de que la cookie ya esté disponible. Los errores de recursos secundarios no cancelan la adquisición y la limpieza elimina solo los callbacks propios del intento. Si TikTok requiere consentimiento/verificación interactiva, informa del fallo y no intenta omitirla.
 - La cookie anónima se valida antes de entregarla al mismo transporte WebSocket.
 - El puente local no se expone a la red Wi-Fi ni a Internet.
 
@@ -73,7 +73,7 @@ Los comandos se configuran en la app, una regla por línea, con el formato:
 }
 ```
 
-## Compilar
+## Cambios 0.11.1\n\n- Corrección de concurrencia de la recuperación WebView: evita WebView duplicados por pulsaciones repetidas, reusa `ttwid` ya almacenada y espera a la finalización de la limpieza antes de devolver el resultado.\n- La limpieza ya no elimina callbacks globales del hilo principal; solo cancela el sondeo y timeout de esta adquisición.\n- La carga de recursos secundarios fallidos no interrumpe la búsqueda de la cookie del documento principal.\n\n## Compilar
 
 Requisitos:
 - JDK 17
