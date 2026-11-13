@@ -145,14 +145,8 @@ class TikTokWebViewCookieProvider(context: Context) {
 
     private fun extractTtwid(manager: CookieManager, urls: List<String>): String? {
         for (url in urls) {
-            val header = runCatching { manager.getCookie(url) }.getOrNull().orEmpty()
-            val raw = header.split(';')
-                .asSequence()
-                .map { it.trim() }
-                .firstOrNull { it.startsWith("ttwid=") }
-                ?.substringAfter("ttwid=")
-                ?.takeIf { it.matches(Regex("[A-Za-z0-9._-]{8,512}")) }
-            if (raw != null) return raw
+            val header = runCatching { manager.getCookie(url) }.getOrNull()
+            TtwidCookieParser.fromCookieHeader(header)?.let { return it }
         }
         return null
     }
