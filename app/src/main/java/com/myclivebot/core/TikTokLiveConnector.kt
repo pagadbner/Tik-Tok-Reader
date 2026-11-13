@@ -146,7 +146,7 @@ class TikTokLiveConnector(
     }
 
     private fun validateTtwid(value: String): String? =
-        value.trim().takeIf { it.matches(Regex("[A-Za-z0-9._-]{8,512}")) }
+        TtwidCookieParser.validate(value)
 
     private fun fetchAnonymousDeviceCookie(): String {
         val now = System.currentTimeMillis()
