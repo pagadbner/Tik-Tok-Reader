@@ -177,10 +177,7 @@ class TikTokLiveConnector(
                 while (previous != null && redirects < 10 && cookie == null) {
                     cookie = previous.headers.values("Set-Cookie")
                         .firstNotNullOfOrNull { header ->
-                            header.substringBefore(";").trim()
-                                .takeIf { it.startsWith("ttwid=") }
-                                ?.substringAfter("ttwid=")
-                                ?.takeIf { it.isNotBlank() }
+                            TtwidCookieParser.fromCookieHeader(header)
                         }
                     previous = previous.priorResponse
                     if (previous != null) redirects++
