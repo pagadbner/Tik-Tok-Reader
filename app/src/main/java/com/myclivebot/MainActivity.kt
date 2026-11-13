@@ -128,6 +128,12 @@ class MainActivity : ComponentActivity() {
                         .putExtra(BotForegroundService.EXTRA_READ_FOLLOWS, settings.readFollows)
                         .putExtra(BotForegroundService.EXTRA_READ_GIFTS, settings.readGifts)
                         .putExtra(BotForegroundService.EXTRA_RANDOM_VOICES, settings.randomVoices)
+                        .putExtra(BotForegroundService.EXTRA_COMMANDS_ENABLED, settings.customCommandsEnabled)
+                        .putStringArrayListExtra(BotForegroundService.EXTRA_CUSTOM_COMMANDS, ArrayList(settings.customCommands.map { "${it.key}=${it.value}" }))
+                        .putExtra(BotForegroundService.EXTRA_WELCOME_ENABLED, settings.welcomeEnabled)
+                        .putExtra(BotForegroundService.EXTRA_WELCOME_TEMPLATE, settings.welcomeTemplate)
+                        .putExtra(BotForegroundService.EXTRA_GIFT_MINIMUM_REPEAT, settings.giftMinimumRepeatCount)
+                        .putExtra(BotForegroundService.EXTRA_GIFT_TEMPLATE, settings.giftAlertTemplate)
                     startService(intent)
                 },
                 onStop = {
@@ -210,7 +216,7 @@ private fun BotApp(
         mutableStateOf(
             prefs.getString(
                 "custom_commands",
-                "!redes=Mis redes están en mi perfil.\\n!discord=Únete a mi comunidad de Discord.\\n!youtube=Encuentra mis videos en YouTube.\\n!horario=Consulta mi horario en el perfil."
+                "!redes=Mis redes están en mi perfil.\n!discord=Únete a mi comunidad de Discord.\n!youtube=Encuentra mis videos en YouTube.\n!horario=Consulta mi horario en el perfil."
             ).orEmpty()
         )
     }
@@ -294,7 +300,12 @@ private fun BotApp(
 
     val selectedVoice = PiperVoiceCatalog.find(voiceId)
     val connected = status.contains("Conectado", true) && !status.contains("no se pudo", true)
-    LaunchedEffect(connected, readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, voiceInstalled) {
+    LaunchedEffect(
+        connected, readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat,
+        readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers, volume,
+        speed, voiceId, voiceInstalled, customCommandsEnabled, customCommandsText,
+        welcomeEnabled, welcomeTemplate, giftMinimumRepeat, giftAlertTemplate
+    ) {
         if (connected && voiceInstalled) {
             delay(350)
             onUpdateSettings(
