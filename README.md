@@ -105,7 +105,7 @@ No se solicita la contraseña de TikTok ni se almacena una cookie de sesión de 
 ## Limitaciones conocidas
 
 - La integración Webcast no es oficial. TikTok puede cambiar el protocolo, limitar peticiones o dejar de enviar determinados campos/eventos.
-- El modo de solo seguidores interpreta `User.follow_info.follow_status` (campo 22 / subcampo 3) del esquema Webcast. Si TikTok no incluye esa metadata, el estado permanece desconocido y el comentario se descarta en ese modo.
+- El modo de solo seguidores prioriza `User.is_follower` (campo 1029), utiliza `User.follow_status` (campo 1024) como respaldo y admite el esquema anidado `follow_info.follow_status` (campo 22 / subcampo 3). Si TikTok no incluye esa metadata, el estado permanece desconocido y el comentario se descarta en ese modo.
 - Los avisos de regalos y seguidores dependen de que el evento correspondiente llegue y pueda interpretarse.
 - La cola prioritaria no interrumpe una frase que ya se está reproduciendo.
 - La síntesis es local después de descargar el modelo; la primera descarga requiere Internet.
