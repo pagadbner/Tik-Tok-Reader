@@ -1,6 +1,5 @@
 package com.myclivebot.core
 
-import android.content.Context
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -83,6 +82,8 @@ class TikTokLiveConnector(
                 val ttwid = try {
                     fetchAnonymousDeviceCookie()
                 } catch (httpError: Exception) {
+                    // Do not switch transports after an explicit platform rate-limit/deny response.
+                    if (httpError.message.orEmpty().contains("limitó")) throw httpError
                     onStatus("La petición HTTP no obtuvo ttwid. Probando recuperación WebView oculta…")
                     val recovered = cookieFallback?.invoke()
                         ?: throw httpError
