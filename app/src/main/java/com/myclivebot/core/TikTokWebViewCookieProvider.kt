@@ -48,7 +48,6 @@ class TikTokWebViewCookieProvider(context: Context) {
                             latch.countDown()
                         }
 
-                        @Suppress("DEPRECATION")
                         override fun onReceivedError(
                             view: WebView,
                             errorCode: Int,
