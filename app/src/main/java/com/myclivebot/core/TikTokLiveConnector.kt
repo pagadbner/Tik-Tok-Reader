@@ -358,10 +358,17 @@ class TikTokLiveConnector(
                             displayName = displayName(user),
                             text = comment,
                             isModerator = identity?.bool(5) == true,
-                            // Webcast User.follow_info (field 22) contains follow_status (field 3).
-                            // Missing metadata remains unknown; never guess follower status.
-                            isFollower = user?.message(22)?.let { info ->
-                                if (info.has(3)) FollowerStatusParser.isFollowing(info.long(3)) else null
+                            // Current Webcast User exposes is_follower at field 1029 and
+                            // follow_status at 1024. Older schemas may nest follow_status
+                            // under follow_info (field 22 / subfield 3).
+                            isFollower = user?.let { sender ->
+                                val explicitFlag = if (sender.has(1029)) sender.bool(1029) else null
+                                val status = when {
+                                    sender.has(1024) -> sender.long(1024)
+                                    sender.message(22)?.has(3) == true -> sender.message(22)?.long(3)
+                                    else -> null
+                                }
+                                FollowerStatusParser.isFollower(explicitFlag, status)
                             }
                         )
                     )
