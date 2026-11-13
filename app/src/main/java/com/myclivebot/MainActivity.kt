@@ -510,7 +510,7 @@ private fun BotApp(
                                 commands = customCommandEntries,
                                 onCommandsChange = { updated ->
                                     customCommandEntries = updated
-                                    customCommandsText = updated.joinToString("\\n") { "${it.trigger}=${it.response}" }
+                                    customCommandsText = updated.joinToString("\n") { "${it.trigger}=${it.response}" }
                                 }
                             )
                             Text("Cada activador se reconoce al inicio del comentario. La respuesta se reproduce solo en tu dispositivo; no se publica en el chat de TikTok.", color = Muted, style = MaterialTheme.typography.bodySmall)
