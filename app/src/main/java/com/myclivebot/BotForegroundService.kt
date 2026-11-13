@@ -231,6 +231,7 @@ class BotForegroundService : Service() {
         }
         activeVoiceId = settings.voiceId
         activeVolume = settings.volume
+        piper?.setMuted(voiceMuted)
         activeSpeed = settings.speed
         if (speechQueue == null) {
             speechQueue = SpeechQueueWorker(piper!!, serviceScope, capacity = capacity)
