@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicReference
  * Only callbacks owned by this acquisition are cancelled during cleanup.
  */
 class TikTokWebViewCookieProvider(context: Context) {
-    private val appContext = context.applicationContext
+    // Keep the Service context: WebView needs a fully themed Android Context, but no Activity/window.
 
     fun acquireTtwid(timeoutMs: Long = DEFAULT_TIMEOUT_MS): String =
         synchronized(ACQUISITION_LOCK) {
@@ -92,7 +92,7 @@ class TikTokWebViewCookieProvider(context: Context) {
         main.post {
             if (completed.get()) return@post
             val webView = try {
-                WebView(appContext).apply {
+                WebView(context).apply {
                     visibility = View.GONE
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
@@ -157,7 +157,6 @@ class TikTokWebViewCookieProvider(context: Context) {
         main.post {
             main.removeCallbacks(poll)
             main.removeCallbacks(timeout)
-            cookies.flush()
             webViewRef.getAndSet(null)?.apply {
                 stopLoading()
                 webViewClient = WebViewClient()
@@ -166,6 +165,8 @@ class TikTokWebViewCookieProvider(context: Context) {
             cleanupLatch.countDown()
         }
         cleanupLatch.await(CLEANUP_WAIT_MS, TimeUnit.MILLISECONDS)
+        // flush() may perform disk I/O, so keep it off the main thread.
+        runCatching { cookies.flush() }
 
         if (!finished && result.get() == null) {
             throw IOException(failure.get() ?: "WebView no pudo preparar las cookies.")
