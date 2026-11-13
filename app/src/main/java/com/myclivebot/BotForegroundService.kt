@@ -7,6 +7,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
 import com.myclivebot.core.CommentFilter
 import com.myclivebot.core.CommentPipeline
 import com.myclivebot.core.ChatCommandParser
@@ -34,6 +35,7 @@ class BotForegroundService : Service() {
         const val ACTION_UPDATE_SETTINGS = "com.myclivebot.UPDATE_SETTINGS"
         const val ACTION_SKIP_NEXT_COMMENT = "com.myclivebot.SKIP_NEXT_COMMENT"
         const val ACTION_SET_MUTE = "com.myclivebot.SET_MUTE"
+        const val ACTION_OVERLAY_CONFIG = "com.myclivebot.OVERLAY_CONFIG"
         const val EXTRA_MUTED = "voice_muted"
         const val ACTION_STATUS = "com.myclivebot.STATUS"
         const val ACTION_COMMENT = "com.myclivebot.COMMENT"
@@ -77,6 +79,8 @@ class BotForegroundService : Service() {
     private var activeSettings: ReaderSettings? = null
     @Volatile private var voiceMuted: Boolean = false
     private var pipeline: CommentPipeline? = null
+    private var floatingOverlay: FloatingOverlayController? = null
+    @Volatile private var lastKnownStatus: String = "Detenido"
 
     override fun onCreate() {
         super.onCreate()
@@ -105,6 +109,7 @@ class BotForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                floatingOverlay?.hide()
                 connector?.disconnect()
                 connector = null
                 pipeline = null
@@ -136,6 +141,10 @@ class BotForegroundService : Service() {
                     return START_NOT_STICKY
                 }
                 startReader(username, settings)
+            }
+
+            ACTION_OVERLAY_CONFIG -> {
+                if (activeSettings != null) refreshFloatingOverlay()
             }
 
             ACTION_SKIP_NEXT_COMMENT -> {
@@ -217,6 +226,7 @@ class BotForegroundService : Service() {
             cookieFallback = { TikTokWebViewCookieProvider(this).acquireTtwid() }
         )
         connector = liveConnector
+        refreshFloatingOverlay()
         serviceScope.launch(Dispatchers.IO) {
             runCatching { liveConnector.connect(username) }
                 .onFailure { updateStatus("No se pudo conectar: ${it.message ?: "error desconocido"}") }
@@ -295,7 +305,31 @@ class BotForegroundService : Service() {
         )
     }
 
+    private fun refreshFloatingOverlay() {
+        val enabled = getSharedPreferences("tiklbot_preferences", MODE_PRIVATE)
+            .getBoolean("floating_overlay_enabled", false)
+        if (!enabled || activeSettings == null || !Settings.canDrawOverlays(this)) {
+            floatingOverlay?.hide()
+            return
+        }
+        val controller = floatingOverlay ?: FloatingOverlayController(
+            this,
+            onMuteToggle = {
+                voiceMuted = !voiceMuted
+                piper?.setMuted(voiceMuted)
+                updateStatus(if (voiceMuted) "Voz silenciada" else "Voz activada")
+            },
+            onSkipNext = {
+                val skipped = speechQueue?.skipNextComment() == true
+                updateStatus(if (skipped) "Comentario pendiente omitido" else "No hay comentarios pendientes para omitir")
+            }
+        ).also { floatingOverlay = it }
+        controller.show(lastKnownStatus, voiceMuted)
+    }
+
     private fun updateStatus(status: String) {
+        lastKnownStatus = status
+        floatingOverlay?.update(status, voiceMuted)
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(status))
         sendBroadcast(
             Intent(ACTION_STATUS).setPackage(packageName).putExtra(EXTRA_STATUS, status)
@@ -304,6 +338,8 @@ class BotForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        floatingOverlay?.hide()
+        floatingOverlay = null
         connector?.disconnect()
         connector = null
         speechQueue?.close()
