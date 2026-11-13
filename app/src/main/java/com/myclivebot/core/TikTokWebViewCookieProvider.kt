@@ -53,7 +53,6 @@ class TikTokWebViewCookieProvider(context: Context) {
                     settings.domStorageEnabled = true
                     settings.loadsImagesAutomatically = false
                     settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
-                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView, url: String) {
                             // HTML loaded: continue polling for asynchronous Set-Cookie processing.
