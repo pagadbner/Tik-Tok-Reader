@@ -10,6 +10,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SpeechQueueWorkerTest {
+    @Test fun skipsOnlyTheNextPendingChatComment() {
+        val gate = CompletableDeferred<Unit>()
+        val spoken = mutableListOf<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                spoken += text
+                if (text == "currently speaking") gate.await()
+            }
+            override suspend fun stop() = Unit
+        }
+        val worker = SpeechQueueWorker(engine, scope, capacity = 4)
+
+        try {
+            assertTrue(worker.enqueue("currently speaking"))
+            assertTrue(worker.enqueue("skip this"))
+            assertTrue(worker.enqueue("keep this"))
+            assertTrue(worker.skipNextComment())
+            assertEquals(1, worker.queuedCount())
+            gate.complete(Unit)
+            assertEquals(listOf("currently speaking", "keep this"), spoken)
+            assertTrue(!worker.skipNextComment())
+        } finally {
+            worker.close()
+            scope.cancel()
+        }
+    }
+
     @Test fun dropsOldestPendingChatToKeepQueueFresh() {
         val gate = CompletableDeferred<Unit>()
         val spoken = mutableListOf<String>()
