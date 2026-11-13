@@ -31,11 +31,11 @@ internal class FloatingOverlayController(
     private var muted = false
     private var expanded = true
 
-    fun show(status: String, isMuted: Boolean) {
+    fun show(statusText: String, isMuted: Boolean) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) return
         muted = isMuted
         if (root != null) {
-            update(status, isMuted)
+            update(statusText, isMuted)
             return
         }
 
@@ -59,7 +59,7 @@ internal class FloatingOverlayController(
             setPadding(dp(2), dp(5), dp(8), dp(5))
         }
         val status = TextView(context).apply {
-            text = status.take(34)
+            text = statusText.take(34)
             setTextColor(0xFFFFFFFF.toInt())
             textSize = 12f
             maxLines = 1
