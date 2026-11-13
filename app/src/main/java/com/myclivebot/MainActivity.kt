@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
+import com.myclivebot.core.ChatCommandParser
 import com.myclivebot.core.PiperSpeechEngine
 import com.myclivebot.core.PiperVoiceCatalog
 import com.myclivebot.core.ReaderSettings
@@ -102,6 +103,12 @@ class MainActivity : ComponentActivity() {
                         .putExtra(BotForegroundService.EXTRA_READ_FOLLOWS, settings.readFollows)
                         .putExtra(BotForegroundService.EXTRA_READ_GIFTS, settings.readGifts)
                         .putExtra(BotForegroundService.EXTRA_RANDOM_VOICES, settings.randomVoices)
+                        .putExtra(BotForegroundService.EXTRA_COMMANDS_ENABLED, settings.customCommandsEnabled)
+                        .putStringArrayListExtra(BotForegroundService.EXTRA_CUSTOM_COMMANDS, ArrayList(settings.customCommands.map { "${it.key}=${it.value}" }))
+                        .putExtra(BotForegroundService.EXTRA_WELCOME_ENABLED, settings.welcomeEnabled)
+                        .putExtra(BotForegroundService.EXTRA_WELCOME_TEMPLATE, settings.welcomeTemplate)
+                        .putExtra(BotForegroundService.EXTRA_GIFT_MINIMUM_REPEAT, settings.giftMinimumRepeatCount)
+                        .putExtra(BotForegroundService.EXTRA_GIFT_TEMPLATE, settings.giftAlertTemplate)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
                 },
                 onUpdateSettings = { settings ->
@@ -198,6 +205,19 @@ private fun BotApp(
     var readFollows by remember { mutableStateOf(prefs.getBoolean("read_follows", true)) }
     var readGifts by remember { mutableStateOf(prefs.getBoolean("read_gifts", true)) }
     var randomVoices by remember { mutableStateOf(prefs.getBoolean("random_voices", false)) }
+    var customCommandsEnabled by remember { mutableStateOf(prefs.getBoolean("custom_commands_enabled", false)) }
+    var customCommandsText by remember {
+        mutableStateOf(
+            prefs.getString(
+                "custom_commands",
+                "!redes=Mis redes están en mi perfil.\\n!discord=Únete a mi comunidad de Discord.\\n!youtube=Encuentra mis videos en YouTube.\\n!horario=Consulta mi horario en el perfil."
+            ).orEmpty()
+        )
+    }
+    var welcomeEnabled by remember { mutableStateOf(prefs.getBoolean("welcome_enabled", false)) }
+    var welcomeTemplate by remember { mutableStateOf(prefs.getString("welcome_template", "¡Bienvenido al LIVE, {user}!").orEmpty()) }
+    var giftMinimumRepeat by remember { mutableStateOf(prefs.getInt("gift_minimum_repeat", 1).toString()) }
+    var giftAlertTemplate by remember { mutableStateOf(prefs.getString("gift_alert_template", "").orEmpty()) }
     var maxQueue by remember { mutableStateOf(prefs.getInt("max_queue", 30).toString()) }
     var blockedWords by remember { mutableStateOf(prefs.getString("blocked_words", "").orEmpty()) }
     var ignoredUsers by remember { mutableStateOf(prefs.getString("ignored_users", "").orEmpty()) }
@@ -211,6 +231,29 @@ private fun BotApp(
     var downloading by remember { mutableStateOf(false) }
     var voiceError by remember { mutableStateOf("") }
     var voiceMenuExpanded by remember { mutableStateOf(false) }
+
+    fun buildReaderSettings(): ReaderSettings = ReaderSettings(
+        readUsername = readUsername,
+        blockedWords = splitList(blockedWords).toSet(),
+        ignoredUsers = splitList(ignoredUsers).toSet(),
+        maxQueueSize = maxQueue.toIntOrNull()?.coerceIn(5, 100) ?: 30,
+        ignoreEmojis = ignoreEmojis,
+        ignoreSymbols = ignoreSymbols,
+        onlyUsername = onlyUsername,
+        volume = volume,
+        speed = speed,
+        voiceId = voiceId,
+        followerOnlyChat = followerOnlyChat,
+        readFollows = readFollows,
+        readGifts = readGifts,
+        randomVoices = randomVoices,
+        customCommandsEnabled = customCommandsEnabled,
+        customCommands = if (customCommandsEnabled) ChatCommandParser.parseConfig(customCommandsText) else emptyMap(),
+        welcomeEnabled = welcomeEnabled,
+        welcomeTemplate = welcomeTemplate,
+        giftMinimumRepeatCount = giftMinimumRepeat.toIntOrNull()?.coerceIn(1, 999) ?: 1,
+        giftAlertTemplate = giftAlertTemplate
+    )
 
     LaunchedEffect(externalStatus) { status = externalStatus }
     LaunchedEffect(username) { prefs.edit().putString("last_username", username).apply() }
@@ -238,28 +281,24 @@ private fun BotApp(
             .apply()
     }
 
+    LaunchedEffect(customCommandsEnabled, customCommandsText, welcomeEnabled, welcomeTemplate, giftMinimumRepeat, giftAlertTemplate) {
+        prefs.edit()
+            .putBoolean("custom_commands_enabled", customCommandsEnabled)
+            .putString("custom_commands", customCommandsText)
+            .putBoolean("welcome_enabled", welcomeEnabled)
+            .putString("welcome_template", welcomeTemplate)
+            .putInt("gift_minimum_repeat", giftMinimumRepeat.toIntOrNull()?.coerceIn(1, 999) ?: 1)
+            .putString("gift_alert_template", giftAlertTemplate)
+            .apply()
+    }
+
     val selectedVoice = PiperVoiceCatalog.find(voiceId)
     val connected = status.contains("Conectado", true) && !status.contains("no se pudo", true)
     LaunchedEffect(connected, readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, voiceInstalled) {
         if (connected && voiceInstalled) {
             delay(350)
             onUpdateSettings(
-                ReaderSettings(
-                    readUsername = readUsername,
-                    blockedWords = splitList(blockedWords).toSet(),
-                    ignoredUsers = splitList(ignoredUsers).toSet(),
-                    maxQueueSize = maxQueue.toIntOrNull()?.coerceIn(5, 100) ?: 30,
-                    ignoreEmojis = ignoreEmojis,
-                    ignoreSymbols = ignoreSymbols,
-                    onlyUsername = onlyUsername,
-                    volume = volume,
-                    speed = speed,
-                    voiceId = voiceId,
-                    followerOnlyChat = followerOnlyChat,
-                    readFollows = readFollows,
-                    readGifts = readGifts,
-                    randomVoices = randomVoices
-                )
+                buildReaderSettings()
             )
         }
     }
@@ -317,22 +356,7 @@ private fun BotApp(
                                             else -> {
                                                 recentUsernames = (listOf(clean) + recentUsernames.filterNot { it.equals(clean, true) }).take(8)
                                                 prefs.edit().putStringSet("recent_usernames", recentUsernames.toSet()).apply()
-                                                val settings = ReaderSettings(
-                                                    readUsername = readUsername,
-                                                    blockedWords = splitList(blockedWords).toSet(),
-                                                    ignoredUsers = splitList(ignoredUsers).toSet(),
-                                                    maxQueueSize = maxQueue.toIntOrNull()?.coerceIn(5, 100) ?: 30,
-                                                    ignoreEmojis = ignoreEmojis,
-                                                    ignoreSymbols = ignoreSymbols,
-                                                    onlyUsername = onlyUsername,
-                                                    volume = volume,
-                                                    speed = speed,
-                                                    voiceId = voiceId,
-                                                    followerOnlyChat = followerOnlyChat,
-                                                    readFollows = readFollows,
-                                                    readGifts = readGifts,
-                                                    randomVoices = randomVoices
-                                                )
+                                                val settings = buildReaderSettings()
                                                 onStart(clean, settings)
                                                 status = "Servicio iniciado · conectando…"
                                             }
@@ -430,7 +454,56 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("03", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local")
+                    SectionHeader("03", "Automatizaciones del chat", "Comandos locales, bienvenida y alertas avanzadas")
+                    GlassCard {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                            SettingSwitch("Activar comandos personalizados", customCommandsEnabled) { customCommandsEnabled = it }
+                            OutlinedTextField(
+                                value = customCommandsText,
+                                onValueChange = { customCommandsText = it },
+                                label = { Text("Comandos · uno por línea") },
+                                placeholder = { Text("!discord=Únete a mi comunidad") },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 4,
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                            Text("Formato: !comando=respuesta. Ejemplos incluidos: !redes, !discord, !youtube y !horario. La respuesta se reproduce solo en tu dispositivo; no se publica en el chat de TikTok.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            HorizontalDivider(color = Color.White.copy(alpha = .09f))
+                            SettingSwitch("Dar bienvenida al primer comentario de cada usuario", welcomeEnabled) { welcomeEnabled = it }
+                            OutlinedTextField(
+                                value = welcomeTemplate,
+                                onValueChange = { welcomeTemplate = it.take(280) },
+                                label = { Text("Mensaje de bienvenida") },
+                                supportingText = { Text("Puedes usar {user}. Se activa una vez por usuario y conexión.") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = false,
+                                minLines = 2,
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                            HorizontalDivider(color = Color.White.copy(alpha = .09f))
+                            OutlinedTextField(
+                                value = giftMinimumRepeat,
+                                onValueChange = { giftMinimumRepeat = it.filter(Char::isDigit).take(3) },
+                                label = { Text("Repeticiones mínimas para alertar (1–999)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                            OutlinedTextField(
+                                value = giftAlertTemplate,
+                                onValueChange = { giftAlertTemplate = it.take(280) },
+                                label = { Text("Plantilla de alerta de regalo (opcional)") },
+                                placeholder = { Text("{user} envió {count} regalos") },
+                                supportingText = { Text("Variables disponibles: {user} y {count}. Se usa el contador de repetición recibido de TikTok.") },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 2,
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                            Text("La alerta usa únicamente el contador de repetición disponible en el evento Webcast. No se inventan nombres de regalos ni valores de diamantes.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+
+                    SectionHeader("04", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local")
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("SELECCIONA UNA VOZ", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
@@ -495,7 +568,7 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("04", "Controles de voz", "Ajusta la reproducción a tu gusto")
+                    SectionHeader("05", "Controles de voz", "Ajusta la reproducción a tu gusto")
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -531,7 +604,7 @@ private fun BotApp(
                     }
 
                     Text(
-                        "TIKTOK LIVE READER  •  v0.8  •  BY ROXI",
+                        "TIKTOK LIVE READER  •  v0.10.0  •  BY ROXI",
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         color = Muted.copy(alpha = .7f),
                         style = MaterialTheme.typography.labelSmall,
