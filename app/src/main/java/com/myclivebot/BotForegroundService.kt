@@ -33,6 +33,8 @@ class BotForegroundService : Service() {
         const val ACTION_TEST_VOICE = "com.myclivebot.TEST_VOICE"
         const val ACTION_UPDATE_SETTINGS = "com.myclivebot.UPDATE_SETTINGS"
         const val ACTION_SKIP_NEXT_COMMENT = "com.myclivebot.SKIP_NEXT_COMMENT"
+        const val ACTION_SET_MUTE = "com.myclivebot.SET_MUTE"
+        const val EXTRA_MUTED = "voice_muted"
         const val ACTION_STATUS = "com.myclivebot.STATUS"
         const val ACTION_COMMENT = "com.myclivebot.COMMENT"
         const val EXTRA_COMMENT_USERNAME = "comment_username"
@@ -73,6 +75,7 @@ class BotForegroundService : Service() {
     private var activeVolume: Float? = null
     private var activeSpeed: Float? = null
     private var activeSettings: ReaderSettings? = null
+    @Volatile private var voiceMuted: Boolean = false
     private var pipeline: CommentPipeline? = null
 
     override fun onCreate() {
@@ -138,6 +141,12 @@ class BotForegroundService : Service() {
             ACTION_SKIP_NEXT_COMMENT -> {
                 val skipped = speechQueue?.skipNextComment() == true
                 updateStatus(if (skipped) "Comentario pendiente omitido" else "No hay comentarios pendientes para omitir")
+            }
+
+            ACTION_SET_MUTE -> {
+                voiceMuted = intent.getBooleanExtra(EXTRA_MUTED, false)
+                piper?.setMuted(voiceMuted)
+                updateStatus(if (voiceMuted) "Voz silenciada" else "Voz activada")
             }
 
             ACTION_UPDATE_SETTINGS -> {
