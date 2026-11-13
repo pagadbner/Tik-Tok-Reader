@@ -100,7 +100,7 @@ class MainActivity : ComponentActivity() {
                 externalStatus = readerStatus.value,
                 liveComments = liveComments,
                 onStart = { username, settings ->
-                    val intent = Intent(this, BotForegroundService::class.java)
+                    val intent = Intent(this@MainActivity, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_START)
                         .putExtra(BotForegroundService.EXTRA_USERNAME, username)
                         .putExtra(BotForegroundService.EXTRA_READ_USERNAME, settings.readUsername)
@@ -126,7 +126,7 @@ class MainActivity : ComponentActivity() {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
                 },
                 onUpdateSettings = { settings ->
-                    val intent = Intent(this, BotForegroundService::class.java)
+                    val intent = Intent(this@MainActivity, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_UPDATE_SETTINGS)
                         .putExtra(BotForegroundService.EXTRA_READ_USERNAME, settings.readUsername)
                         .putStringArrayListExtra(BotForegroundService.EXTRA_BLOCKED_WORDS, ArrayList(settings.blockedWords))
@@ -151,18 +151,18 @@ class MainActivity : ComponentActivity() {
                     startService(intent)
                 },
                 onStop = {
-                    startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_STOP))
+                    startService(Intent(this@MainActivity, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_STOP))
                 },
                 onSkipNextComment = {
-                    startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_SKIP_NEXT_COMMENT))
+                    startService(Intent(this@MainActivity, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_SKIP_NEXT_COMMENT))
                 },
                 onSetMuted = { muted ->
-                    startService(Intent(this, BotForegroundService::class.java)
+                    startService(Intent(this@MainActivity, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_SET_MUTE)
                         .putExtra(BotForegroundService.EXTRA_MUTED, muted))
                 },
                 onTestVoice = { voiceId, volume, speed ->
-                    val intent = Intent(this, BotForegroundService::class.java)
+                    val intent = Intent(this@MainActivity, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_TEST_VOICE)
                         .putExtra(BotForegroundService.EXTRA_VOICE_ID, voiceId)
                         .putExtra(BotForegroundService.EXTRA_VOLUME, volume)
