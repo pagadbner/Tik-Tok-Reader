@@ -20,7 +20,13 @@ data class ReaderSettings(
     val followerOnlyChat: Boolean = false,
     val readFollows: Boolean = true,
     val readGifts: Boolean = true,
-    val randomVoices: Boolean = false
+    val randomVoices: Boolean = false,
+    val customCommandsEnabled: Boolean = false,
+    val customCommands: Map<String, String> = emptyMap(),
+    val welcomeEnabled: Boolean = false,
+    val welcomeTemplate: String = "¡Bienvenido al LIVE, {user}!",
+    val giftMinimumRepeatCount: Int = 1,
+    val giftAlertTemplate: String = ""
 )
 
 class CommentFilter {
