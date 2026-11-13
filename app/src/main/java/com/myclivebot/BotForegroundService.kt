@@ -18,6 +18,7 @@ import com.myclivebot.core.PiperVoiceCatalog
 import com.myclivebot.core.ReaderSettings
 import com.myclivebot.core.SpeechQueueWorker
 import com.myclivebot.core.TikTokLiveConnector
+import com.myclivebot.core.TikTokWebViewCookieProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -197,7 +198,8 @@ class BotForegroundService : Service() {
             onEvent = { event ->
                 livePipeline.onEvent(event)
                 publishLiveStats()
-            }
+            },
+            cookieFallback = { TikTokWebViewCookieProvider(this).acquireTtwid() }
         )
         connector = liveConnector
         serviceScope.launch(Dispatchers.IO) {
