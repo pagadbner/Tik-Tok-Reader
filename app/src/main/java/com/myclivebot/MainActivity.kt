@@ -5,6 +5,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Uri
+import android.provider.Settings
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -60,6 +62,7 @@ class MainActivity : ComponentActivity() {
     private val readerStatus = mutableStateOf("Detenido")
     private val liveComments = mutableStateListOf<LiveCommentUi>()
     private var statusReceiverRegistered = false
+    private val overlayPermissionGranted = mutableStateOf(false)
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -84,10 +87,22 @@ class MainActivity : ComponentActivity() {
     }
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private val overlayPermissionRequest =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            overlayPermissionGranted.value = Settings.canDrawOverlays(this)
+            if (overlayPermissionGranted.value &&
+                getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
+                    .getBoolean("floating_overlay_enabled", false) &&
+                readerStatus.value != "Detenido"
+            ) {
+                startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_OVERLAY_CONFIG))
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        overlayPermissionGranted.value = Settings.canDrawOverlays(this)
         if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         setContent {
             var showBrandSplash by remember { mutableStateOf(true) }
@@ -99,6 +114,20 @@ class MainActivity : ComponentActivity() {
             BotApp(
                 externalStatus = readerStatus.value,
                 liveComments = liveComments,
+                overlayPermissionGranted = overlayPermissionGranted.value,
+                onRequestOverlayPermission = {
+                    overlayPermissionRequest.launch(
+                        Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+                    )
+                },
+                onOverlayEnabledChanged = { enabled ->
+                    getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
+                        .edit().putBoolean("floating_overlay_enabled", enabled).apply()
+                    if (readerStatus.value != "Detenido") {
+                        startService(Intent(this@MainActivity, BotForegroundService::class.java)
+                            .setAction(BotForegroundService.ACTION_OVERLAY_CONFIG))
+                    }
+                },
                 onStart = { username, settings ->
                     val intent = Intent(this@MainActivity, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_START)
@@ -151,6 +180,7 @@ class MainActivity : ComponentActivity() {
                     startService(intent)
                 },
                 onStop = {
+                    readerStatus.value = "Detenido"
                     startService(Intent(this@MainActivity, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_STOP))
                 },
                 onSkipNextComment = {
@@ -242,6 +272,9 @@ class MainActivity : ComponentActivity() {
 private fun BotApp(
     externalStatus: String,
     liveComments: List<LiveCommentUi>,
+    overlayPermissionGranted: Boolean,
+    onRequestOverlayPermission: () -> Unit,
+    onOverlayEnabledChanged: (Boolean) -> Unit,
     onStart: (String, ReaderSettings) -> Unit,
     onStop: () -> Unit,
     onSkipNextComment: () -> Unit,
@@ -286,6 +319,7 @@ private fun BotApp(
     var ignoredUsers by remember { mutableStateOf(prefs.getString("ignored_users", "").orEmpty()) }
     var volume by remember { mutableFloatStateOf(prefs.getFloat("volume", 0.90f).coerceIn(0f, 1f)) }
     var voiceMuted by remember { mutableStateOf(prefs.getBoolean("voice_muted", false)) }
+    var overlayEnabled by remember { mutableStateOf(prefs.getBoolean("floating_overlay_enabled", false)) }
     var speed by remember { mutableFloatStateOf(prefs.getFloat("speed", 1.0f).coerceIn(0.65f, 1.5f)) }
     var voiceId by remember {
         mutableStateOf(prefs.getString("voice_id", PiperVoiceCatalog.DEFAULT_VOICE_ID) ?: PiperVoiceCatalog.DEFAULT_VOICE_ID)
@@ -478,6 +512,27 @@ private fun BotApp(
                                 ) { Icon(Icons.Default.PlayArrow, null); Text(" INICIAR", fontWeight = FontWeight.Bold) }
                                 OutlinedButton(onClick = { onStop(); status = "Detenido" }, modifier = Modifier.weight(1f).height(54.dp), shape = RoundedCornerShape(17.dp)) {
                                     Icon(Icons.Default.Stop, null); Text(" DETENER", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            HorizontalDivider(color = Color.White.copy(alpha = .09f))
+                            if (overlayPermissionGranted) {
+                                SettingSwitch("Mostrar ventana flotante mientras el bot esté activo", overlayEnabled) {
+                                    overlayEnabled = it
+                                    onOverlayEnabledChanged(it)
+                                }
+                            } else {
+                                Text(
+                                    "La ventana flotante necesita el permiso especial «Mostrar sobre otras aplicaciones». No se activa sin tu autorización.",
+                                    color = Muted,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                OutlinedButton(
+                                    onClick = onRequestOverlayPermission,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(14.dp)
+                                ) {
+                                    Icon(Icons.Default.Layers, contentDescription = null)
+                                    Text("  PERMITIR VENTANA FLOTANTE")
                                 }
                             }
                         }
