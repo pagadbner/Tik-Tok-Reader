@@ -479,8 +479,18 @@ private fun BotApp(
                             Text("El modo aleatorio alterna entre las voces descargadas. Si solo tienes una instalada, utilizará esa.", color = Muted, style = MaterialTheme.typography.bodySmall)
                             Text("El filtro de seguidores depende del estado que TikTok incluya en cada comentario; si no llega ese dato, el comentario se descarta por seguridad.", color = Muted, style = MaterialTheme.typography.bodySmall)
                             HorizontalDivider(color = Color.White.copy(alpha = .09f))
-                            OutlinedTextField(value = blockedWords, onValueChange = { blockedWords = it }, label = { Text("Palabras bloqueadas · separadas por coma") }, modifier = Modifier.fillMaxWidth(), minLines = 2, shape = RoundedCornerShape(16.dp))
-                            OutlinedTextField(value = ignoredUsers, onValueChange = { ignoredUsers = it }, label = { Text("Usuarios ignorados · separados por coma") }, modifier = Modifier.fillMaxWidth(), minLines = 2, shape = RoundedCornerShape(16.dp))
+                            EditableStringList(
+                                title = "Palabras bloqueadas",
+                                placeholder = "Añadir palabra",
+                                items = splitList(blockedWords),
+                                onItemsChange = { blockedWords = it.joinToString("\n") }
+                            )
+                            EditableStringList(
+                                title = "Usuarios que el bot no leerá",
+                                placeholder = "@usuario",
+                                items = splitList(ignoredUsers),
+                                onItemsChange = { ignoredUsers = it.joinToString("\n") }
+                            )
                             OutlinedTextField(value = maxQueue, onValueChange = { maxQueue = it.filter(Char::isDigit).take(3) }, label = { Text("Tamaño de cola (5–100)") }, leadingIcon = { Icon(Icons.Default.Queue, null, tint = Violet) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(16.dp))
                         }
                     }
@@ -682,6 +692,61 @@ private fun SectionHeader(number: String, title: String, subtitle: String) {
 
 private fun splitList(value: String): List<String> =
     value.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+
+
+@Composable
+private fun EditableStringList(
+    title: String,
+    placeholder: String,
+    items: List<String>,
+    onItemsChange: (List<String>) -> Unit
+) {
+    var draft by remember(title) { mutableStateOf("") }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleSmall)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { draft = it.take(80) },
+                placeholder = { Text(placeholder) },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(14.dp)
+            )
+            FilledTonalIconButton(
+                enabled = draft.isNotBlank() && items.none { it.equals(draft.trim(), true) },
+                onClick = {
+                    val value = draft.trim().removePrefix("@").takeIf { it.isNotBlank() } ?: return@FilledTonalIconButton
+                    onItemsChange(items + value)
+                    draft = ""
+                }
+            ) { Icon(Icons.Default.Add, contentDescription = "Añadir") }
+        }
+        if (items.isEmpty()) {
+            Text("Todavía no hay elementos en esta lista.", color = Muted, style = MaterialTheme.typography.bodySmall)
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                items.forEach { item ->
+                    Surface(
+                        color = Color.White.copy(alpha = .055f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            Modifier.padding(start = 12.dp, end = 5.dp, top = 4.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(item, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            IconButton(onClick = { onItemsChange(items.filterNot { it == item }) }) {
+                                Icon(Icons.Default.Close, contentDescription = "Eliminar $item", tint = Muted)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun SettingSwitch(title: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
