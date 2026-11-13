@@ -78,7 +78,11 @@ class TikTokWebViewCookieProvider(context: Context) {
 
             if (webView != null) {
                 webViewRef.set(webView)
-                webView.loadUrl(HOME_URL)
+                runCatching { webView.loadUrl(HOME_URL) }
+                    .onFailure {
+                        failure.set("No se pudo cargar TikTok en WebView: ${it.message}")
+                        latch.countDown()
+                    }
                 main.postDelayed({
                     if (latch.count > 0L) {
                         failure.set("Tiempo agotado al preparar cookies de TikTok en segundo plano.")
@@ -88,9 +92,7 @@ class TikTokWebViewCookieProvider(context: Context) {
             }
         }
 
-        if (!latch.await(timeoutMs + 2_000L, TimeUnit.MILLISECONDS)) {
-            throw IOException("WebView no terminó la preparación de cookies.")
-        }
+        val completed = latch.await(timeoutMs + 2_000L, TimeUnit.MILLISECONDS)
         main.post {
             // CookieManager persists accepted Set-Cookie values independently of this view.
             cookies.flush()
@@ -100,6 +102,7 @@ class TikTokWebViewCookieProvider(context: Context) {
                 destroy()
             }
         }
+        if (!completed) throw IOException("WebView no terminó la preparación de cookies.")
         return result.get() ?: throw IOException(
             failure.get() ?: "TikTok no proporcionó ttwid mediante WebView."
         )
