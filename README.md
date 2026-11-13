@@ -2,7 +2,7 @@
 
 Aplicación Android nativa (Kotlin + Jetpack Compose) para leer comentarios públicos de TikTok LIVE mediante síntesis neuronal Piper ejecutada localmente en el teléfono.
 
-> Estado del proyecto: versión de desarrollo 0.10.0. El conector usa el protocolo Webcast comunitario de TikTok; no es una API oficial y puede verse afectado por cambios o límites del servicio.
+> Estado del proyecto: versión de desarrollo 0.11.0. El conector usa el protocolo Webcast comunitario de TikTok; no es una API oficial y puede verse afectado por cambios o límites del servicio.
 
 ## Funciones disponibles en 0.10.0
 
@@ -11,6 +11,8 @@ Aplicación Android nativa (Kotlin + Jetpack Compose) para leer comentarios púb
 - Servicio Android en primer plano con notificación persistente.
 - Servidor WebSocket integrado en el proceso de la app, disponible únicamente en `127.0.0.1:8765`.
 - Captura de `ttwid` tanto en la respuesta final como en las redirecciones HTTP; caché temporal y diagnóstico de respuestas sin cookie.
+- Recuperación alternativa mediante WebView Android invisible y no adjunto a la interfaz: no abre ventanas ni muestra un navegador. Si TikTok requiere consentimiento/verificación interactiva, informa del fallo y no intenta omitirla.
+- La cookie anónima se valida antes de entregarla al mismo transporte WebSocket.
 - El puente local no se expone a la red Wi-Fi ni a Internet.
 
 ### Lectura, moderación y eventos
@@ -52,7 +54,8 @@ Los comandos se configuran en la app, una regla por línea, con el formato:
 - Los modelos comunitarios son experimentales; comprueba la licencia de cada modelo antes de redistribuirlo o usarlo comercialmente. Las fichas de las variantes Cortana pública y Jarvis no muestran una licencia de redistribución clara.
 
 ### Cola y telemetría local
-- Cola de voz acotada para comentarios.
+- Cola de voz acotada para comentarios; ante saturación, descarta el comentario pendiente más antiguo para priorizar mensajes recientes, sin cortar la frase que ya se reproduce.
+- Alertas prioritarias conservan su carril independiente y no se descartan para hacer espacio a comentarios.
 - Carril prioritario separado para anuncios de seguidores y regalos: se reproducen antes de los comentarios pendientes, sin interrumpir la frase que ya está sonando.
 - Panel de comentarios LIVE dentro de la aplicación, actualizado en tiempo real y limitado a los 60 mensajes más recientes.
 - El puente local emite cada comentario como `live_comment`, además de las estadísticas.
@@ -102,14 +105,14 @@ No se solicita la contraseña de TikTok ni se almacena una cookie de sesión de 
 ## Limitaciones conocidas
 
 - La integración Webcast no es oficial. TikTok puede cambiar el protocolo, limitar peticiones o dejar de enviar determinados campos/eventos.
-- El estado de seguidor solo se puede filtrar cuando TikTok incluye ese dato; si falta, el modo de solo seguidores descarta el comentario.
+- El modo de solo seguidores interpreta `User.follow_info.follow_status` (campo 22 / subcampo 3) del esquema Webcast. Si TikTok no incluye esa metadata, el estado permanece desconocido y el comentario se descarta en ese modo.
 - Los avisos de regalos y seguidores dependen de que el evento correspondiente llegue y pueda interpretarse.
 - La cola prioritaria no interrumpe una frase que ya se está reproduciendo.
 - La síntesis es local después de descargar el modelo; la primera descarga requiere Internet.
 - El servidor WebSocket está limitado a loopback. No debe exponerse a la LAN sin autenticación, control de acceso y una revisión de seguridad.
 - No se ha validado el comportamiento en todos los modelos de Android ni en una transmisión real después de cada cambio; las pruebas de CI no sustituyen las pruebas en dispositivo.
 
-## Hoja de ruta
+## Cambios 0.11.0\n\n- Recuperación de `ttwid` por HTTP y, si falla, mediante un WebView invisible en segundo plano. No se abre Activity ni ventana de navegador.\n- Decodificación del estado de seguimiento desde `follow_info.follow_status`, con pruebas para estados positivo, negativo y ausente.\n- Política de cola de baja latencia: al llenarse, se elimina el comentario pendiente más antiguo y se conserva el audio en reproducción.\n\n## Hoja de ruta
 
 El modelo CE-Legacy exacto compartido para Cortana requiere aceptar acceso en Hugging Face; se ofrece una variante pública distinta del mismo creador.
 
@@ -118,7 +121,7 @@ El desarrollo se dividirá en etapas pequeñas para proteger la conexión y el s
 | Etapa | Objetivo |
 |---|---|
 | 0.9.x | Panel LIVE, limpieza de nombres, resiliencia `ttwid` y voces adicionales Cortana/Jarvis. |
-| 0.10.0 | Comandos locales configurables, bienvenida al primer comentario por usuario y alertas de regalos con umbral/plantilla por repetición. |
+| 0.10.0 | Comandos locales configurables, bienvenida al primer comentario por usuario y alertas de regalos con umbral/plantilla por repetición. |\n| 0.11.0 | Recuperación oculta de cookies, cola de baja latencia y corrección de metadatos de seguidores. |
 | 0.11.x | Favoritos, usuarios prioritarios, antispam ampliado y controles de moderación basados solo en metadatos disponibles. |
 | 0.12.x | Historial local ampliado, estadísticas y exportación CSV. |
 | 0.13.x | API local documentada e integración con OBS; panel remoto solo tras añadir autenticación y protección de red. |
