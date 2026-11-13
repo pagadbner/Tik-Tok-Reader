@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicReference
  * first acquisition to finish, then rechecks CookieManager before creating a view.
  * Only callbacks owned by this acquisition are cancelled during cleanup.
  */
-class TikTokWebViewCookieProvider(context: Context) {
+class TikTokWebViewCookieProvider(private val context: Context) {
     // Keep the Service context: WebView needs a fully themed Android Context, but no Activity/window.
 
     fun acquireTtwid(timeoutMs: Long = DEFAULT_TIMEOUT_MS): String =
