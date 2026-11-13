@@ -26,9 +26,15 @@ class DynamicPiperSpeechEngine(
     private val config = AtomicReference(toConfig(initial))
     private val engines = ConcurrentHashMap<String, PiperSpeechEngine>()
     private val lock = Mutex()
+    @Volatile private var muted: Boolean = false
 
     fun update(settings: ReaderSettings) {
         config.set(toConfig(settings))
+    }
+
+    fun setMuted(value: Boolean) {
+        muted = value
+        engines.values.forEach { it.setMuted(value) }
     }
 
     override suspend fun initialize() {
@@ -69,6 +75,7 @@ class DynamicPiperSpeechEngine(
         val selected = engines.getOrPut(key) {
             PiperSpeechEngine(appContext, voiceId, current.volume, current.speed)
         }
+        selected.setMuted(muted)
         // Keep a small cache so slider adjustments do not retain unlimited native models.
         if (engines.size > 2) {
             engines.keys.firstOrNull { it != key }?.let { staleKey ->
