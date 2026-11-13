@@ -28,7 +28,8 @@ import java.util.zip.GZIPInputStream
 class TikTokLiveConnector(
     private val onComment: (LiveComment) -> Unit,
     private val onStatus: (String) -> Unit,
-    private val onEvent: (LiveEvent) -> Unit = {}
+    private val onEvent: (LiveEvent) -> Unit = {},
+    private val cookieFallback: (() -> String)? = null
 ) : Closeable {
 
     companion object {
@@ -78,7 +79,17 @@ class TikTokLiveConnector(
                 currentRoomId = roomId
                 onStatus("LIVE encontrado. Preparando conexión segura…")
 
-                val ttwid = fetchAnonymousDeviceCookie()
+                val ttwid = try {
+                    fetchAnonymousDeviceCookie()
+                } catch (httpError: Exception) {
+                    // Do not switch transports after an explicit platform rate-limit/deny response.
+                    if (httpError.message.orEmpty().contains("limitó")) throw httpError
+                    onStatus("La petición HTTP no obtuvo ttwid. Probando recuperación WebView oculta…")
+                    val recovered = cookieFallback?.invoke()
+                        ?: throw httpError
+                    validateTtwid(recovered)
+                        ?: throw IOException("WebView terminó la carga, pero TikTok no entregó una cookie ttwid válida.", httpError)
+                }
                 if (stopped) return@execute
                 currentTtwid = ttwid
                 openWebSocket(0)
@@ -134,6 +145,9 @@ class TikTokLiveConnector(
         }
     }
 
+    private fun validateTtwid(value: String): String? =
+        TtwidCookieParser.validate(value)
+
     private fun fetchAnonymousDeviceCookie(): String {
         val now = System.currentTimeMillis()
         cachedTtwid?.takeIf {
@@ -163,10 +177,7 @@ class TikTokLiveConnector(
                 while (previous != null && redirects < 10 && cookie == null) {
                     cookie = previous.headers.values("Set-Cookie")
                         .firstNotNullOfOrNull { header ->
-                            header.substringBefore(";").trim()
-                                .takeIf { it.startsWith("ttwid=") }
-                                ?.substringAfter("ttwid=")
-                                ?.takeIf { it.isNotBlank() }
+                            TtwidCookieParser.fromCookieHeader(header)
                         }
                     previous = previous.priorResponse
                     if (previous != null) redirects++
@@ -344,8 +355,18 @@ class TikTokLiveConnector(
                             displayName = displayName(user),
                             text = comment,
                             isModerator = identity?.bool(5) == true,
-                            // TikTok User.follow_status is field 1024; unknown/zero is not treated as a follower.
-                            isFollower = user?.let { it.long(1024) > 0L }
+                            // Current Webcast User exposes is_follower at field 1029 and
+                            // follow_status at 1024. Older schemas may nest follow_status
+                            // under follow_info (field 22 / subfield 3).
+                            isFollower = user?.let { sender ->
+                                val explicitFlag = if (sender.has(1029)) sender.bool(1029) else null
+                                val status = when {
+                                    sender.has(1024) -> sender.long(1024)
+                                    sender.message(22)?.has(3) == true -> sender.message(22)?.long(3)
+                                    else -> null
+                                }
+                                FollowerStatusParser.isFollower(explicitFlag, status)
+                            }
                         )
                     )
                 }
@@ -478,6 +499,7 @@ class TikTokLiveConnector(
         }
 
         private fun last(field: Int): Any? = fields[field]?.lastOrNull()
+        fun has(field: Int): Boolean = fields[field]?.isNotEmpty() == true
         fun long(field: Int): Long = last(field) as? Long ?: 0L
         fun bool(field: Int): Boolean = long(field) != 0L
         fun string(field: Int): String = (last(field) as? ByteArray)?.toString(Charsets.UTF_8).orEmpty()

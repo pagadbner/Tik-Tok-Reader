@@ -54,7 +54,15 @@ class SpeechQueueWorker(
         val accepted = synchronized(lock) {
             val queue = if (priority) priorityQueue else normalQueue
             val limit = if (priority) importantCapacity else normalCapacity
-            if (queue.size >= limit) false else {
+            if (priority) {
+                if (queue.size >= limit) false else {
+                    queue.addLast(text)
+                    true
+                }
+            } else {
+                // Prefer fresh LIVE chat over stale backlog: keep the utterance
+                // currently being spoken, evict the oldest pending comment.
+                if (queue.size >= limit) queue.removeFirst()
                 queue.addLast(text)
                 true
             }
@@ -68,6 +76,10 @@ class SpeechQueueWorker(
     }
 
     fun close() {
+        synchronized(lock) {
+            normalQueue.clear()
+            priorityQueue.clear()
+        }
         wake.close()
     }
 }
