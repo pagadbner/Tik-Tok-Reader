@@ -1,5 +1,6 @@
 package com.myclivebot.core
 
+import android.content.Context
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -28,7 +29,8 @@ import java.util.zip.GZIPInputStream
 class TikTokLiveConnector(
     private val onComment: (LiveComment) -> Unit,
     private val onStatus: (String) -> Unit,
-    private val onEvent: (LiveEvent) -> Unit = {}
+    private val onEvent: (LiveEvent) -> Unit = {},
+    private val cookieFallback: (() -> String)? = null
 ) : Closeable {
 
     companion object {
@@ -78,7 +80,15 @@ class TikTokLiveConnector(
                 currentRoomId = roomId
                 onStatus("LIVE encontrado. Preparando conexión segura…")
 
-                val ttwid = fetchAnonymousDeviceCookie()
+                val ttwid = try {
+                    fetchAnonymousDeviceCookie()
+                } catch (httpError: Exception) {
+                    onStatus("La petición HTTP no obtuvo ttwid. Probando recuperación WebView oculta…")
+                    val recovered = cookieFallback?.invoke()
+                        ?: throw httpError
+                    validateTtwid(recovered)
+                        ?: throw IOException("WebView terminó la carga, pero TikTok no entregó una cookie ttwid válida.", httpError)
+                }
                 if (stopped) return@execute
                 currentTtwid = ttwid
                 openWebSocket(0)
@@ -133,6 +143,9 @@ class TikTokLiveConnector(
             return roomId
         }
     }
+
+    private fun validateTtwid(value: String): String? =
+        value.trim().takeIf { it.matches(Regex("[A-Za-z0-9._-]{8,512}")) }
 
     private fun fetchAnonymousDeviceCookie(): String {
         val now = System.currentTimeMillis()
@@ -344,8 +357,11 @@ class TikTokLiveConnector(
                             displayName = displayName(user),
                             text = comment,
                             isModerator = identity?.bool(5) == true,
-                            // TikTok User.follow_status is field 1024; unknown/zero is not treated as a follower.
-                            isFollower = user?.let { it.long(1024) > 0L }
+                            // Webcast User.follow_info (field 22) contains follow_status (field 3).
+                            // Missing metadata remains unknown; never guess follower status.
+                            isFollower = user?.message(22)?.let { info ->
+                                if (info.has(3)) FollowerStatusParser.isFollowing(info.long(3)) else null
+                            }
                         )
                     )
                 }
@@ -478,6 +494,7 @@ class TikTokLiveConnector(
         }
 
         private fun last(field: Int): Any? = fields[field]?.lastOrNull()
+        fun has(field: Int): Boolean = fields[field]?.isNotEmpty() == true
         fun long(field: Int): Long = last(field) as? Long ?: 0L
         fun bool(field: Int): Boolean = long(field) != 0L
         fun string(field: Int): String = (last(field) as? ByteArray)?.toString(Charsets.UTF_8).orEmpty()
