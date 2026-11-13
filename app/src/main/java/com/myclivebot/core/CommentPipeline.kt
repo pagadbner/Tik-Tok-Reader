@@ -19,6 +19,7 @@ class CommentPipeline(
     initialSettings: ReaderSettings
 ) {
     private val settings = AtomicReference(initialSettings)
+    private val welcomeTracker = WelcomeMessageTracker()
     private val commentsReceived = AtomicLong()
     private val commentsFiltered = AtomicLong()
     private val commentsQueued = AtomicLong()
@@ -36,7 +37,22 @@ class CommentPipeline(
             commentsFiltered.incrementAndGet()
             return false
         }
-        val speech = filter.toSpeech(comment, current)
+        // A welcome is emitted once per accepted commenter in this connection.
+        welcomeTracker.messageFor(comment, current)?.let { welcome ->
+            val welcomeSpeech = filter.toSpeech(
+                comment.copy(text = welcome),
+                current.copy(readUsername = false, onlyUsername = false)
+            )
+            speechQueue.enqueue(welcomeSpeech)
+        }
+
+        // Commands are local speech responses only; this app does not send chat messages.
+        val commandResponse = if (current.customCommandsEnabled) {
+            ChatCommandParser.responseFor(comment.text, comment.displayName, current.customCommands)
+        } else null
+        val speechComment = if (commandResponse != null) comment.copy(text = commandResponse) else comment
+        val speechSettings = if (commandResponse != null) current.copy(onlyUsername = false) else current
+        val speech = filter.toSpeech(speechComment, speechSettings)
         val queued = speechQueue.enqueue(speech)
         if (queued) commentsQueued.incrementAndGet()
         return queued
@@ -49,10 +65,7 @@ class CommentPipeline(
             LiveEventType.FOLLOW -> if (current.readFollows) {
                 "${event.displayName} te ha seguido"
             } else ""
-            LiveEventType.GIFT -> if (current.readGifts) {
-                val detail = event.detail.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
-                "${event.displayName} te envió un regalo$detail"
-            } else ""
+            LiveEventType.GIFT -> GiftAlertRules.render(event, current).orEmpty()
         }
         // Alerts use the priority lane so they are not buried under chat backlog.
         val queued = speechQueue.enqueue(speech, priority = true)

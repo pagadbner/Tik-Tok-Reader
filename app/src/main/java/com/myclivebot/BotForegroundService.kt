@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.IBinder
 import com.myclivebot.core.CommentFilter
 import com.myclivebot.core.CommentPipeline
+import com.myclivebot.core.ChatCommandParser
 import com.myclivebot.core.DynamicPiperSpeechEngine
 import com.myclivebot.core.LocalBridgeServer
 import com.myclivebot.core.LiveComment
@@ -51,6 +52,12 @@ class BotForegroundService : Service() {
         const val EXTRA_READ_FOLLOWS = "read_follows"
         const val EXTRA_READ_GIFTS = "read_gifts"
         const val EXTRA_RANDOM_VOICES = "random_voices"
+        const val EXTRA_COMMANDS_ENABLED = "custom_commands_enabled"
+        const val EXTRA_CUSTOM_COMMANDS = "custom_commands"
+        const val EXTRA_WELCOME_ENABLED = "welcome_enabled"
+        const val EXTRA_WELCOME_TEMPLATE = "welcome_template"
+        const val EXTRA_GIFT_MINIMUM_REPEAT = "gift_minimum_repeat"
+        const val EXTRA_GIFT_TEMPLATE = "gift_alert_template"
         private const val CHANNEL_ID = "live_bot_status"
         private const val NOTIFICATION_ID = 4101
     }
@@ -227,7 +234,15 @@ class BotForegroundService : Service() {
         followerOnlyChat = intent.getBooleanExtra(EXTRA_FOLLOWER_ONLY, false),
         readFollows = intent.getBooleanExtra(EXTRA_READ_FOLLOWS, true),
         readGifts = intent.getBooleanExtra(EXTRA_READ_GIFTS, true),
-        randomVoices = intent.getBooleanExtra(EXTRA_RANDOM_VOICES, false)
+        randomVoices = intent.getBooleanExtra(EXTRA_RANDOM_VOICES, false),
+        customCommandsEnabled = intent.getBooleanExtra(EXTRA_COMMANDS_ENABLED, false),
+        customCommands = ChatCommandParser.parseConfig(
+            intent.getStringArrayListExtra(EXTRA_CUSTOM_COMMANDS).orEmpty().joinToString("\\n")
+        ),
+        welcomeEnabled = intent.getBooleanExtra(EXTRA_WELCOME_ENABLED, false),
+        welcomeTemplate = intent.getStringExtra(EXTRA_WELCOME_TEMPLATE) ?: "¡Bienvenido al LIVE, {user}!",
+        giftMinimumRepeatCount = intent.getIntExtra(EXTRA_GIFT_MINIMUM_REPEAT, 1).coerceIn(1, 999),
+        giftAlertTemplate = intent.getStringExtra(EXTRA_GIFT_TEMPLATE).orEmpty()
     )
 
     private fun publishLiveComment(comment: LiveComment) {
