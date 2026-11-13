@@ -135,7 +135,7 @@ internal class FloatingOverlayController(
             muteButton = mute
             actionsRow = actions
             layoutParams = params
-            update(status, isMuted)
+            update(statusText, isMuted)
         } catch (_: WindowManager.BadTokenException) {
             root = null
             statusLabel = null
