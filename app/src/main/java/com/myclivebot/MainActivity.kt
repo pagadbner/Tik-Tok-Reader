@@ -48,6 +48,7 @@ private val Cyan = Color(0xFF69DED2)
 private val Muted = Color(0xFFB8BBD0)
 
 private data class LiveCommentUi(val username: String, val message: String, val receivedAt: Long)
+private data class CustomCommandEntry(val title: String, val trigger: String, val response: String)
 
 class MainActivity : ComponentActivity() {
     private val readerStatus = mutableStateOf("Detenido")
@@ -230,6 +231,9 @@ private fun BotApp(
             ).orEmpty()
         )
     }
+    var customCommandEntries by remember {
+        mutableStateOf(loadCustomCommandEntries(customCommandsText, prefs))
+    }
     var welcomeEnabled by remember { mutableStateOf(prefs.getBoolean("welcome_enabled", false)) }
     var welcomeTemplate by remember { mutableStateOf(prefs.getString("welcome_template", "¡Bienvenido al LIVE, {user}!").orEmpty()) }
     var giftMinimumRepeat by remember { mutableStateOf(prefs.getInt("gift_minimum_repeat", 1).toString()) }
@@ -299,7 +303,10 @@ private fun BotApp(
             .apply()
     }
 
-    LaunchedEffect(customCommandsEnabled, customCommandsText, welcomeEnabled, welcomeTemplate, giftMinimumRepeat, giftAlertTemplate) {
+    LaunchedEffect(customCommandsEnabled, customCommandsText, customCommandEntries, welcomeEnabled, welcomeTemplate, giftMinimumRepeat, giftAlertTemplate) {
+        customCommandEntries.forEach { entry ->
+            prefs.edit().putString("custom_command_title_${entry.trigger}", entry.title).apply()
+        }
         prefs.edit()
             .putBoolean("custom_commands_enabled", customCommandsEnabled)
             .putString("custom_commands", customCommandsText)
@@ -499,16 +506,14 @@ private fun BotApp(
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                             SettingSwitch("Activar comandos personalizados", customCommandsEnabled) { customCommandsEnabled = it }
-                            OutlinedTextField(
-                                value = customCommandsText,
-                                onValueChange = { customCommandsText = it },
-                                label = { Text("Comandos · uno por línea") },
-                                placeholder = { Text("!discord=Únete a mi comunidad") },
-                                modifier = Modifier.fillMaxWidth(),
-                                minLines = 4,
-                                shape = RoundedCornerShape(16.dp)
+                            CustomCommandEditor(
+                                commands = customCommandEntries,
+                                onCommandsChange = { updated ->
+                                    customCommandEntries = updated
+                                    customCommandsText = updated.joinToString("\\n") { "${it.trigger}=${it.response}" }
+                                }
                             )
-                            Text("Formato: !comando=respuesta. Ejemplos incluidos: !redes, !discord, !youtube y !horario. La respuesta se reproduce solo en tu dispositivo; no se publica en el chat de TikTok.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            Text("Cada activador se reconoce al inicio del comentario. La respuesta se reproduce solo en tu dispositivo; no se publica en el chat de TikTok.", color = Muted, style = MaterialTheme.typography.bodySmall)
                             HorizontalDivider(color = Color.White.copy(alpha = .09f))
                             SettingSwitch("Dar bienvenida al primer comentario de cada usuario", welcomeEnabled) { welcomeEnabled = it }
                             OutlinedTextField(
@@ -687,6 +692,80 @@ private fun SectionHeader(number: String, title: String, subtitle: String) {
             Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
             Text(subtitle, color = Muted, style = MaterialTheme.typography.bodySmall)
         }
+    }
+}
+
+private fun loadCustomCommandEntries(raw: String, prefs: android.content.SharedPreferences): List<CustomCommandEntry> =
+    ChatCommandParser.parseConfig(raw).map { (trigger, response) ->
+        CustomCommandEntry(
+            title = prefs.getString("custom_command_title_$trigger", trigger).orEmpty().ifBlank { trigger },
+            trigger = trigger,
+            response = response
+        )
+    }
+
+@Composable
+private fun CustomCommandEditor(
+    commands: List<CustomCommandEntry>,
+    onCommandsChange: (List<CustomCommandEntry>) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var trigger by remember { mutableStateOf("!") }
+    var response by remember { mutableStateOf("") }
+    var validation by remember { mutableStateOf("") }
+
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Text("TUS COMANDOS", color = Cyan, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
+        OutlinedTextField(
+            value = title, onValueChange = { title = it.take(40) },
+            label = { Text("Título del comando") }, modifier = Modifier.fillMaxWidth(),
+            singleLine = true, shape = RoundedCornerShape(14.dp)
+        )
+        OutlinedTextField(
+            value = trigger, onValueChange = { trigger = it.lowercase().filter { ch -> ch.isLetterOrDigit() || ch == '_' || ch == '!' }.take(25) },
+            label = { Text("Activador (ej. !discord)") }, modifier = Modifier.fillMaxWidth(),
+            singleLine = true, shape = RoundedCornerShape(14.dp)
+        )
+        OutlinedTextField(
+            value = response, onValueChange = { response = it.take(280) },
+            label = { Text("Respuesta que dirá la voz") }, modifier = Modifier.fillMaxWidth(),
+            minLines = 2, shape = RoundedCornerShape(14.dp)
+        )
+        if (validation.isNotBlank()) Text(validation, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            enabled = title.isNotBlank() && Regex("^![a-z0-9_]{1,24}$").matches(trigger.trim()) && response.isNotBlank() && commands.size < 40,
+            onClick = {
+                val key = trigger.trim()
+                val entry = CustomCommandEntry(title.trim(), key, response.trim())
+                onCommandsChange(commands.filterNot { it.trigger == key } + entry)
+                title = ""; trigger = "!"; response = ""; validation = ""
+            }
+        ) {
+            Icon(Icons.Default.Save, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("Guardar comando")
+        }
+        commands.forEach { command ->
+            Surface(
+                color = Color.White.copy(alpha = .055f),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(command.title, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                        Text(command.trigger, color = Cyan, fontWeight = FontWeight.Bold)
+                        IconButton(onClick = { onCommandsChange(commands.filterNot { it.trigger == command.trigger }) }) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Eliminar comando", tint = Muted)
+                        }
+                    }
+                    Text(command.response, color = Muted, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        if (commands.isEmpty()) Text("Aún no hay comandos guardados.", color = Muted, style = MaterialTheme.typography.bodySmall)
+        Text("${commands.size}/40 comandos", color = Muted, style = MaterialTheme.typography.labelSmall)
     }
 }
 
