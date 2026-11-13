@@ -32,6 +32,7 @@ class BotForegroundService : Service() {
         const val ACTION_STOP = "com.myclivebot.STOP"
         const val ACTION_TEST_VOICE = "com.myclivebot.TEST_VOICE"
         const val ACTION_UPDATE_SETTINGS = "com.myclivebot.UPDATE_SETTINGS"
+        const val ACTION_SKIP_NEXT_COMMENT = "com.myclivebot.SKIP_NEXT_COMMENT"
         const val ACTION_STATUS = "com.myclivebot.STATUS"
         const val ACTION_COMMENT = "com.myclivebot.COMMENT"
         const val EXTRA_COMMENT_USERNAME = "comment_username"
@@ -132,6 +133,11 @@ class BotForegroundService : Service() {
                     return START_NOT_STICKY
                 }
                 startReader(username, settings)
+            }
+
+            ACTION_SKIP_NEXT_COMMENT -> {
+                val skipped = speechQueue?.skipNextComment() == true
+                updateStatus(if (skipped) "Comentario pendiente omitido" else "No hay comentarios pendientes para omitir")
             }
 
             ACTION_UPDATE_SETTINGS -> {
