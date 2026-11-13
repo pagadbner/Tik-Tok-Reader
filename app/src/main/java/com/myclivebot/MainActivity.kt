@@ -139,6 +139,9 @@ class MainActivity : ComponentActivity() {
                 onStop = {
                     startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_STOP))
                 },
+                onSkipNextComment = {
+                    startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_SKIP_NEXT_COMMENT))
+                },
                 onTestVoice = { voiceId, volume, speed ->
                     val intent = Intent(this, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_TEST_VOICE)
@@ -192,6 +195,7 @@ private fun BotApp(
     liveComments: List<LiveCommentUi>,
     onStart: (String, ReaderSettings) -> Unit,
     onStop: () -> Unit,
+    onSkipNextComment: () -> Unit,
     onUpdateSettings: (ReaderSettings) -> Unit,
     onTestVoice: (String, Float, Float) -> Unit,
     onDownloadVoice: (String, (String?) -> Unit) -> Unit
@@ -391,6 +395,14 @@ private fun BotApp(
                                 Text("CHAT EN VIVO", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
                                 Spacer(Modifier.weight(1f))
                                 Text("${liveComments.size} / 60", color = Muted, style = MaterialTheme.typography.labelSmall)
+                            }
+                            OutlinedButton(
+                                onClick = onSkipNextComment,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(13.dp)
+                            ) {
+                                Icon(Icons.Default.SkipNext, contentDescription = null)
+                                Text("  OMITIR SIGUIENTE COMENTARIO")
                             }
                             if (liveComments.isEmpty()) {
                                 Text(
