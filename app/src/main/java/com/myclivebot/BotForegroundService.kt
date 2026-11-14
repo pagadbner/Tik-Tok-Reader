@@ -272,7 +272,7 @@ class BotForegroundService : Service() {
         randomVoices = intent.getBooleanExtra(EXTRA_RANDOM_VOICES, false),
         customCommandsEnabled = intent.getBooleanExtra(EXTRA_COMMANDS_ENABLED, false),
         customCommands = ChatCommandParser.parseConfig(
-            intent.getStringArrayListExtra(EXTRA_CUSTOM_COMMANDS).orEmpty().joinToString("\\n")
+            intent.getStringArrayListExtra(EXTRA_CUSTOM_COMMANDS).orEmpty().joinToString("\n")
         ),
         welcomeEnabled = intent.getBooleanExtra(EXTRA_WELCOME_ENABLED, false),
         welcomeTemplate = intent.getStringExtra(EXTRA_WELCOME_TEMPLATE) ?: "¡Bienvenido al LIVE, {user}!",
