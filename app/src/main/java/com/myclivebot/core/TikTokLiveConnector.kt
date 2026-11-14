@@ -15,6 +15,7 @@ import java.io.IOException
 import java.util.LinkedHashSet
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -51,6 +52,7 @@ class TikTokLiveConnector(
 
     @Volatile private var socket: WebSocket? = null
     @Volatile private var scheduler: ScheduledExecutorService? = null
+    @Volatile private var eventExecutor: ExecutorService? = null
     @Volatile private var currentUsername: String? = null
     @Volatile private var currentRoomId: String? = null
     @Volatile private var currentTtwid: String? = null
@@ -66,6 +68,9 @@ class TikTokLiveConnector(
 
         stopConnection()
         stopped = false
+        eventExecutor = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "TikLBot-LIVE-Events").apply { isDaemon = true }
+        }
         currentUsername = username
         scheduler = Executors.newSingleThreadScheduledExecutor { runnable ->
             Thread(runnable, "TikLBot-Connection").apply { isDaemon = true }
@@ -249,8 +254,23 @@ class TikTokLiveConnector(
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                 if (stopped) return
-                runCatching { processWebcastFrame(webSocket, bytes.toByteArray()) }
-                    .onFailure { onStatus("Se recibió un paquete LIVE no válido; se omitió sin cerrar la conexión.") }
+                // Decode frames sequentially away from OkHttp's transport callback.
+                // This keeps bursts of protobuf parsing and UI publication from blocking
+                // the WebSocket reader while preserving event order.
+                val frame = bytes.toByteArray()
+                val worker = eventExecutor ?: return
+                runCatching {
+                    worker.execute {
+                        if (!stopped) {
+                            runCatching { processWebcastFrame(webSocket, frame) }
+                                .onFailure {
+                                    if (!stopped) onStatus("Se recibió un paquete LIVE no válido; se omitió sin cerrar la conexión.")
+                                }
+                        }
+                    }
+                }.onFailure {
+                    if (!stopped) onStatus("No se pudo procesar un paquete LIVE; la conexión sigue activa.")
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -424,6 +444,8 @@ class TikTokLiveConnector(
         socket = null
         scheduler?.shutdownNow()
         scheduler = null
+        eventExecutor?.shutdownNow()
+        eventExecutor = null
         currentUsername = null
         currentRoomId = null
         currentTtwid = null
