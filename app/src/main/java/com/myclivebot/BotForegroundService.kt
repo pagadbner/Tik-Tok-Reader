@@ -151,9 +151,11 @@ class BotForegroundService : Service() {
 
 
             ACTION_REQUEST_STATUS -> {
+                val status = if (activeSettings != null) lastKnownStatus else "Detenido"
                 sendBroadcast(Intent(ACTION_STATUS).setPackage(packageName)
-                    .putExtra(EXTRA_STATUS, lastKnownStatus)
+                    .putExtra(EXTRA_STATUS, status)
                     .putExtra(EXTRA_MUTED, voiceMuted))
+                if (activeSettings == null) stopSelf(startId)
             }
 
             ACTION_SKIP_NEXT_COMMENT -> {
@@ -237,7 +239,6 @@ class BotForegroundService : Service() {
             cookieFallback = { TikTokWebViewCookieProvider(this).acquireTtwid() }
         )
         connector = liveConnector
-        refreshFloatingOverlay()
         serviceScope.launch(Dispatchers.IO) {
             runCatching { liveConnector.connect(username) }
                 .onFailure { updateStatus("No se pudo conectar: ${it.message ?: "error desconocido"}") }
