@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
 import android.provider.Settings
+import android.widget.ImageView
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -37,10 +38,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import com.myclivebot.core.ChatCommandParser
 import com.myclivebot.core.PiperSpeechEngine
@@ -221,9 +222,14 @@ class MainActivity : ComponentActivity() {
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Image(
-                            painter = painterResource(id = R.mipmap.ic_launcher),
-                            contentDescription = "TikTok Live Reader",
+                        AndroidView(
+                            factory = { context ->
+                                ImageView(context).apply {
+                                    setImageResource(R.mipmap.ic_launcher)
+                                    contentDescription = "TikTok Live Reader"
+                                    scaleType = ImageView.ScaleType.FIT_CENTER
+                                }
+                            },
                             modifier = Modifier.size(92.dp)
                         )
                         Spacer(Modifier.height(18.dp))
@@ -803,7 +809,7 @@ private fun BotApp(
                     }
 
                     Text(
-                        "TIKTOK LIVE READER  •  v0.12.0  •  BY ROXI",
+                        "TIKTOK LIVE READER  •  v0.12.1  •  BY ROXI",
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         color = Muted.copy(alpha = .7f),
                         style = MaterialTheme.typography.labelSmall,
