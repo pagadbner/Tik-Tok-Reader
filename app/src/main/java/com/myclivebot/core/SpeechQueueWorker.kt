@@ -22,6 +22,8 @@ class SpeechQueueWorker(
     private val priorityQueue = ArrayDeque<String>()
     private val normalCapacity = capacity.coerceAtLeast(1)
     private val importantCapacity = priorityCapacity.coerceAtLeast(1)
+    private val priorityBurstLimit = 3
+    private var consecutivePriority = 0
     private val wake = Channel<Unit>(Channel.CONFLATED)
 
     init {
@@ -29,8 +31,19 @@ class SpeechQueueWorker(
             while (isActive) {
                 val next = synchronized(lock) {
                     when {
-                        priorityQueue.isNotEmpty() -> priorityQueue.removeFirst()
-                        normalQueue.isNotEmpty() -> normalQueue.removeFirst()
+                        normalQueue.isNotEmpty() &&
+                            (priorityQueue.isEmpty() || consecutivePriority >= priorityBurstLimit) -> {
+                            consecutivePriority = 0
+                            normalQueue.removeFirst()
+                        }
+                        priorityQueue.isNotEmpty() -> {
+                            consecutivePriority++
+                            priorityQueue.removeFirst()
+                        }
+                        normalQueue.isNotEmpty() -> {
+                            consecutivePriority = 0
+                            normalQueue.removeFirst()
+                        }
                         else -> null
                     }
                 }
