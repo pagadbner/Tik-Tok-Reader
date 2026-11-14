@@ -12,8 +12,8 @@ android {
         applicationId = "com.myclivebot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15
-        versionName = "0.12.1"
+        versionCode = 16
+        versionName = "0.12.2"
     }
 
     buildFeatures { compose = true }
