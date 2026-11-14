@@ -256,8 +256,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        voiceMutedFromService.value = getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
-            .getBoolean("voice_muted", false)
+        val preferences = getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
+        readerStatus.value = preferences.getString("reader_status", readerStatus.value).orEmpty()
+        voiceMutedFromService.value = preferences.getBoolean("voice_muted", false)
         if (!statusReceiverRegistered) {
             val filter = IntentFilter().apply {
                 addAction(BotForegroundService.ACTION_STATUS)
