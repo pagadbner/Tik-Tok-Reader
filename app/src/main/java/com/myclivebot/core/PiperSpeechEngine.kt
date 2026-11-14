@@ -25,12 +25,14 @@ import org.json.JSONObject
 class PiperSpeechEngine(
     context: Context,
     private val voiceId: String = PiperVoiceCatalog.DEFAULT_VOICE_ID,
-    private val volume: Float = 1.0f,
-    private val speed: Float = 1.0f
+    volume: Float = 1.0f,
+    speed: Float = 1.0f
 ) : SpeechEngine {
     private val appContext = context.applicationContext
     @Volatile private var engine: PiperEngine? = null
     @Volatile private var currentTrack: AudioTrack? = null
+    @Volatile private var volume: Float = volume.coerceIn(0f, 1f)
+    @Volatile private var speed: Float = speed.coerceIn(0.65f, 1.5f)
     @Volatile private var muted: Boolean = false
 
     companion object {
@@ -268,6 +270,12 @@ class PiperSpeechEngine(
             track.release()
             currentTrack = null
         }
+    }
+
+    fun updatePlaybackSettings(nextVolume: Float, nextSpeed: Float) {
+        volume = nextVolume.coerceIn(0f, 1f)
+        speed = nextSpeed.coerceIn(0.65f, 1.5f)
+        currentTrack?.let { track -> runCatching { track.setVolume(if (muted) 0f else volume) } }
     }
 
     fun setMuted(value: Boolean) {
