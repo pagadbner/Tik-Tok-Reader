@@ -258,6 +258,12 @@ class TikTokLiveConnector(
                 // This keeps bursts of protobuf parsing and UI publication from blocking
                 // the WebSocket reader while preserving event order.
                 val frame = bytes.toByteArray()
+                // Acknowledge the transport envelope immediately; heavier gzip/protobuf
+                // decoding and application callbacks are handled by the serial worker.
+                runCatching {
+                    val logId = ProtoMessage(frame).long(2)
+                    if (logId != 0L) webSocket.send(ByteString.of(*encodeAck(logId)))
+                }
                 val worker = eventExecutor ?: return
                 runCatching {
                     worker.execute {
@@ -353,9 +359,6 @@ class TikTokLiveConnector(
         } else payload
 
         val result = ProtoMessage(decodedPayload)
-        val logId = frame.long(2)
-        if (logId != 0L) webSocket.send(ByteString.of(*encodeAck(logId)))
-
         result.messages(1).forEach { raw ->
             if (raw.bool(6)) return@forEach
             val type = raw.string(1)
