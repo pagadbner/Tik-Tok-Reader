@@ -32,17 +32,25 @@ class LiveAutomationTest {
         val commands = ChatCommandParser.parseConfig(transferred)
 
         assertEquals(3, commands.size)
-        assertEquals("Mis redes están en mi perfil", ChatCommandParser.responseFor("!redes", "Ana", commands))
-        assertEquals("Únete a mi comunidad de Discord", ChatCommandParser.responseFor("!discord", "Ana", commands))
-        assertEquals("Encuentra mis videos en YouTube", ChatCommandParser.responseFor("!youtube", "Ana", commands))
+        assertEquals("Mis redes están en mi perfil", ChatCommandParser.responseFor("!redes", "Ana", commands, isModerator = true))
+        assertEquals("Únete a mi comunidad de Discord", ChatCommandParser.responseFor("!discord", "Ana", commands, isModerator = true))
+        assertEquals("Encuentra mis videos en YouTube", ChatCommandParser.responseFor("!youtube", "Ana", commands, isModerator = true))
     }
 
     @Test fun commandMatchesFirstTokenAndExpandsSafeUsername() {
         val commands = ChatCommandParser.parseConfig("!discord=Únete al Discord, {user}.")
-        val response = ChatCommandParser.responseFor("!DISCORD ahora", "🔥Ana_99 Pérez✨", commands)
+        val response = ChatCommandParser.responseFor("!DISCORD ahora", "🔥Ana_99 Pérez✨", commands, isModerator = true)
 
         assertEquals("Únete al Discord, Ana Pérez.", response)
-        assertNull(ChatCommandParser.responseFor("!discordextra", "Ana", commands))
+        assertNull(ChatCommandParser.responseFor("!discordextra", "Ana", commands, isModerator = true))
+    }
+
+
+    @Test fun customCommandsAreIgnoredForNonModerators() {
+        val commands = ChatCommandParser.parseConfig("!redes=Mis redes\n!discord=Mi Discord")
+        assertNull(ChatCommandParser.responseFor("!redes", "Viewer", commands, isModerator = false))
+        assertNull(ChatCommandParser.responseFor("!discord", "Viewer", commands, isModerator = false))
+        assertEquals("Mi Discord", ChatCommandParser.responseFor("!discord", "Mod", commands, isModerator = true))
     }
 
     @Test fun welcomeRunsOnlyOncePerUserInOneSession() {
