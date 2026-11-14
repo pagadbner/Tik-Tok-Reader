@@ -442,8 +442,14 @@ private fun BotApp(
             Box(Modifier.align(Alignment.BottomStart).padding(bottom = 100.dp, start = 0.dp).size(170.dp).blur(75.dp).background(Cyan.copy(alpha = .13f), RoundedCornerShape(100)))
             Scaffold(
                 containerColor = Color.Transparent,
+                contentColor = Color(0xFFF4F1FF),
                 topBar = {
                     TopAppBar(
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                            titleContentColor = Color(0xFFF4F1FF),
+                            actionIconContentColor = Cyan
+                        ),
                         title = {
                             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                 Text("TIKTOK LIVE READER", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleSmall, letterSpacing = 1.1.sp)
