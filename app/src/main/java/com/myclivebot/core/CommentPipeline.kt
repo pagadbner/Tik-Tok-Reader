@@ -48,7 +48,7 @@ class CommentPipeline(
 
         // Commands are local speech responses only; this app does not send chat messages.
         val commandResponse = if (current.customCommandsEnabled) {
-            ChatCommandParser.responseFor(comment.text, comment.displayName, current.customCommands)
+            ChatCommandParser.responseFor(comment.text, comment.displayName, current.customCommands, comment.isModerator)
         } else null
         val speechComment = if (commandResponse != null) comment.copy(text = commandResponse) else comment
         val speechSettings = if (commandResponse != null) current.copy(onlyUsername = false) else current
