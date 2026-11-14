@@ -446,11 +446,6 @@ private fun BotApp(
                 contentColor = Color(0xFFF4F1FF),
                 topBar = {
                     TopAppBar(
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = Color.Transparent,
-                            titleContentColor = Color(0xFFF4F1FF),
-                            actionIconContentColor = Cyan
-                        ),
                         title = {
                             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                 Text("TIKTOK LIVE READER", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleSmall, letterSpacing = 1.1.sp)
@@ -491,7 +486,11 @@ private fun BotApp(
                                 }
                             }
                         },
-                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0x77111629))
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color(0x77111629),
+                            titleContentColor = Color(0xFFF4F1FF),
+                            actionIconContentColor = Cyan
+                        )
                     )
                 }
             ) { padding ->
