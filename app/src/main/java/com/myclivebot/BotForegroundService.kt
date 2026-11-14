@@ -193,15 +193,21 @@ class BotForegroundService : Service() {
                 if (!PiperSpeechEngine.isVoiceInstalled(this, voiceId)) {
                     updateStatus("Descarga primero la voz seleccionada")
                 } else {
-                    serviceScope.launch(Dispatchers.IO) {
-                        val testEngine = PiperSpeechEngine(this@BotForegroundService, voiceId, volume, speed)
-                        try {
-                            testEngine.speak(PiperVoiceCatalog.find(voiceId).testPhrase)
-                        } finally {
-                            testEngine.release()
+                    val testText = PiperVoiceCatalog.find(voiceId).testPhrase
+                    val testSettings = activeSettings
+                    if (testSettings != null && testSettings.voiceId == voiceId) {
+                        // Reuse the already initialized speech engine and serialized queue.
+                        speechQueue?.enqueue(testText, priority = true)
+                    } else {
+                        serviceScope.launch(Dispatchers.IO) {
+                            val testEngine = PiperSpeechEngine(this@BotForegroundService, voiceId, volume, speed)
+                            try {
+                                testEngine.speak(testText)
+                            } finally {
+                                testEngine.release()
+                            }
                         }
                     }
-                    updateStatus("Reproduciendo prueba Piper")
                 }
             }
 
@@ -319,6 +325,15 @@ class BotForegroundService : Service() {
     }
 
     private fun updateStatus(status: String) {
+        val isConnectionState = status.contains("conect", ignoreCase = true) ||
+            status.contains("LIVE encontrado", ignoreCase = true) ||
+            status.contains("LIVE público", ignoreCase = true) ||
+            status.contains("TikTok cerró", ignoreCase = true) ||
+            status.contains("desconect", ignoreCase = true) ||
+            status.contains("no se pudo", ignoreCase = true) ||
+            status.contains("error", ignoreCase = true) ||
+            status == "Detenido"
+        if (activeSettings != null && !isConnectionState) return
         lastKnownStatus = status
         getSharedPreferences("tiklbot_preferences", MODE_PRIVATE).edit()
             .putString("reader_status", status).apply()
