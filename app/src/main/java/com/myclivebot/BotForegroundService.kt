@@ -7,6 +7,9 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import com.myclivebot.core.CommentFilter
 import com.myclivebot.core.CommentPipeline
 import com.myclivebot.core.ChatCommandParser
@@ -18,6 +21,7 @@ import com.myclivebot.core.PiperVoiceCatalog
 import com.myclivebot.core.ReaderSettings
 import com.myclivebot.core.SpeechQueueWorker
 import com.myclivebot.core.TikTokLiveConnector
+import com.myclivebot.core.TikTokWebViewCookieProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,6 +35,10 @@ class BotForegroundService : Service() {
         const val ACTION_STOP = "com.myclivebot.STOP"
         const val ACTION_TEST_VOICE = "com.myclivebot.TEST_VOICE"
         const val ACTION_UPDATE_SETTINGS = "com.myclivebot.UPDATE_SETTINGS"
+        const val ACTION_SKIP_NEXT_COMMENT = "com.myclivebot.SKIP_NEXT_COMMENT"
+        const val ACTION_SET_MUTE = "com.myclivebot.SET_MUTE"
+        const val ACTION_OVERLAY_CONFIG = "com.myclivebot.OVERLAY_CONFIG"
+        const val EXTRA_MUTED = "voice_muted"
         const val ACTION_STATUS = "com.myclivebot.STATUS"
         const val ACTION_COMMENT = "com.myclivebot.COMMENT"
         const val EXTRA_COMMENT_USERNAME = "comment_username"
@@ -63,6 +71,7 @@ class BotForegroundService : Service() {
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var piper: DynamicPiperSpeechEngine? = null
     private var speechQueue: SpeechQueueWorker? = null
     private var connector: TikTokLiveConnector? = null
@@ -71,7 +80,10 @@ class BotForegroundService : Service() {
     private var activeVolume: Float? = null
     private var activeSpeed: Float? = null
     private var activeSettings: ReaderSettings? = null
+    @Volatile private var voiceMuted: Boolean = false
     private var pipeline: CommentPipeline? = null
+    private var floatingOverlay: FloatingOverlayController? = null
+    @Volatile private var lastKnownStatus: String = "Detenido"
 
     override fun onCreate() {
         super.onCreate()
@@ -100,10 +112,12 @@ class BotForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                floatingOverlay?.hide()
                 connector?.disconnect()
                 connector = null
                 pipeline = null
                 activeSettings = null
+                updateStatus("Detenido")
                 speechQueue?.close()
                 speechQueue = null
                 kotlinx.coroutines.runBlocking(Dispatchers.IO) { runCatching { piper?.stop() } }
@@ -114,6 +128,8 @@ class BotForegroundService : Service() {
             }
 
             ACTION_START -> {
+                voiceMuted = getSharedPreferences("tiklbot_preferences", MODE_PRIVATE)
+                    .getBoolean("voice_muted", false)
                 startForeground(NOTIFICATION_ID, buildNotification("Preparando lector LIVE…"))
                 startLocalBridge()
                 val username = intent.getStringExtra(EXTRA_USERNAME).orEmpty()
@@ -131,6 +147,23 @@ class BotForegroundService : Service() {
                     return START_NOT_STICKY
                 }
                 startReader(username, settings)
+            }
+
+            ACTION_OVERLAY_CONFIG -> {
+                if (activeSettings != null) refreshFloatingOverlay()
+            }
+
+            ACTION_SKIP_NEXT_COMMENT -> {
+                val skipped = speechQueue?.skipNextComment() == true
+                updateStatus(if (skipped) "Comentario pendiente omitido" else "No hay comentarios pendientes para omitir")
+            }
+
+            ACTION_SET_MUTE -> {
+                voiceMuted = intent.getBooleanExtra(EXTRA_MUTED, false)
+                getSharedPreferences("tiklbot_preferences", MODE_PRIVATE).edit()
+                    .putBoolean("voice_muted", voiceMuted).apply()
+                piper?.setMuted(voiceMuted)
+                updateStatus(if (voiceMuted) "Voz silenciada" else "Voz activada")
             }
 
             ACTION_UPDATE_SETTINGS -> {
@@ -197,9 +230,11 @@ class BotForegroundService : Service() {
             onEvent = { event ->
                 livePipeline.onEvent(event)
                 publishLiveStats()
-            }
+            },
+            cookieFallback = { TikTokWebViewCookieProvider(this).acquireTtwid() }
         )
         connector = liveConnector
+        refreshFloatingOverlay()
         serviceScope.launch(Dispatchers.IO) {
             runCatching { liveConnector.connect(username) }
                 .onFailure { updateStatus("No se pudo conectar: ${it.message ?: "error desconocido"}") }
@@ -214,6 +249,7 @@ class BotForegroundService : Service() {
         }
         activeVoiceId = settings.voiceId
         activeVolume = settings.volume
+        piper?.setMuted(voiceMuted)
         activeSpeed = settings.speed
         if (speechQueue == null) {
             speechQueue = SpeechQueueWorker(piper!!, serviceScope, capacity = capacity)
@@ -237,7 +273,7 @@ class BotForegroundService : Service() {
         randomVoices = intent.getBooleanExtra(EXTRA_RANDOM_VOICES, false),
         customCommandsEnabled = intent.getBooleanExtra(EXTRA_COMMANDS_ENABLED, false),
         customCommands = ChatCommandParser.parseConfig(
-            intent.getStringArrayListExtra(EXTRA_CUSTOM_COMMANDS).orEmpty().joinToString("\\n")
+            intent.getStringArrayListExtra(EXTRA_CUSTOM_COMMANDS).orEmpty().joinToString("\n")
         ),
         welcomeEnabled = intent.getBooleanExtra(EXTRA_WELCOME_ENABLED, false),
         welcomeTemplate = intent.getStringExtra(EXTRA_WELCOME_TEMPLATE) ?: "¡Bienvenido al LIVE, {user}!",
@@ -277,15 +313,47 @@ class BotForegroundService : Service() {
         )
     }
 
+    private fun refreshFloatingOverlay() {
+        val enabled = getSharedPreferences("tiklbot_preferences", MODE_PRIVATE)
+            .getBoolean("floating_overlay_enabled", false)
+        if (!enabled || activeSettings == null || !Settings.canDrawOverlays(this)) {
+            floatingOverlay?.hide()
+            return
+        }
+        val controller = floatingOverlay ?: FloatingOverlayController(
+            this,
+            onMuteToggle = {
+                voiceMuted = !voiceMuted
+                getSharedPreferences("tiklbot_preferences", MODE_PRIVATE).edit()
+                    .putBoolean("voice_muted", voiceMuted).apply()
+                piper?.setMuted(voiceMuted)
+                updateStatus(if (voiceMuted) "Voz silenciada" else "Voz activada")
+            },
+            onSkipNext = {
+                val skipped = speechQueue?.skipNextComment() == true
+                updateStatus(if (skipped) "Comentario pendiente omitido" else "No hay comentarios pendientes para omitir")
+            }
+        ).also { floatingOverlay = it }
+        controller.show(lastKnownStatus, voiceMuted)
+    }
+
     private fun updateStatus(status: String) {
+        lastKnownStatus = status
+        getSharedPreferences("tiklbot_preferences", MODE_PRIVATE).edit()
+            .putString("reader_status", status).apply()
+        mainHandler.post { floatingOverlay?.update(status, voiceMuted) }
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(status))
         sendBroadcast(
-            Intent(ACTION_STATUS).setPackage(packageName).putExtra(EXTRA_STATUS, status)
+            Intent(ACTION_STATUS).setPackage(packageName)
+                .putExtra(EXTRA_STATUS, status)
+                .putExtra(EXTRA_MUTED, voiceMuted)
         )
         localBridge?.publish("status", JSONObject().put("value", status))
     }
 
     override fun onDestroy() {
+        floatingOverlay?.hide()
+        floatingOverlay = null
         connector?.disconnect()
         connector = null
         speechQueue?.close()

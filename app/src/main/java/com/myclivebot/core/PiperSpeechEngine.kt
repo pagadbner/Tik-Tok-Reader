@@ -31,6 +31,7 @@ class PiperSpeechEngine(
     private val appContext = context.applicationContext
     @Volatile private var engine: PiperEngine? = null
     @Volatile private var currentTrack: AudioTrack? = null
+    @Volatile private var muted: Boolean = false
 
     companion object {
         const val VOICE_ID = "es_MX-ald-medium"
@@ -236,7 +237,7 @@ class PiperSpeechEngine(
         val totalFrames = AtomicLong(0L)
         currentTrack = track
         try {
-            track.setVolume(volume.coerceIn(0f, 1f))
+            track.setVolume(if (muted) 0f else volume.coerceIn(0f, 1f))
             track.play()
             val defaultOptions = piper.defaultSynthesizeOptions()
             val synthOptions = defaultOptions.copy(
@@ -267,6 +268,11 @@ class PiperSpeechEngine(
             track.release()
             currentTrack = null
         }
+    }
+
+    fun setMuted(value: Boolean) {
+        muted = value
+        currentTrack?.let { track -> runCatching { track.setVolume(if (value) 0f else volume.coerceIn(0f, 1f)) } }
     }
 
     override suspend fun stop() = withContext(Dispatchers.IO) {

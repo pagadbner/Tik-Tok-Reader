@@ -23,6 +23,20 @@ class LiveAutomationTest {
         assertFalse(commands.containsKey("!bad command"))
     }
 
+    @Test fun parsesMultipleCommandsTransferredAsSeparateIntentLines() {
+        val transferred = listOf(
+            "!redes=Mis redes están en mi perfil",
+            "!discord=Únete a mi comunidad de Discord",
+            "!youtube=Encuentra mis videos en YouTube"
+        ).joinToString("\n")
+        val commands = ChatCommandParser.parseConfig(transferred)
+
+        assertEquals(3, commands.size)
+        assertEquals("Mis redes están en mi perfil", ChatCommandParser.responseFor("!redes", "Ana", commands))
+        assertEquals("Únete a mi comunidad de Discord", ChatCommandParser.responseFor("!discord", "Ana", commands))
+        assertEquals("Encuentra mis videos en YouTube", ChatCommandParser.responseFor("!youtube", "Ana", commands))
+    }
+
     @Test fun commandMatchesFirstTokenAndExpandsSafeUsername() {
         val commands = ChatCommandParser.parseConfig("!discord=Únete al Discord, {user}.")
         val response = ChatCommandParser.responseFor("!DISCORD ahora", "🔥Ana_99 Pérez✨", commands)

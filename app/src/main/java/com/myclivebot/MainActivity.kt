@@ -5,18 +5,26 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Uri
+import android.provider.Settings
+import android.widget.ImageView
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -33,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import com.myclivebot.core.ChatCommandParser
 import com.myclivebot.core.PiperSpeechEngine
@@ -48,16 +57,20 @@ private val Cyan = Color(0xFF69DED2)
 private val Muted = Color(0xFFB8BBD0)
 
 private data class LiveCommentUi(val username: String, val message: String, val receivedAt: Long)
+private data class CustomCommandEntry(val title: String, val trigger: String, val response: String)
 
 class MainActivity : ComponentActivity() {
     private val readerStatus = mutableStateOf("Detenido")
     private val liveComments = mutableStateListOf<LiveCommentUi>()
+    private val voiceMutedFromService = mutableStateOf(false)
     private var statusReceiverRegistered = false
+    private val overlayPermissionGranted = mutableStateOf(false)
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 BotForegroundService.ACTION_STATUS -> {
                     readerStatus.value = intent.getStringExtra(BotForegroundService.EXTRA_STATUS) ?: return
+                    voiceMutedFromService.value = intent.getBooleanExtra(BotForegroundService.EXTRA_MUTED, voiceMutedFromService.value)
                 }
                 BotForegroundService.ACTION_COMMENT -> {
                     val message = intent.getStringExtra(BotForegroundService.EXTRA_COMMENT_TEXT).orEmpty()
@@ -77,16 +90,52 @@ class MainActivity : ComponentActivity() {
     }
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private val overlayPermissionRequest =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            overlayPermissionGranted.value = Settings.canDrawOverlays(this)
+        voiceMutedFromService.value = getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
+            .getBoolean("voice_muted", false)
+            if (overlayPermissionGranted.value &&
+                getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
+                    .getBoolean("floating_overlay_enabled", false) &&
+                readerStatus.value != "Detenido"
+            ) {
+                startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_OVERLAY_CONFIG))
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
+        overlayPermissionGranted.value = Settings.canDrawOverlays(this)
         if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         setContent {
+            var showBrandSplash by remember { mutableStateOf(true) }
+            LaunchedEffect(Unit) {
+                delay(850)
+                showBrandSplash = false
+            }
+            Box(Modifier.fillMaxSize()) {
             BotApp(
                 externalStatus = readerStatus.value,
                 liveComments = liveComments,
+                externalMuted = voiceMutedFromService.value,
+                overlayPermissionGranted = overlayPermissionGranted.value,
+                onRequestOverlayPermission = {
+                    overlayPermissionRequest.launch(
+                        Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+                    )
+                },
+                onOverlayEnabledChanged = { enabled ->
+                    getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
+                        .edit().putBoolean("floating_overlay_enabled", enabled).apply()
+                    if (readerStatus.value != "Detenido") {
+                        startService(Intent(this@MainActivity, BotForegroundService::class.java)
+                            .setAction(BotForegroundService.ACTION_OVERLAY_CONFIG))
+                    }
+                },
                 onStart = { username, settings ->
-                    val intent = Intent(this, BotForegroundService::class.java)
+                    val intent = Intent(this@MainActivity, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_START)
                         .putExtra(BotForegroundService.EXTRA_USERNAME, username)
                         .putExtra(BotForegroundService.EXTRA_READ_USERNAME, settings.readUsername)
@@ -112,7 +161,7 @@ class MainActivity : ComponentActivity() {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
                 },
                 onUpdateSettings = { settings ->
-                    val intent = Intent(this, BotForegroundService::class.java)
+                    val intent = Intent(this@MainActivity, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_UPDATE_SETTINGS)
                         .putExtra(BotForegroundService.EXTRA_READ_USERNAME, settings.readUsername)
                         .putStringArrayListExtra(BotForegroundService.EXTRA_BLOCKED_WORDS, ArrayList(settings.blockedWords))
@@ -134,13 +183,23 @@ class MainActivity : ComponentActivity() {
                         .putExtra(BotForegroundService.EXTRA_WELCOME_TEMPLATE, settings.welcomeTemplate)
                         .putExtra(BotForegroundService.EXTRA_GIFT_MINIMUM_REPEAT, settings.giftMinimumRepeatCount)
                         .putExtra(BotForegroundService.EXTRA_GIFT_TEMPLATE, settings.giftAlertTemplate)
+                    readerStatus.value = "Servicio iniciado · conectando…"
                     startService(intent)
                 },
                 onStop = {
-                    startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_STOP))
+                    readerStatus.value = "Detenido"
+                    startService(Intent(this@MainActivity, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_STOP))
+                },
+                onSkipNextComment = {
+                    startService(Intent(this@MainActivity, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_SKIP_NEXT_COMMENT))
+                },
+                onSetMuted = { muted ->
+                    startService(Intent(this@MainActivity, BotForegroundService::class.java)
+                        .setAction(BotForegroundService.ACTION_SET_MUTE)
+                        .putExtra(BotForegroundService.EXTRA_MUTED, muted))
                 },
                 onTestVoice = { voiceId, volume, speed ->
-                    val intent = Intent(this, BotForegroundService::class.java)
+                    val intent = Intent(this@MainActivity, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_TEST_VOICE)
                         .putExtra(BotForegroundService.EXTRA_VOICE_ID, voiceId)
                         .putExtra(BotForegroundService.EXTRA_VOLUME, volume)
@@ -157,11 +216,49 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             )
+            if (showBrandSplash) {
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Night),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        AndroidView(
+                            factory = { context ->
+                                ImageView(context).apply {
+                                    setImageResource(R.mipmap.ic_launcher)
+                                    contentDescription = "TikTok Live Reader"
+                                    scaleType = ImageView.ScaleType.FIT_CENTER
+                                }
+                            },
+                            modifier = Modifier.size(92.dp)
+                        )
+                        Spacer(Modifier.height(18.dp))
+                        Text(
+                            "TikTok Live Reader",
+                            color = Color.White,
+                            fontSize = 23.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "LECTOR INTELIGENTE DE DIRECTOS",
+                            color = Cyan,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.5.sp
+                        )
+                    }
+                }
+            }
+            }
         }
     }
 
     override fun onStart() {
         super.onStart()
+        val preferences = getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
+        readerStatus.value = preferences.getString("reader_status", readerStatus.value).orEmpty()
+        voiceMutedFromService.value = preferences.getBoolean("voice_muted", false)
         if (!statusReceiverRegistered) {
             val filter = IntentFilter().apply {
                 addAction(BotForegroundService.ACTION_STATUS)
@@ -185,13 +282,19 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun BotApp(
     externalStatus: String,
     liveComments: List<LiveCommentUi>,
+    externalMuted: Boolean,
+    overlayPermissionGranted: Boolean,
+    onRequestOverlayPermission: () -> Unit,
+    onOverlayEnabledChanged: (Boolean) -> Unit,
     onStart: (String, ReaderSettings) -> Unit,
     onStop: () -> Unit,
+    onSkipNextComment: () -> Unit,
+    onSetMuted: (Boolean) -> Unit,
     onUpdateSettings: (ReaderSettings) -> Unit,
     onTestVoice: (String, Float, Float) -> Unit,
     onDownloadVoice: (String, (String?) -> Unit) -> Unit
@@ -220,6 +323,9 @@ private fun BotApp(
             ).orEmpty()
         )
     }
+    var customCommandEntries by remember {
+        mutableStateOf(loadCustomCommandEntries(customCommandsText, prefs))
+    }
     var welcomeEnabled by remember { mutableStateOf(prefs.getBoolean("welcome_enabled", false)) }
     var welcomeTemplate by remember { mutableStateOf(prefs.getString("welcome_template", "¡Bienvenido al LIVE, {user}!").orEmpty()) }
     var giftMinimumRepeat by remember { mutableStateOf(prefs.getInt("gift_minimum_repeat", 1).toString()) }
@@ -228,6 +334,8 @@ private fun BotApp(
     var blockedWords by remember { mutableStateOf(prefs.getString("blocked_words", "").orEmpty()) }
     var ignoredUsers by remember { mutableStateOf(prefs.getString("ignored_users", "").orEmpty()) }
     var volume by remember { mutableFloatStateOf(prefs.getFloat("volume", 0.90f).coerceIn(0f, 1f)) }
+    var voiceMuted by remember { mutableStateOf(prefs.getBoolean("voice_muted", false)) }
+    var overlayEnabled by remember { mutableStateOf(prefs.getBoolean("floating_overlay_enabled", false)) }
     var speed by remember { mutableFloatStateOf(prefs.getFloat("speed", 1.0f).coerceIn(0.65f, 1.5f)) }
     var voiceId by remember {
         mutableStateOf(prefs.getString("voice_id", PiperVoiceCatalog.DEFAULT_VOICE_ID) ?: PiperVoiceCatalog.DEFAULT_VOICE_ID)
@@ -237,6 +345,9 @@ private fun BotApp(
     var downloading by remember { mutableStateOf(false) }
     var voiceError by remember { mutableStateOf("") }
     var voiceMenuExpanded by remember { mutableStateOf(false) }
+    var navigationMenuExpanded by remember { mutableStateOf(false) }
+    val navigationRequesters = List(6) { remember { BringIntoViewRequester() } }
+    val navigationScope = rememberCoroutineScope()
 
     fun buildReaderSettings(): ReaderSettings = ReaderSettings(
         readUsername = readUsername,
@@ -263,6 +374,8 @@ private fun BotApp(
 
     LaunchedEffect(externalStatus) { status = externalStatus }
     LaunchedEffect(username) { prefs.edit().putString("last_username", username).apply() }
+    LaunchedEffect(voiceMuted) { prefs.edit().putBoolean("voice_muted", voiceMuted).apply() }
+    LaunchedEffect(externalMuted) { voiceMuted = externalMuted }
     LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId) {
         prefs.edit()
             .putBoolean("follower_only_chat", followerOnlyChat)
@@ -287,7 +400,10 @@ private fun BotApp(
             .apply()
     }
 
-    LaunchedEffect(customCommandsEnabled, customCommandsText, welcomeEnabled, welcomeTemplate, giftMinimumRepeat, giftAlertTemplate) {
+    LaunchedEffect(customCommandsEnabled, customCommandsText, customCommandEntries, welcomeEnabled, welcomeTemplate, giftMinimumRepeat, giftAlertTemplate) {
+        customCommandEntries.forEach { entry ->
+            prefs.edit().putString("custom_command_title_${entry.trigger}", entry.title).apply()
+        }
         prefs.edit()
             .putBoolean("custom_commands_enabled", customCommandsEnabled)
             .putString("custom_commands", customCommandsText)
@@ -327,21 +443,60 @@ private fun BotApp(
             Box(Modifier.align(Alignment.BottomStart).padding(bottom = 100.dp, start = 0.dp).size(170.dp).blur(75.dp).background(Cyan.copy(alpha = .13f), RoundedCornerShape(100)))
             Scaffold(
                 containerColor = Color.Transparent,
+                contentColor = Color(0xFFF4F1FF),
                 topBar = {
                     TopAppBar(
                         title = {
                             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                                Text("TIKTOK LIVE READER", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium, letterSpacing = 1.2.sp)
-                                Text("LECTOR INTELIGENTE · PIPER OFFLINE", style = MaterialTheme.typography.labelSmall, color = Cyan, letterSpacing = 1.sp)
+                                Text("TIKTOK LIVE READER", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleSmall, letterSpacing = 1.1.sp)
+                                Text("PIPER OFFLINE · CONTROL EN VIVO", style = MaterialTheme.typography.labelSmall, color = Cyan, letterSpacing = .8.sp)
                             }
                         },
-                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0x99111629))
+                        actions = {
+                            Box {
+                                IconButton(onClick = { navigationMenuExpanded = true }) {
+                                    Icon(Icons.Default.MenuOpen, contentDescription = "Abrir navegación", tint = Cyan)
+                                }
+                                DropdownMenu(
+                                    expanded = navigationMenuExpanded,
+                                    onDismissRequest = { navigationMenuExpanded = false }
+                                ) {
+                                    val destinations = listOf("Comentarios del directo", "Conexión TikTok LIVE", "Lectura y moderación", "Automatizaciones del chat", "Catálogo de voces", "Controles de voz")
+                                    destinations.forEachIndexed { index, destination ->
+                                        DropdownMenuItem(
+                                            text = { Text(destination) },
+                                            leadingIcon = {
+                                                Icon(
+                                                    when (index) {
+                                                        0 -> Icons.Default.Forum
+                                                        1 -> Icons.Default.Link
+                                                        2 -> Icons.Default.Tune
+                                                        3 -> Icons.Default.AutoAwesome
+                                                        4 -> Icons.Default.RecordVoiceOver
+                                                        else -> Icons.Default.GraphicEq
+                                                    }, contentDescription = null, tint = Violet
+                                                )
+                                            },
+                                            onClick = {
+                                                navigationMenuExpanded = false
+                                                navigationScope.launch { navigationRequesters[index].bringIntoView() }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color(0x77111629),
+                            titleContentColor = Color(0xFFF4F1FF),
+                            actionIconContentColor = Cyan
+                        )
                     )
                 }
             ) { padding ->
                 Column(
-                    Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(18.dp)
+                    Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     GlassCard {
                         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -381,16 +536,45 @@ private fun BotApp(
                                     Icon(Icons.Default.Stop, null); Text(" DETENER", fontWeight = FontWeight.Bold)
                                 }
                             }
+                            HorizontalDivider(color = Color.White.copy(alpha = .09f))
+                            if (overlayPermissionGranted) {
+                                SettingSwitch("Mostrar ventana flotante mientras el bot esté activo", overlayEnabled) {
+                                    overlayEnabled = it
+                                    onOverlayEnabledChanged(it)
+                                }
+                            } else {
+                                Text(
+                                    "La ventana flotante necesita el permiso especial «Mostrar sobre otras aplicaciones». No se activa sin tu autorización.",
+                                    color = Muted,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                OutlinedButton(
+                                    onClick = onRequestOverlayPermission,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(14.dp)
+                                ) {
+                                    Icon(Icons.Default.Layers, contentDescription = null)
+                                    Text("  PERMITIR VENTANA FLOTANTE")
+                                }
+                            }
                         }
                     }
 
-                    SectionHeader("LIVE", "Comentarios del directo", "Mensajes recibidos en tiempo real")
+                    SectionHeader("LIVE", "Comentarios del directo", "Mensajes recibidos en tiempo real", Modifier.bringIntoViewRequester(navigationRequesters[0]))
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text("CHAT EN VIVO", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
                                 Spacer(Modifier.weight(1f))
                                 Text("${liveComments.size} / 60", color = Muted, style = MaterialTheme.typography.labelSmall)
+                            }
+                            OutlinedButton(
+                                onClick = onSkipNextComment,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(13.dp)
+                            ) {
+                                Icon(Icons.Default.SkipNext, contentDescription = null)
+                                Text("  OMITIR SIGUIENTE COMENTARIO")
                             }
                             if (liveComments.isEmpty()) {
                                 Text(
@@ -420,7 +604,7 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("01", "Conexión TikTok LIVE", "Introduce el usuario del creador")
+                    SectionHeader("01", "Conexión TikTok LIVE", "Introduce el usuario del creador", Modifier.bringIntoViewRequester(navigationRequesters[1]))
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             OutlinedTextField(
@@ -445,7 +629,7 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("02", "Lectura y moderación", "Personaliza qué contenido se convierte en voz")
+                    SectionHeader("02", "Lectura y moderación", "Personaliza qué contenido se convierte en voz", Modifier.bringIntoViewRequester(navigationRequesters[2]))
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                             SettingSwitch("Leer nombre del usuario", readUsername) { readUsername = it }
@@ -459,26 +643,34 @@ private fun BotApp(
                             Text("El modo aleatorio alterna entre las voces descargadas. Si solo tienes una instalada, utilizará esa.", color = Muted, style = MaterialTheme.typography.bodySmall)
                             Text("El filtro de seguidores depende del estado que TikTok incluya en cada comentario; si no llega ese dato, el comentario se descarta por seguridad.", color = Muted, style = MaterialTheme.typography.bodySmall)
                             HorizontalDivider(color = Color.White.copy(alpha = .09f))
-                            OutlinedTextField(value = blockedWords, onValueChange = { blockedWords = it }, label = { Text("Palabras bloqueadas · separadas por coma") }, modifier = Modifier.fillMaxWidth(), minLines = 2, shape = RoundedCornerShape(16.dp))
-                            OutlinedTextField(value = ignoredUsers, onValueChange = { ignoredUsers = it }, label = { Text("Usuarios ignorados · separados por coma") }, modifier = Modifier.fillMaxWidth(), minLines = 2, shape = RoundedCornerShape(16.dp))
+                            EditableStringList(
+                                title = "Palabras bloqueadas",
+                                placeholder = "Añadir palabra",
+                                items = splitList(blockedWords),
+                                onItemsChange = { blockedWords = it.joinToString("\n") }
+                            )
+                            EditableStringList(
+                                title = "Usuarios que el bot no leerá",
+                                placeholder = "@usuario",
+                                items = splitList(ignoredUsers),
+                                onItemsChange = { ignoredUsers = it.joinToString("\n") }
+                            )
                             OutlinedTextField(value = maxQueue, onValueChange = { maxQueue = it.filter(Char::isDigit).take(3) }, label = { Text("Tamaño de cola (5–100)") }, leadingIcon = { Icon(Icons.Default.Queue, null, tint = Violet) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(16.dp))
                         }
                     }
 
-                    SectionHeader("03", "Automatizaciones del chat", "Comandos locales, bienvenida y alertas avanzadas")
+                    SectionHeader("03", "Automatizaciones del chat", "Comandos locales, bienvenida y alertas avanzadas", Modifier.bringIntoViewRequester(navigationRequesters[3]))
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                             SettingSwitch("Activar comandos personalizados", customCommandsEnabled) { customCommandsEnabled = it }
-                            OutlinedTextField(
-                                value = customCommandsText,
-                                onValueChange = { customCommandsText = it },
-                                label = { Text("Comandos · uno por línea") },
-                                placeholder = { Text("!discord=Únete a mi comunidad") },
-                                modifier = Modifier.fillMaxWidth(),
-                                minLines = 4,
-                                shape = RoundedCornerShape(16.dp)
+                            CustomCommandEditor(
+                                commands = customCommandEntries,
+                                onCommandsChange = { updated ->
+                                    customCommandEntries = updated
+                                    customCommandsText = updated.joinToString("\n") { "${it.trigger}=${it.response}" }
+                                }
                             )
-                            Text("Formato: !comando=respuesta. Ejemplos incluidos: !redes, !discord, !youtube y !horario. La respuesta se reproduce solo en tu dispositivo; no se publica en el chat de TikTok.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            Text("Cada activador se reconoce al inicio del comentario. La respuesta se reproduce solo en tu dispositivo; no se publica en el chat de TikTok.", color = Muted, style = MaterialTheme.typography.bodySmall)
                             HorizontalDivider(color = Color.White.copy(alpha = .09f))
                             SettingSwitch("Dar bienvenida al primer comentario de cada usuario", welcomeEnabled) { welcomeEnabled = it }
                             OutlinedTextField(
@@ -514,7 +706,7 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("04", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local")
+                    SectionHeader("04", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local", Modifier.bringIntoViewRequester(navigationRequesters[4]))
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("SELECCIONA UNA VOZ", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
@@ -579,7 +771,7 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("05", "Controles de voz", "Ajusta la reproducción a tu gusto")
+                    SectionHeader("05", "Controles de voz", "Ajusta la reproducción a tu gusto", Modifier.bringIntoViewRequester(navigationRequesters[5]))
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -603,6 +795,14 @@ private fun BotApp(
                                 }
                             }
                             OutlinedButton(
+                                onClick = { voiceMuted = !voiceMuted; onSetMuted(voiceMuted) },
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                shape = RoundedCornerShape(15.dp)
+                            ) {
+                                Icon(if (voiceMuted) Icons.Default.VolumeOff else Icons.Default.VolumeMute, null)
+                                Text(if (voiceMuted) "  ACTIVAR VOZ" else "  SILENCIAR VOZ")
+                            }
+                            OutlinedButton(
                                 onClick = { onTestVoice(voiceId, volume, speed) },
                                 modifier = Modifier.fillMaxWidth().height(50.dp),
                                 enabled = voiceInstalled && !downloading,
@@ -615,7 +815,7 @@ private fun BotApp(
                     }
 
                     Text(
-                        "TIKTOK LIVE READER  •  v0.10.0  •  BY ROXI",
+                        "TIKTOK LIVE READER  •  v0.12.2  •  BY ROXI",
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         color = Muted.copy(alpha = .7f),
                         style = MaterialTheme.typography.labelSmall,
@@ -631,19 +831,22 @@ private fun BotApp(
 @Composable
 private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth().shadow(18.dp, RoundedCornerShape(24.dp))
-            .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = .24f), Violet.copy(alpha = .22f), Color.White.copy(alpha = .04f))), RoundedCornerShape(24.dp))
+        modifier = Modifier.fillMaxWidth().shadow(14.dp, RoundedCornerShape(22.dp))
+            .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = .28f), Violet.copy(alpha = .20f), Cyan.copy(alpha = .08f))), RoundedCornerShape(22.dp))
             .animateContentSize(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Panel),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xB91B2036),
+            contentColor = Color(0xFFF4F1FF)
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         content = content
     )
 }
 
 @Composable
-private fun SectionHeader(number: String, title: String, subtitle: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+private fun SectionHeader(number: String, title: String, subtitle: String, modifier: Modifier = Modifier) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(number, color = Violet, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelLarge)
         Column {
             Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
@@ -652,8 +855,137 @@ private fun SectionHeader(number: String, title: String, subtitle: String) {
     }
 }
 
+private fun loadCustomCommandEntries(raw: String, prefs: android.content.SharedPreferences): List<CustomCommandEntry> =
+    ChatCommandParser.parseConfig(raw).map { (trigger, response) ->
+        CustomCommandEntry(
+            title = prefs.getString("custom_command_title_$trigger", trigger).orEmpty().ifBlank { trigger },
+            trigger = trigger,
+            response = response
+        )
+    }
+
+@Composable
+private fun CustomCommandEditor(
+    commands: List<CustomCommandEntry>,
+    onCommandsChange: (List<CustomCommandEntry>) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var trigger by remember { mutableStateOf("!") }
+    var response by remember { mutableStateOf("") }
+    var validation by remember { mutableStateOf("") }
+
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Text("TUS COMANDOS", color = Cyan, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
+        OutlinedTextField(
+            value = title, onValueChange = { title = it.take(40) },
+            label = { Text("Título del comando") }, modifier = Modifier.fillMaxWidth(),
+            singleLine = true, shape = RoundedCornerShape(14.dp)
+        )
+        OutlinedTextField(
+            value = trigger, onValueChange = { trigger = it.lowercase().filter { ch -> ch.isLetterOrDigit() || ch == '_' || ch == '!' }.take(25) },
+            label = { Text("Activador (ej. !discord)") }, modifier = Modifier.fillMaxWidth(),
+            singleLine = true, shape = RoundedCornerShape(14.dp)
+        )
+        OutlinedTextField(
+            value = response, onValueChange = { response = it.take(280) },
+            label = { Text("Respuesta que dirá la voz") }, modifier = Modifier.fillMaxWidth(),
+            minLines = 2, shape = RoundedCornerShape(14.dp)
+        )
+        if (validation.isNotBlank()) Text(validation, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            enabled = title.isNotBlank() && Regex("^![a-z0-9_]{1,24}$").matches(trigger.trim()) && response.isNotBlank() && commands.size < 40,
+            onClick = {
+                val key = trigger.trim()
+                val entry = CustomCommandEntry(title.trim(), key, response.trim())
+                onCommandsChange(commands.filterNot { it.trigger == key } + entry)
+                title = ""; trigger = "!"; response = ""; validation = ""
+            }
+        ) {
+            Icon(Icons.Default.Save, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("Guardar comando")
+        }
+        commands.forEach { command ->
+            Surface(
+                color = Color.White.copy(alpha = .055f),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(command.title, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                        Text(command.trigger, color = Cyan, fontWeight = FontWeight.Bold)
+                        IconButton(onClick = { onCommandsChange(commands.filterNot { it.trigger == command.trigger }) }) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Eliminar comando", tint = Muted)
+                        }
+                    }
+                    Text(command.response, color = Muted, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        if (commands.isEmpty()) Text("Aún no hay comandos guardados.", color = Muted, style = MaterialTheme.typography.bodySmall)
+        Text("${commands.size}/40 comandos", color = Muted, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
 private fun splitList(value: String): List<String> =
     value.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+
+
+@Composable
+private fun EditableStringList(
+    title: String,
+    placeholder: String,
+    items: List<String>,
+    onItemsChange: (List<String>) -> Unit
+) {
+    var draft by remember(title) { mutableStateOf("") }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleSmall)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { draft = it.take(80) },
+                placeholder = { Text(placeholder) },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(14.dp)
+            )
+            FilledTonalIconButton(
+                enabled = draft.isNotBlank() && items.none { it.equals(draft.trim(), true) },
+                onClick = {
+                    val value = draft.trim().removePrefix("@").takeIf { it.isNotBlank() } ?: return@FilledTonalIconButton
+                    onItemsChange(items + value)
+                    draft = ""
+                }
+            ) { Icon(Icons.Default.Add, contentDescription = "Añadir") }
+        }
+        if (items.isEmpty()) {
+            Text("Todavía no hay elementos en esta lista.", color = Muted, style = MaterialTheme.typography.bodySmall)
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                items.forEach { item ->
+                    Surface(
+                        color = Color.White.copy(alpha = .055f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            Modifier.padding(start = 12.dp, end = 5.dp, top = 4.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(item, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            IconButton(onClick = { onItemsChange(items.filterNot { it == item }) }) {
+                                Icon(Icons.Default.Close, contentDescription = "Eliminar $item", tint = Muted)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun SettingSwitch(title: String, checked: Boolean, onChecked: (Boolean) -> Unit) {

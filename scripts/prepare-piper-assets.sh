@@ -5,6 +5,16 @@ PIPER="$ROOT/piper-kotlin"
 [[ -d "$PIPER" ]] || { echo "Falta piper-kotlin; ejecuta scripts/setup-piper.sh" >&2; exit 1; }
 
 cd "$PIPER"
+
+# Piper's pinned fetch script currently points at repo1.maven.org, which
+# returned HTTP 404 in GitHub Actions for the published ONNX Runtime AAR.
+# Use Maven Central's canonical endpoint without changing the pinned version
+# or any Piper engine/native source.
+PIPER_DEPS_SCRIPT="$PIPER/scripts/fetch-native-deps.sh"
+if grep -q 'https://repo1.maven.org/maven2/' "$PIPER_DEPS_SCRIPT"; then
+  sed -i 's#https://repo1.maven.org/maven2/#https://repo.maven.apache.org/maven2/#g' "$PIPER_DEPS_SCRIPT"
+fi
+
 ./scripts/fetch-native-deps.sh
 ./scripts/stage-espeak-data.sh
 

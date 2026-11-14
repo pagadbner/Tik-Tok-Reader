@@ -54,7 +54,15 @@ class SpeechQueueWorker(
         val accepted = synchronized(lock) {
             val queue = if (priority) priorityQueue else normalQueue
             val limit = if (priority) importantCapacity else normalCapacity
-            if (queue.size >= limit) false else {
+            if (priority) {
+                if (queue.size >= limit) false else {
+                    queue.addLast(text)
+                    true
+                }
+            } else {
+                // Prefer fresh LIVE chat over stale backlog: keep the utterance
+                // currently being spoken, evict the oldest pending comment.
+                if (queue.size >= limit) queue.removeFirst()
                 queue.addLast(text)
                 true
             }
@@ -63,11 +71,30 @@ class SpeechQueueWorker(
         return accepted
     }
 
+    /** Drops the next pending chat comment without interrupting the utterance in progress or priority alerts. */
+    fun skipNextComment(): Boolean = synchronized(lock) {
+        if (normalQueue.isEmpty()) false else {
+            normalQueue.removeFirst()
+            true
+        }
+    }
+
+    /** Drops pending chat comments while preserving priority LIVE alerts. */
+    fun clearPendingComments(): Int = synchronized(lock) {
+        val removed = normalQueue.size
+        normalQueue.clear()
+        removed
+    }
+
     fun queuedCount(): Int = synchronized(lock) {
         priorityQueue.size + normalQueue.size
     }
 
     fun close() {
+        synchronized(lock) {
+            normalQueue.clear()
+            priorityQueue.clear()
+        }
         wake.close()
     }
 }
