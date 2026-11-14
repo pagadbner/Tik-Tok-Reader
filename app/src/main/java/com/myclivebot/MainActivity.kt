@@ -154,7 +154,6 @@ class MainActivity : ComponentActivity() {
                         .putExtra(BotForegroundService.EXTRA_WELCOME_TEMPLATE, settings.welcomeTemplate)
                         .putExtra(BotForegroundService.EXTRA_GIFT_MINIMUM_REPEAT, settings.giftMinimumRepeatCount)
                         .putExtra(BotForegroundService.EXTRA_GIFT_TEMPLATE, settings.giftAlertTemplate)
-                    readerStatus.value = "Servicio iniciado · conectando…"
                     startService(intent)
                 },
                 onStop = {
