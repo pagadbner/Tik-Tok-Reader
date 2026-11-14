@@ -117,6 +117,7 @@ class BotForegroundService : Service() {
                 connector = null
                 pipeline = null
                 activeSettings = null
+                updateStatus("Detenido")
                 speechQueue?.close()
                 speechQueue = null
                 kotlinx.coroutines.runBlocking(Dispatchers.IO) { runCatching { piper?.stop() } }
@@ -338,6 +339,8 @@ class BotForegroundService : Service() {
 
     private fun updateStatus(status: String) {
         lastKnownStatus = status
+        getSharedPreferences("tiklbot_preferences", MODE_PRIVATE).edit()
+            .putString("reader_status", status).apply()
         mainHandler.post { floatingOverlay?.update(status, voiceMuted) }
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(status))
         sendBroadcast(
