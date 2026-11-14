@@ -61,6 +61,7 @@ private data class CustomCommandEntry(val title: String, val trigger: String, va
 class MainActivity : ComponentActivity() {
     private val readerStatus = mutableStateOf("Detenido")
     private val liveComments = mutableStateListOf<LiveCommentUi>()
+    private val voiceMutedFromService = mutableStateOf(false)
     private var statusReceiverRegistered = false
     private val overlayPermissionGranted = mutableStateOf(false)
     private val statusReceiver = object : BroadcastReceiver() {
@@ -68,6 +69,7 @@ class MainActivity : ComponentActivity() {
             when (intent?.action) {
                 BotForegroundService.ACTION_STATUS -> {
                     readerStatus.value = intent.getStringExtra(BotForegroundService.EXTRA_STATUS) ?: return
+                    voiceMutedFromService.value = intent.getBooleanExtra(BotForegroundService.EXTRA_MUTED, voiceMutedFromService.value)
                 }
                 BotForegroundService.ACTION_COMMENT -> {
                     val message = intent.getStringExtra(BotForegroundService.EXTRA_COMMENT_TEXT).orEmpty()
@@ -90,6 +92,8 @@ class MainActivity : ComponentActivity() {
     private val overlayPermissionRequest =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             overlayPermissionGranted.value = Settings.canDrawOverlays(this)
+        voiceMutedFromService.value = getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
+            .getBoolean("voice_muted", false)
             if (overlayPermissionGranted.value &&
                 getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
                     .getBoolean("floating_overlay_enabled", false) &&
@@ -114,6 +118,7 @@ class MainActivity : ComponentActivity() {
             BotApp(
                 externalStatus = readerStatus.value,
                 liveComments = liveComments,
+                externalMuted = voiceMutedFromService.value,
                 overlayPermissionGranted = overlayPermissionGranted.value,
                 onRequestOverlayPermission = {
                     overlayPermissionRequest.launch(
@@ -273,6 +278,7 @@ class MainActivity : ComponentActivity() {
 private fun BotApp(
     externalStatus: String,
     liveComments: List<LiveCommentUi>,
+    externalMuted: Boolean,
     overlayPermissionGranted: Boolean,
     onRequestOverlayPermission: () -> Unit,
     onOverlayEnabledChanged: (Boolean) -> Unit,
@@ -360,6 +366,7 @@ private fun BotApp(
     LaunchedEffect(externalStatus) { status = externalStatus }
     LaunchedEffect(username) { prefs.edit().putString("last_username", username).apply() }
     LaunchedEffect(voiceMuted) { prefs.edit().putBoolean("voice_muted", voiceMuted).apply() }
+    LaunchedEffect(externalMuted) { voiceMuted = externalMuted }
     LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId) {
         prefs.edit()
             .putBoolean("follower_only_chat", followerOnlyChat)
