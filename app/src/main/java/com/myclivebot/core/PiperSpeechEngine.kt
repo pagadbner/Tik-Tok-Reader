@@ -34,6 +34,17 @@ class PiperSpeechEngine(
     @Volatile private var volume: Float = volume.coerceIn(0f, 1f)
     @Volatile private var speed: Float = speed.coerceIn(0.65f, 1.5f)
     @Volatile private var muted: Boolean = false
+    // Voice metadata is immutable for this engine instance; avoid reopening and parsing
+    // the JSON config for every short chat utterance.
+    private val audioSampleRate: Int by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        JSONObject(PiperVoiceCatalog.configFile(appContext, voiceId).readText())
+            .optJSONObject("audio")?.optInt("sample_rate", 22_050) ?: 22_050
+    }
+    private val minAudioBufferSize: Int by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        AudioTrack.getMinBufferSize(
+            audioSampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
+        ).coerceAtLeast(4096)
+    }
 
     companion object {
         const val VOICE_ID = "es_MX-ald-medium"
@@ -214,11 +225,7 @@ class PiperSpeechEngine(
     override suspend fun speak(text: String) = withContext(Dispatchers.IO) {
         initialize()
         val piper = engine ?: error("Piper no está inicializado")
-        val config = JSONObject(PiperVoiceCatalog.configFile(appContext, voiceId).readText())
-        val sampleRate = config.optJSONObject("audio")?.optInt("sample_rate", 22_050) ?: 22_050
-        val minBuffer = AudioTrack.getMinBufferSize(
-            sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
-        ).coerceAtLeast(4096)
+        val sampleRate = audioSampleRate
         val track = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -233,7 +240,7 @@ class PiperSpeechEngine(
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                     .build()
             )
-            .setBufferSizeInBytes(minBuffer * 2)
+            .setBufferSizeInBytes(minAudioBufferSize * 2)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
         val totalFrames = AtomicLong(0L)
