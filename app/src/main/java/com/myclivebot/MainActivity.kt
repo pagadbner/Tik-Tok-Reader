@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
-import android.provider.Settings
 import android.widget.ImageView
 import android.os.Build
 import android.os.Bundle
@@ -17,7 +16,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -27,6 +25,9 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import coil.compose.AsyncImage
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -56,7 +57,7 @@ private val Violet = Color(0xFF9B86FF)
 private val Cyan = Color(0xFF69DED2)
 private val Muted = Color(0xFFB8BBD0)
 
-private data class LiveCommentUi(val username: String, val message: String, val receivedAt: Long)
+private data class LiveCommentUi(val username: String, val message: String, val avatarUrl: String?, val receivedAt: Long)
 private data class CustomCommandEntry(val title: String, val trigger: String, val response: String)
 
 class MainActivity : ComponentActivity() {
@@ -64,7 +65,6 @@ class MainActivity : ComponentActivity() {
     private val liveComments = mutableStateListOf<LiveCommentUi>()
     private val voiceMutedFromService = mutableStateOf(false)
     private var statusReceiverRegistered = false
-    private val overlayPermissionGranted = mutableStateOf(false)
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -79,6 +79,7 @@ class MainActivity : ComponentActivity() {
                             LiveCommentUi(
                                 username = intent.getStringExtra(BotForegroundService.EXTRA_COMMENT_USERNAME).orEmpty(),
                                 message = message,
+                                avatarUrl = intent.getStringExtra(BotForegroundService.EXTRA_COMMENT_AVATAR),
                                 receivedAt = intent.getLongExtra(BotForegroundService.EXTRA_COMMENT_TIME, System.currentTimeMillis())
                             )
                         )
@@ -92,8 +93,7 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
     private val overlayPermissionRequest =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-            overlayPermissionGranted.value = Settings.canDrawOverlays(this)
-        voiceMutedFromService.value = getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
+            voiceMutedFromService.value = getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
             .getBoolean("voice_muted", false)
             if (overlayPermissionGranted.value &&
                 getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
@@ -120,20 +120,6 @@ class MainActivity : ComponentActivity() {
                 externalStatus = readerStatus.value,
                 liveComments = liveComments,
                 externalMuted = voiceMutedFromService.value,
-                overlayPermissionGranted = overlayPermissionGranted.value,
-                onRequestOverlayPermission = {
-                    overlayPermissionRequest.launch(
-                        Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
-                    )
-                },
-                onOverlayEnabledChanged = { enabled ->
-                    getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
-                        .edit().putBoolean("floating_overlay_enabled", enabled).apply()
-                    if (readerStatus.value != "Detenido") {
-                        startService(Intent(this@MainActivity, BotForegroundService::class.java)
-                            .setAction(BotForegroundService.ACTION_OVERLAY_CONFIG))
-                    }
-                },
                 onStart = { username, settings ->
                     val intent = Intent(this@MainActivity, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_START)
@@ -271,6 +257,7 @@ class MainActivity : ComponentActivity() {
             }
             statusReceiverRegistered = true
         }
+        startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_REQUEST_STATUS))
     }
 
     override fun onStop() {
@@ -288,9 +275,6 @@ private fun BotApp(
     externalStatus: String,
     liveComments: List<LiveCommentUi>,
     externalMuted: Boolean,
-    overlayPermissionGranted: Boolean,
-    onRequestOverlayPermission: () -> Unit,
-    onOverlayEnabledChanged: (Boolean) -> Unit,
     onStart: (String, ReaderSettings) -> Unit,
     onStop: () -> Unit,
     onSkipNextComment: () -> Unit,
@@ -335,7 +319,6 @@ private fun BotApp(
     var ignoredUsers by remember { mutableStateOf(prefs.getString("ignored_users", "").orEmpty()) }
     var volume by remember { mutableFloatStateOf(prefs.getFloat("volume", 0.90f).coerceIn(0f, 1f)) }
     var voiceMuted by remember { mutableStateOf(prefs.getBoolean("voice_muted", false)) }
-    var overlayEnabled by remember { mutableStateOf(prefs.getBoolean("floating_overlay_enabled", false)) }
     var speed by remember { mutableFloatStateOf(prefs.getFloat("speed", 1.0f).coerceIn(0.65f, 1.5f)) }
     var voiceId by remember {
         mutableStateOf(prefs.getString("voice_id", PiperVoiceCatalog.DEFAULT_VOICE_ID) ?: PiperVoiceCatalog.DEFAULT_VOICE_ID)
@@ -537,26 +520,6 @@ private fun BotApp(
                                 }
                             }
                             HorizontalDivider(color = Color.White.copy(alpha = .09f))
-                            if (overlayPermissionGranted) {
-                                SettingSwitch("Mostrar ventana flotante mientras el bot esté activo", overlayEnabled) {
-                                    overlayEnabled = it
-                                    onOverlayEnabledChanged(it)
-                                }
-                            } else {
-                                Text(
-                                    "La ventana flotante necesita el permiso especial «Mostrar sobre otras aplicaciones». No se activa sin tu autorización.",
-                                    color = Muted,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                                OutlinedButton(
-                                    onClick = onRequestOverlayPermission,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(14.dp)
-                                ) {
-                                    Icon(Icons.Default.Layers, contentDescription = null)
-                                    Text("  PERMITIR VENTANA FLOTANTE")
-                                }
-                            }
                         }
                     }
 
@@ -583,19 +546,27 @@ private fun BotApp(
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             } else {
-                                Column(
-                                    Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                                    reverseLayout = true,
                                     verticalArrangement = Arrangement.spacedBy(9.dp)
                                 ) {
-                                    liveComments.asReversed().forEach { comment ->
-                                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                            Text(
-                                                comment.username.ifBlank { "Usuario" },
-                                                color = Cyan,
-                                                fontWeight = FontWeight.Bold,
-                                                style = MaterialTheme.typography.labelMedium
+                                    items(liveComments.asReversed(), key = { "${it.receivedAt}-${it.username}-${it.message.hashCode()}" }) { comment ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            verticalAlignment = Alignment.Top
+                                        ) {
+                                            AsyncImage(
+                                                model = comment.avatarUrl,
+                                                contentDescription = "Foto de perfil de ${comment.username}",
+                                                modifier = Modifier.size(38.dp).clip(RoundedCornerShape(50.dp)).background(Panel),
+                                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
                                             )
-                                            Text(comment.message, color = Color(0xFFF4F1FF), style = MaterialTheme.typography.bodyMedium)
+                                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                                Text(comment.username.ifBlank { "Usuario" }, color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                                                Text(comment.message, color = Color(0xFFF4F1FF), style = MaterialTheme.typography.bodyMedium)
+                                            }
                                         }
                                         HorizontalDivider(color = Color.White.copy(alpha = .08f))
                                     }
@@ -815,7 +786,7 @@ private fun BotApp(
                     }
 
                     Text(
-                        "TIKTOK LIVE READER  •  v0.12.2  •  BY ROXI",
+                        "TIKTOK LIVE READER  •  v0.13.0  •  BY ROXI",
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         color = Muted.copy(alpha = .7f),
                         style = MaterialTheme.typography.labelSmall,
