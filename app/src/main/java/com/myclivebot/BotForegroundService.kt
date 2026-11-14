@@ -37,13 +37,14 @@ class BotForegroundService : Service() {
         const val ACTION_UPDATE_SETTINGS = "com.myclivebot.UPDATE_SETTINGS"
         const val ACTION_SKIP_NEXT_COMMENT = "com.myclivebot.SKIP_NEXT_COMMENT"
         const val ACTION_SET_MUTE = "com.myclivebot.SET_MUTE"
-        const val ACTION_OVERLAY_CONFIG = "com.myclivebot.OVERLAY_CONFIG"
         const val EXTRA_MUTED = "voice_muted"
         const val ACTION_STATUS = "com.myclivebot.STATUS"
+        const val ACTION_REQUEST_STATUS = "com.myclivebot.REQUEST_STATUS"
         const val ACTION_COMMENT = "com.myclivebot.COMMENT"
         const val EXTRA_COMMENT_USERNAME = "comment_username"
         const val EXTRA_COMMENT_TEXT = "comment_text"
         const val EXTRA_COMMENT_TIME = "comment_time"
+        const val EXTRA_COMMENT_AVATAR = "comment_avatar"
         const val EXTRA_STATUS = "reader_status"
         const val EXTRA_USERNAME = "username"
         const val EXTRA_READ_USERNAME = "read_username"
@@ -82,8 +83,8 @@ class BotForegroundService : Service() {
     private var activeSettings: ReaderSettings? = null
     @Volatile private var voiceMuted: Boolean = false
     private var pipeline: CommentPipeline? = null
-    private var floatingOverlay: FloatingOverlayController? = null
     @Volatile private var lastKnownStatus: String = "Detenido"
+    @Volatile private var lastStatsPublishAt: Long = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -112,7 +113,6 @@ class BotForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                floatingOverlay?.hide()
                 connector?.disconnect()
                 connector = null
                 pipeline = null
@@ -149,8 +149,11 @@ class BotForegroundService : Service() {
                 startReader(username, settings)
             }
 
-            ACTION_OVERLAY_CONFIG -> {
-                if (activeSettings != null) refreshFloatingOverlay()
+
+            ACTION_REQUEST_STATUS -> {
+                sendBroadcast(Intent(ACTION_STATUS).setPackage(packageName)
+                    .putExtra(EXTRA_STATUS, lastKnownStatus)
+                    .putExtra(EXTRA_MUTED, voiceMuted))
             }
 
             ACTION_SKIP_NEXT_COMMENT -> {
@@ -222,14 +225,14 @@ class BotForegroundService : Service() {
         pipeline = livePipeline
         val liveConnector = TikTokLiveConnector(
             onComment = { comment ->
-                livePipeline.onComment(comment)
                 publishLiveComment(comment)
-                publishLiveStats()
+                livePipeline.onComment(comment)
+                publishLiveStatsIfDue()
             },
             onStatus = ::updateStatus,
             onEvent = { event ->
                 livePipeline.onEvent(event)
-                publishLiveStats()
+                publishLiveStatsIfDue()
             },
             cookieFallback = { TikTokWebViewCookieProvider(this).acquireTtwid() }
         )
@@ -288,6 +291,7 @@ class BotForegroundService : Service() {
                 .setPackage(packageName)
                 .putExtra(EXTRA_COMMENT_USERNAME, comment.displayName)
                 .putExtra(EXTRA_COMMENT_TEXT, comment.text)
+                .putExtra(EXTRA_COMMENT_AVATAR, comment.avatarUrl.orEmpty())
                 .putExtra(EXTRA_COMMENT_TIME, timestamp)
         )
         localBridge?.publish(
@@ -299,7 +303,10 @@ class BotForegroundService : Service() {
         )
     }
 
-    private fun publishLiveStats() {
+    private fun publishLiveStatsIfDue() {
+        val now = System.currentTimeMillis()
+        if (now - lastStatsPublishAt < 500L) return
+        lastStatsPublishAt = now
         val stats = pipeline?.stats() ?: return
         localBridge?.publish(
             "live_stats",
@@ -313,35 +320,10 @@ class BotForegroundService : Service() {
         )
     }
 
-    private fun refreshFloatingOverlay() {
-        val enabled = getSharedPreferences("tiklbot_preferences", MODE_PRIVATE)
-            .getBoolean("floating_overlay_enabled", false)
-        if (!enabled || activeSettings == null || !Settings.canDrawOverlays(this)) {
-            floatingOverlay?.hide()
-            return
-        }
-        val controller = floatingOverlay ?: FloatingOverlayController(
-            this,
-            onMuteToggle = {
-                voiceMuted = !voiceMuted
-                getSharedPreferences("tiklbot_preferences", MODE_PRIVATE).edit()
-                    .putBoolean("voice_muted", voiceMuted).apply()
-                piper?.setMuted(voiceMuted)
-                updateStatus(if (voiceMuted) "Voz silenciada" else "Voz activada")
-            },
-            onSkipNext = {
-                val skipped = speechQueue?.skipNextComment() == true
-                updateStatus(if (skipped) "Comentario pendiente omitido" else "No hay comentarios pendientes para omitir")
-            }
-        ).also { floatingOverlay = it }
-        controller.show(lastKnownStatus, voiceMuted)
-    }
-
     private fun updateStatus(status: String) {
         lastKnownStatus = status
         getSharedPreferences("tiklbot_preferences", MODE_PRIVATE).edit()
             .putString("reader_status", status).apply()
-        mainHandler.post { floatingOverlay?.update(status, voiceMuted) }
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(status))
         sendBroadcast(
             Intent(ACTION_STATUS).setPackage(packageName)
@@ -352,8 +334,6 @@ class BotForegroundService : Service() {
     }
 
     override fun onDestroy() {
-        floatingOverlay?.hide()
-        floatingOverlay = null
         connector?.disconnect()
         connector = null
         speechQueue?.close()
