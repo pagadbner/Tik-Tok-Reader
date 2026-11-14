@@ -493,7 +493,6 @@ private fun BotApp(
                                                 prefs.edit().putStringSet("recent_usernames", recentUsernames.toSet()).apply()
                                                 val settings = buildReaderSettings()
                                                 onStart(clean, settings)
-                                                status = "Servicio iniciado · conectando…"
                                             }
                                         }
                                     },
