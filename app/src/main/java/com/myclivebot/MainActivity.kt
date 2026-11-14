@@ -835,7 +835,10 @@ private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
             .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = .28f), Violet.copy(alpha = .20f), Cyan.copy(alpha = .08f))), RoundedCornerShape(22.dp))
             .animateContentSize(),
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xB91B2036)),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xB91B2036),
+            contentColor = Color(0xFFF4F1FF)
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         content = content
     )
