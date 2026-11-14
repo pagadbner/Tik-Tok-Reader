@@ -5,7 +5,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.net.Uri
 import android.widget.ImageView
 import android.os.Build
 import android.os.Bundle
@@ -91,23 +90,9 @@ class MainActivity : ComponentActivity() {
     }
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    private val overlayPermissionRequest =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-            voiceMutedFromService.value = getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
-            .getBoolean("voice_muted", false)
-            if (overlayPermissionGranted.value &&
-                getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
-                    .getBoolean("floating_overlay_enabled", false) &&
-                readerStatus.value != "Detenido"
-            ) {
-                startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_OVERLAY_CONFIG))
-            }
-        }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
-        overlayPermissionGranted.value = Settings.canDrawOverlays(this)
         if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         setContent {
             var showBrandSplash by remember { mutableStateOf(true) }
