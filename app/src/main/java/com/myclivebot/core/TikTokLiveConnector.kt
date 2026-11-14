@@ -354,6 +354,11 @@ class TikTokLiveConnector(
                             userId = user?.long(1)?.toString().orEmpty(),
                             displayName = displayName(user),
                             text = comment,
+                            avatarUrl = user?.let { sender ->
+                                sender.message(9)?.strings(1)?.firstOrNull()
+                                    ?: sender.message(16)?.strings(1)?.firstOrNull()
+                                    ?: sender.message(17)?.strings(1)?.firstOrNull()
+                            },
                             isModerator = identity?.bool(5) == true,
                             // Current Webcast User exposes is_follower at field 1029 and
                             // follow_status at 1024. Older schemas may nest follow_status
@@ -503,6 +508,7 @@ class TikTokLiveConnector(
         fun long(field: Int): Long = last(field) as? Long ?: 0L
         fun bool(field: Int): Boolean = long(field) != 0L
         fun string(field: Int): String = (last(field) as? ByteArray)?.toString(Charsets.UTF_8).orEmpty()
+        fun strings(field: Int): List<String> = fields[field].orEmpty().mapNotNull { (it as? ByteArray)?.toString(Charsets.UTF_8) }
         fun bytes(field: Int): ByteArray = (last(field) as? ByteArray) ?: ByteArray(0)
         fun message(field: Int): ProtoMessage? = (last(field) as? ByteArray)?.let(::ProtoMessage)
         fun messages(field: Int): List<ProtoMessage> =
