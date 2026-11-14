@@ -113,7 +113,7 @@ internal class FloatingOverlayController(
                         startY = params.y
                         touchX = event.rawX
                         touchY = event.rawY
-                        return false
+                        return true
                     }
                     MotionEvent.ACTION_MOVE -> {
                         val dx = (event.rawX - touchX).toInt()
@@ -125,7 +125,7 @@ internal class FloatingOverlayController(
                             return true
                         }
                     }
-                    MotionEvent.ACTION_UP -> return false
+                    MotionEvent.ACTION_UP -> return true
                 }
                 return false
             }
