@@ -7,8 +7,6 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
-import android.os.Handler
-import android.os.Looper
 import android.provider.Settings
 import com.myclivebot.core.CommentFilter
 import com.myclivebot.core.CommentPipeline
@@ -72,7 +70,6 @@ class BotForegroundService : Service() {
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val mainHandler = Handler(Looper.getMainLooper())
     private var piper: DynamicPiperSpeechEngine? = null
     private var speechQueue: SpeechQueueWorker? = null
     private var connector: TikTokLiveConnector? = null
