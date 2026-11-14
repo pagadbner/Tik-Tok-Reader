@@ -24,8 +24,9 @@ object ChatCommandParser {
         return parsed
     }
 
-    fun responseFor(message: String, username: String, commands: Map<String, String>): String? {
-        val command = message.trim().split(Regex("\\s+")).firstOrNull()
+    fun responseFor(message: String, username: String, commands: Map<String, String>, isModerator: Boolean = false): String? {
+        if (!isModerator) return null
+        val command = message.trim().split(Regex("\\s+"), limit = 2).firstOrNull()
             ?.lowercase(Locale.ROOT)
             ?: return null
         val template = commands[command] ?: return null
