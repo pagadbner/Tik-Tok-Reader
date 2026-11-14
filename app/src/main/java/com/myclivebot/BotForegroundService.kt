@@ -226,6 +226,11 @@ class BotForegroundService : Service() {
         speechQueue = null
         activeSettings = settings
         ensureSpeechQueue(settings.maxQueueSize, settings)
+        // Warm the selected native voice before the first LIVE comment arrives.
+        // This moves model initialization and asset preparation off the first utterance.
+        serviceScope.launch(Dispatchers.IO) {
+            runCatching { piper?.initialize() }
+        }
         val livePipeline = CommentPipeline(CommentFilter(), speechQueue!!, settings)
         pipeline = livePipeline
         val liveConnector = TikTokLiveConnector(
