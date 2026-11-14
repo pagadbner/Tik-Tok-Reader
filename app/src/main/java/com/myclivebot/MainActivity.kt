@@ -385,16 +385,18 @@ private fun BotApp(
     val connected = status.contains("Conectado", true) && !status.contains("no se pudo", true)
     LaunchedEffect(
         connected, readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat,
-        readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers, volume,
+        readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers,
         speed, voiceId, voiceInstalled, customCommandsEnabled, customCommandsText,
         welcomeEnabled, welcomeTemplate, giftMinimumRepeat, giftAlertTemplate
     ) {
         if (connected && voiceInstalled) {
-            delay(350)
-            onUpdateSettings(
-                buildReaderSettings()
-            )
+            delay(180)
+            onUpdateSettings(buildReaderSettings())
         }
+    }
+    // Volume changes are applied immediately to the active AudioTrack; don't debounce slider input.
+    LaunchedEffect(volume, connected, voiceInstalled) {
+        if (connected && voiceInstalled) onUpdateSettings(buildReaderSettings())
     }
     val pulse by animateFloatAsState(if (connected) 1f else 0.72f, label = "statusPulse")
 
@@ -770,7 +772,7 @@ private fun BotApp(
                     }
 
                     Text(
-                        "TIKTOK LIVE READER  •  v0.13.0  •  BY ROXI",
+                        "TIKTOK LIVE READER  •  v0.13.1  •  BY ROXI",
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         color = Muted.copy(alpha = .7f),
                         style = MaterialTheme.typography.labelSmall,
