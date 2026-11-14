@@ -14,8 +14,7 @@ import android.provider.Settings
 import android.os.Build
 
 /**
- * Small, service-owned overlay. It deliberately has no dependency on the TikTok
- * connector, local bridge, or speech pipeline; actions are delegated to the service.
+ * Small, service-owned overlay. UI-only controller; actions are delegated to the service.
  */
 internal class FloatingOverlayController(
     private val context: Context,
@@ -24,7 +23,9 @@ internal class FloatingOverlayController(
 ) {
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private var root: LinearLayout? = null
+    private var titleLabel: TextView? = null
     private var statusLabel: TextView? = null
+    private var collapseButton: TextView? = null
     private var muteButton: TextView? = null
     private var actionsRow: LinearLayout? = null
     private var layoutParams: WindowManager.LayoutParams? = null
@@ -45,13 +46,12 @@ internal class FloatingOverlayController(
             background = roundedBackground(0xF21A2034.toInt(), 0xFF7166A8.toInt(), 18)
             elevation = dp(12).toFloat()
         }
-
         val header = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val dragHandle = TextView(context).apply {
-            text = "TIKLBOT  ·  LIVE"
+        val title = TextView(context).apply {
+            text = "TIKLBOT · LIVE"
             setTextColor(0xFFB9B0FF.toInt())
             textSize = 11f
             typeface = Typeface.DEFAULT_BOLD
@@ -59,20 +59,19 @@ internal class FloatingOverlayController(
             setPadding(dp(2), dp(5), dp(8), dp(5))
         }
         val status = TextView(context).apply {
-            text = statusText.take(34)
+            text = statusText.take(60)
             setTextColor(0xFFFFFFFF.toInt())
             textSize = 12f
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        val collapse = actionText("−") {
-            expanded = !expanded
-            actionsRow?.visibility = if (expanded) View.VISIBLE else View.GONE
-            it.text = if (expanded) "−" else "+"
+        val collapse = actionText("−") { toggleExpanded() }.apply {
+            textSize = 20f
+            layoutParams = LinearLayout.LayoutParams(dp(38), dp(36))
+            contentDescription = "Minimizar a burbuja o expandir controles"
         }
-        collapse.contentDescription = "Contraer o expandir controles flotantes"
-        header.addView(dragHandle)
+        header.addView(title)
         header.addView(status)
         header.addView(collapse)
         panel.addView(header)
@@ -102,7 +101,7 @@ internal class FloatingOverlayController(
             y = dp(120)
         }
 
-        dragHandle.setOnTouchListener(object : View.OnTouchListener {
+        header.setOnTouchListener(object : View.OnTouchListener {
             private var startX = 0
             private var startY = 0
             private var touchX = 0f
@@ -114,15 +113,19 @@ internal class FloatingOverlayController(
                         startY = params.y
                         touchX = event.rawX
                         touchY = event.rawY
-                        return true
+                        return false
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        params.x = (startX - (event.rawX - touchX).toInt()).coerceAtLeast(0)
-                        params.y = (startY + (event.rawY - touchY).toInt()).coerceAtLeast(0)
-                        runCatching { windowManager.updateViewLayout(panel, params) }
-                        return true
+                        val dx = (event.rawX - touchX).toInt()
+                        val dy = (event.rawY - touchY).toInt()
+                        if (kotlin.math.abs(dx) > dp(3) || kotlin.math.abs(dy) > dp(3)) {
+                            params.x = (startX - dx).coerceAtLeast(0)
+                            params.y = (startY + dy).coerceAtLeast(0)
+                            runCatching { windowManager.updateViewLayout(panel, params) }
+                            return true
+                        }
                     }
-                    MotionEvent.ACTION_UP -> return true
+                    MotionEvent.ACTION_UP -> return false
                 }
                 return false
             }
@@ -131,24 +134,52 @@ internal class FloatingOverlayController(
         try {
             windowManager.addView(panel, params)
             root = panel
+            titleLabel = title
             statusLabel = status
+            collapseButton = collapse
             muteButton = mute
             actionsRow = actions
             layoutParams = params
+            applyExpandedState()
             update(statusText, isMuted)
         } catch (_: WindowManager.BadTokenException) {
-            root = null
-            statusLabel = null
-            muteButton = null
-            actionsRow = null
-            layoutParams = null
+            clearReferences()
         } catch (_: SecurityException) {
-            root = null
-            statusLabel = null
-            muteButton = null
-            actionsRow = null
-            layoutParams = null
+            clearReferences()
         }
+    }
+
+    private fun toggleExpanded() {
+        expanded = !expanded
+        applyExpandedState()
+    }
+
+    private fun applyExpandedState() {
+        val panel = root ?: return
+        val params = layoutParams ?: return
+        titleLabel?.visibility = if (expanded) View.VISIBLE else View.GONE
+        statusLabel?.visibility = if (expanded) View.VISIBLE else View.GONE
+        actionsRow?.visibility = if (expanded) View.VISIBLE else View.GONE
+        collapseButton?.apply {
+            text = if (expanded) "−" else "+"
+            textSize = if (expanded) 20f else 27f
+            layoutParams = LinearLayout.LayoutParams(
+                if (expanded) dp(38) else dp(48),
+                if (expanded) dp(36) else dp(48)
+            )
+        }
+        panel.setPadding(
+            if (expanded) dp(12) else dp(4),
+            if (expanded) dp(10) else dp(4),
+            if (expanded) dp(12) else dp(4),
+            if (expanded) dp(10) else dp(4)
+        )
+        panel.background = roundedBackground(
+            0xF21A2034.toInt(), 0xFF7166A8.toInt(), if (expanded) 18 else 28
+        )
+        params.width = if (expanded) dp(270) else dp(56)
+        params.height = if (expanded) WindowManager.LayoutParams.WRAP_CONTENT else dp(56)
+        runCatching { windowManager.updateViewLayout(panel, params) }
     }
 
     fun update(status: String, isMuted: Boolean) {
@@ -160,16 +191,23 @@ internal class FloatingOverlayController(
     fun hide() {
         val view = root ?: return
         runCatching { windowManager.removeView(view) }
+        clearReferences()
+    }
+
+    private fun clearReferences() {
         root = null
+        titleLabel = null
         statusLabel = null
+        collapseButton = null
         muteButton = null
         actionsRow = null
         layoutParams = null
+        expanded = true
     }
 
     private fun muteLabel() = if (muted) "ACTIVAR VOZ" else "SILENCIAR"
 
-    private fun actionText(label: String, onClick: (TextView) -> Unit): TextView =
+    private fun actionText(label: String, onClick: () -> Unit): TextView =
         TextView(context).apply {
             text = label
             gravity = Gravity.CENTER
@@ -179,7 +217,7 @@ internal class FloatingOverlayController(
             background = roundedBackground(0xFF34304F.toInt(), 0x667F75B8, 12)
             isClickable = true
             isFocusable = true
-            setOnClickListener { onClick(this) }
+            setOnClickListener { onClick() }
         }
 
     private fun roundedBackground(fill: Int, stroke: Int, radiusDp: Int) =
