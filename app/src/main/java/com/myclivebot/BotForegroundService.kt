@@ -127,6 +127,8 @@ class BotForegroundService : Service() {
             }
 
             ACTION_START -> {
+                voiceMuted = getSharedPreferences("tiklbot_preferences", MODE_PRIVATE)
+                    .getBoolean("voice_muted", false)
                 startForeground(NOTIFICATION_ID, buildNotification("Preparando lector LIVE…"))
                 startLocalBridge()
                 val username = intent.getStringExtra(EXTRA_USERNAME).orEmpty()
@@ -157,6 +159,8 @@ class BotForegroundService : Service() {
 
             ACTION_SET_MUTE -> {
                 voiceMuted = intent.getBooleanExtra(EXTRA_MUTED, false)
+                getSharedPreferences("tiklbot_preferences", MODE_PRIVATE).edit()
+                    .putBoolean("voice_muted", voiceMuted).apply()
                 piper?.setMuted(voiceMuted)
                 updateStatus(if (voiceMuted) "Voz silenciada" else "Voz activada")
             }
@@ -319,6 +323,8 @@ class BotForegroundService : Service() {
             this,
             onMuteToggle = {
                 voiceMuted = !voiceMuted
+                getSharedPreferences("tiklbot_preferences", MODE_PRIVATE).edit()
+                    .putBoolean("voice_muted", voiceMuted).apply()
                 piper?.setMuted(voiceMuted)
                 updateStatus(if (voiceMuted) "Voz silenciada" else "Voz activada")
             },
@@ -335,7 +341,9 @@ class BotForegroundService : Service() {
         mainHandler.post { floatingOverlay?.update(status, voiceMuted) }
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(status))
         sendBroadcast(
-            Intent(ACTION_STATUS).setPackage(packageName).putExtra(EXTRA_STATUS, status)
+            Intent(ACTION_STATUS).setPackage(packageName)
+                .putExtra(EXTRA_STATUS, status)
+                .putExtra(EXTRA_MUTED, voiceMuted)
         )
         localBridge?.publish("status", JSONObject().put("value", status))
     }
