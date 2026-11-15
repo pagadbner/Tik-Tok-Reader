@@ -708,8 +708,10 @@ private fun BotApp(
                             SettingSwitch("Leer solo comentarios de seguidores", followerOnlyChat) { followerOnlyChat = it }
                             SettingSwitch("Avisar cuando alguien te siga", readFollows) { readFollows = it }
                             SettingSwitch("Avisar cuando recibas regalos", readGifts) { readGifts = it }
-                            SettingSwitch("Cambiar de voz aleatoriamente", randomVoices) { randomVoices = it }
-                            Text("El modo aleatorio alterna entre las voces descargadas. Si solo tienes una instalada, utilizará esa.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            if (speechProvider == "piper") {
+                                SettingSwitch("Cambiar de voz Piper aleatoriamente", randomVoices) { randomVoices = it }
+                                Text("El modo aleatorio alterna entre las voces Piper descargadas. Si solo tienes una instalada, utilizará esa.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            }
                             Text("El filtro de seguidores depende del estado que TikTok incluya en cada comentario; si no llega ese dato, el comentario se descarta por seguridad.", color = Muted, style = MaterialTheme.typography.bodySmall)
                             HorizontalDivider(color = Color.White.copy(alpha = .09f))
                             EditableStringList(
