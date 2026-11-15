@@ -465,7 +465,7 @@ class BotForegroundService : Service() {
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
         } else Notification.Builder(this)
-        return builder.setContentTitle("TikTok Live Reader")
+        return builder.setContentTitle("Tik Tok Reader")
             .setContentText(status.take(120))
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)
