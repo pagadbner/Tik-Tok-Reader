@@ -51,6 +51,7 @@ import com.myclivebot.core.PiperVoiceCatalog
 import com.myclivebot.core.ReaderSettings
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import org.json.JSONArray
 
 private val Night = Color(0xFF090B18)
 private val Panel = Color(0xCC1B2036)
@@ -58,13 +59,12 @@ private val Violet = Color(0xFF9B86FF)
 private val Cyan = Color(0xFF69DED2)
 private val Muted = Color(0xFFB8BBD0)
 
-private data class LiveCommentUi(val id: Long, val username: String, val message: String, val avatarUrl: String?, val receivedAt: Long)
+private data class LiveCommentUi(val id: String, val username: String, val message: String, val avatarUrl: String?, val replyToDisplayName: String?, val receivedAt: Long, val skipped: Boolean = false)
 private data class CustomCommandEntry(val title: String, val trigger: String, val response: String)
 
 class MainActivity : ComponentActivity() {
     private val readerStatus = mutableStateOf("Detenido")
     private val liveComments = mutableStateListOf<LiveCommentUi>()
-    private var nextLiveCommentId = 0L
     private val voiceMutedFromService = mutableStateOf(false)
     private var statusReceiverRegistered = false
     private val statusReceiver = object : BroadcastReceiver() {
@@ -76,21 +76,55 @@ class MainActivity : ComponentActivity() {
                 }
                 BotForegroundService.ACTION_COMMENT -> {
                     val message = intent.getStringExtra(BotForegroundService.EXTRA_COMMENT_TEXT).orEmpty()
-                    if (message.isNotBlank()) {
-                        liveComments.add(
+                    val commentId = intent.getStringExtra(BotForegroundService.EXTRA_COMMENT_ID).orEmpty()
+                    if (message.isNotBlank() && commentId.isNotBlank()) {
+                        insertLiveComment(
                             LiveCommentUi(
-                                id = ++nextLiveCommentId,
+                                id = commentId,
                                 username = intent.getStringExtra(BotForegroundService.EXTRA_COMMENT_USERNAME).orEmpty(),
                                 message = message,
                                 avatarUrl = intent.getStringExtra(BotForegroundService.EXTRA_COMMENT_AVATAR),
+                                replyToDisplayName = intent.getStringExtra(BotForegroundService.EXTRA_REPLY_TO)?.takeIf { it.isNotBlank() },
                                 receivedAt = intent.getLongExtra(BotForegroundService.EXTRA_COMMENT_TIME, System.currentTimeMillis())
                             )
                         )
                     }
                 }
+                BotForegroundService.ACTION_CHAT_HISTORY -> {
+                    val history = runCatching {
+                        JSONArray(intent.getStringExtra(BotForegroundService.EXTRA_CHAT_HISTORY).orEmpty())
+                    }.getOrNull() ?: return
+                    for (index in 0 until history.length()) {
+                        val item = history.optJSONObject(index) ?: continue
+                        val commentId = item.optString("id")
+                        val message = item.optString("message")
+                        if (commentId.isBlank() || message.isBlank()) continue
+                        insertLiveComment(
+                            LiveCommentUi(
+                                id = commentId,
+                                username = item.optString("username"),
+                                message = message,
+                                avatarUrl = item.optString("avatar").takeIf { it.isNotBlank() },
+                                replyToDisplayName = item.optString("reply_to").takeIf { it.isNotBlank() },
+                                receivedAt = item.optLong("received_at", System.currentTimeMillis())
+                            )
+                        )
+                    }
+                }
+                BotForegroundService.ACTION_COMMENT_SKIPPED -> {
+                    val commentId = intent.getStringExtra(BotForegroundService.EXTRA_COMMENT_ID).orEmpty()
+                    val index = liveComments.indexOfFirst { it.id == commentId }
+                    if (index >= 0) liveComments[index] = liveComments[index].copy(skipped = true)
+                }
             }
         }
     }
+    private fun insertLiveComment(comment: LiveCommentUi) {
+        if (liveComments.any { it.id == comment.id }) return
+        val insertAt = liveComments.indexOfFirst { it.receivedAt > comment.receivedAt }
+        if (insertAt < 0) liveComments.add(comment) else liveComments.add(insertAt, comment)
+    }
+
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -109,6 +143,7 @@ class MainActivity : ComponentActivity() {
                 liveComments = liveComments,
                 externalMuted = voiceMutedFromService.value,
                 onStart = { username, settings ->
+                    liveComments.clear()
                     val intent = Intent(this@MainActivity, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_START)
                         .putExtra(BotForegroundService.EXTRA_USERNAME, username)
@@ -163,8 +198,12 @@ class MainActivity : ComponentActivity() {
                     readerStatus.value = "Detenido"
                     startService(Intent(this@MainActivity, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_STOP))
                 },
-                onSkipNextComment = {
-                    startService(Intent(this@MainActivity, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_SKIP_NEXT_COMMENT))
+                onSkipComment = { commentId ->
+                    startService(
+                        Intent(this@MainActivity, BotForegroundService::class.java)
+                            .setAction(BotForegroundService.ACTION_SKIP_COMMENT)
+                            .putExtra(BotForegroundService.EXTRA_COMMENT_ID, commentId)
+                    )
                 },
                 onSetMuted = { muted ->
                     startService(Intent(this@MainActivity, BotForegroundService::class.java)
@@ -236,6 +275,8 @@ class MainActivity : ComponentActivity() {
             val filter = IntentFilter().apply {
                 addAction(BotForegroundService.ACTION_STATUS)
                 addAction(BotForegroundService.ACTION_COMMENT)
+                addAction(BotForegroundService.ACTION_CHAT_HISTORY)
+                addAction(BotForegroundService.ACTION_COMMENT_SKIPPED)
             }
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
             else {
@@ -264,7 +305,7 @@ private fun BotApp(
     externalMuted: Boolean,
     onStart: (String, ReaderSettings) -> Unit,
     onStop: () -> Unit,
-    onSkipNextComment: () -> Unit,
+    onSkipComment: (String) -> Unit,
     onSetMuted: (Boolean) -> Unit,
     onUpdateSettings: (ReaderSettings) -> Unit,
     onTestVoice: (String, Float, Float) -> Unit,
@@ -513,7 +554,7 @@ private fun BotApp(
 
                     LiveChatPanel(
                         liveComments = liveComments,
-                        onSkipNextComment = onSkipNextComment,
+                        onSkipComment = onSkipComment,
                         modifier = Modifier.bringIntoViewRequester(navigationRequesters[0])
                     )
 
@@ -744,7 +785,7 @@ private fun BotApp(
 @Composable
 private fun LiveChatPanel(
     liveComments: SnapshotStateList<LiveCommentUi>,
-    onSkipNextComment: () -> Unit,
+    onSkipComment: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -765,14 +806,6 @@ private fun LiveChatPanel(
                     Text("CHAT EN VIVO", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
                     Spacer(Modifier.weight(1f))
                     Text("${liveComments.size} mensajes", color = Muted, style = MaterialTheme.typography.labelSmall)
-                }
-                OutlinedButton(
-                    onClick = onSkipNextComment,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(13.dp)
-                ) {
-                    Icon(Icons.Default.SkipNext, contentDescription = null)
-                    Text("  OMITIR SIGUIENTE COMENTARIO")
                 }
                 if (liveComments.isEmpty()) {
                     Text(
@@ -801,7 +834,20 @@ private fun LiveChatPanel(
                                 )
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                     Text(comment.username.ifBlank { "Usuario" }, color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                                    if (!comment.replyToDisplayName.isNullOrBlank()) {
+                                        Text("↪ Respondió a @${comment.replyToDisplayName}", color = Violet, style = MaterialTheme.typography.labelSmall)
+                                    }
                                     Text(comment.message, color = Color(0xFFF4F1FF), style = MaterialTheme.typography.bodyMedium)
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                        TextButton(
+                                            enabled = !comment.skipped,
+                                            onClick = { onSkipComment(comment.id) },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                        ) {
+                                            Icon(Icons.Default.SkipNext, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Text(if (comment.skipped) "OMITIDO" else "OMITIR COMENTARIO", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
                                 }
                             }
                             HorizontalDivider(color = Color.White.copy(alpha = .08f))
