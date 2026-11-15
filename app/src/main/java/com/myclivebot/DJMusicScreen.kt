@@ -37,6 +37,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
     val state by DjMusicController.state.collectAsState()
     var searchText by remember { mutableStateOf("") }
     var webView by remember { mutableStateOf<WebView?>(null) }
+    var playerWebView by remember { mutableStateOf<WebView?>(null) }
     var requester by remember { mutableStateOf<String?>(null) }
     var searching by remember { mutableStateOf(false) }
     var manualSearch by remember { mutableStateOf(false) }
@@ -93,12 +94,11 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
             Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("REPRODUCTOR YOUTUBE", color = DjCyan, style = MaterialTheme.typography.labelSmall)
                 AndroidView(
-                    modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(14.dp)),
+                    modifier = Modifier.fillMaxWidth().height(170.dp).clip(RoundedCornerShape(14.dp)),
                     factory = { context ->
                         WebView(context).apply {
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
-                            settings.mediaPlaybackRequiresUserGesture = false
                             webChromeClient = WebChromeClient()
                             addJavascriptInterface(object {
                                 @JavascriptInterface fun onResults(json: String) {
@@ -121,30 +121,21 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                         }
                                     }
                                 }
-                                @JavascriptInterface fun onPlayerEnded() { webView?.post { DjMusicController.skip("La canción terminó.") } }
-                            }, "TikLBotMusic")
+                            }, "TikLBotMusicSearch")
                             webView = this
                             webViewClient = object : WebViewClient() {
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     if (url?.contains("youtube.com/results") == true) {
-                                        view?.evaluateJavascript("(function(){var a=[...document.querySelectorAll('ytd-video-renderer a#video-title')].slice(0,8);var r=a.map(function(e){var h=e.href||'';var m=h.match(/[?&]v=([^&]+)/);var p=e.closest('ytd-video-renderer');var im=p&&p.querySelector('img');return {id:m?m[1]:'',title:e.innerText||e.title||'',thumbnail:im?im.src:''};}).filter(x=>x.id.length===11);window.TikLBotMusic.onResults(JSON.stringify(r));})();", null)
+                                        view?.evaluateJavascript("(function(){var a=[...document.querySelectorAll('ytd-video-renderer a#video-title')].slice(0,8);var r=a.map(function(e){var h=e.href||'';var m=h.match(/[?&]v=([^&]+)/);var p=e.closest('ytd-video-renderer');var im=p&&p.querySelector('img');return {id:m?m[1]:'',title:e.innerText||e.title||'',thumbnail:im?im.src:''};}).filter(x=>x.id.length===11);window.TikLBotMusicSearch.onResults(JSON.stringify(r));})();", null)
                                     }
                                 }
                             }
                         }
                     },
-                    update = { view ->
-                        webView = view
-                        val track = state.currentTrack
-                        if (track != null && view.tag != track.videoId) {
-                            view.tag = track.videoId
-                            val muteJs = if (state.muted) "e.target.mute();" else "e.target.unMute();"
-                            val html = "<!doctype html><html><body style='margin:0;background:#000'><div id='player'></div><script src='https://www.youtube.com/iframe_api'></script><script>var player;function onYouTubeIframeAPIReady(){player=new YT.Player('player',{width:'100%',height:'220',videoId:'" + track.videoId + "',playerVars:{autoplay:1,playsinline:1,rel:0},events:{onReady:function(e){e.target.setVolume(" + state.volume + ");" + muteJs + "e.target.playVideo();},onStateChange:function(e){if(e.data===0)TikLBotMusic.onPlayerEnded();}}});}function setVolume(v){if(player)player.setVolume(v);}function setMuted(v){if(player){if(v)player.mute();else player.unMute();}}</script></body></html>"
-                            view.loadDataWithBaseURL("https://www.youtube.com", html, "text/html", "UTF-8", null)
-                        }
-                    }
+                    update = { view -> webView = view }
                 )
+                Text("RESULTADOS DE YOUTUBE", color = DjCyan, style = MaterialTheme.typography.labelSmall)
                 if (searching) LinearProgressIndicator(Modifier.fillMaxWidth())
                 results.forEach { track ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -153,6 +144,43 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                         IconButton(onClick = { DjMusicController.addTrack(track); results = emptyList() }) { Icon(Icons.Default.PlayArrow, contentDescription = "Agregar") }
                     }
                 }
+            }
+        }
+        Surface(color = DjPanel, shape = RoundedCornerShape(20.dp)) {
+            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("REPRODUCTOR", color = DjCyan, style = MaterialTheme.typography.labelSmall)
+                AndroidView(
+                    modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(14.dp)),
+                    factory = { context ->
+                        WebView(context).apply {
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            settings.mediaPlaybackRequiresUserGesture = false
+                            webChromeClient = WebChromeClient()
+                            addJavascriptInterface(object {
+                                @JavascriptInterface fun onPlayerEnded() { playerWebView?.post { DjMusicController.skip("La canción terminó.") } }
+                            }, "TikLBotMusicPlayer")
+                            playerWebView = this
+                        }
+                    },
+                    update = { view ->
+                        playerWebView = view
+                        val track = state.currentTrack
+                        val tag = track?.videoId ?: "empty-player"
+                        if (view.tag != tag) {
+                            view.tag = tag
+                            if (track == null) {
+                                view.loadDataWithBaseURL("https://www.youtube.com", "<html><body style='margin:0;background:#080b14'></body></html>", "text/html", "UTF-8", null)
+                            } else {
+                                val muteJs = if (state.muted) "e.target.mute();" else "e.target.unMute();"
+                                val html = "<!doctype html><html><body style='margin:0;background:#000'><div id='player'></div><script src='https://www.youtube.com/iframe_api'></script><script>var player;function onYouTubeIframeAPIReady(){player=new YT.Player('player',{width:'100%',height:'220',videoId:'" + track.videoId + "',playerVars:{autoplay:1,playsinline:1,rel:0},events:{onReady:function(e){e.target.setVolume(" + state.volume + ");" + muteJs + "e.target.playVideo();},onStateChange:function(e){if(e.data===0)TikLBotMusicPlayer.onPlayerEnded();}}});}function setVolume(v){if(player)player.setVolume(v);}function setMuted(v){if(player){if(v)player.mute();else player.unMute();}}</script></body></html>"
+                                view.loadDataWithBaseURL("https://www.youtube.com", html, "text/html", "UTF-8", null)
+                            }
+                        } else {
+                            view.evaluateJavascript("if(typeof setVolume==='function')setVolume(${state.volume});if(typeof setMuted==='function')setMuted(${state.muted});", null)
+                        }
+                    }
+                )
             }
         }
         Surface(color = DjPanel, shape = RoundedCornerShape(20.dp)) {
