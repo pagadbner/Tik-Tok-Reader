@@ -83,7 +83,7 @@ class CommentFilter {
         if (settings.blockedWords.any { word ->
                 val needle = word.trim().lowercase(java.util.Locale.ROOT)
                 needle.isNotEmpty() && Regex(
-                    "(?<![\\\\p{L}\\\\p{N}_])${Regex.escape(needle)}(?![\\\\p{L}\\\\p{N}_])"
+                    "(?<![\\p{L}\\p{N}_])${Regex.escape(needle)}(?![\\p{L}\\p{N}_])"
                 ).containsMatchIn(normalized)
             }) return false
 
