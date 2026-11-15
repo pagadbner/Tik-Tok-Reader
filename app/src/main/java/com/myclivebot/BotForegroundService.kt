@@ -141,7 +141,10 @@ class BotForegroundService : Service() {
                 updateStatus("Detenido")
                 speechQueue?.close()
                 speechQueue = null
-                kotlinx.coroutines.runBlocking(Dispatchers.IO) { runCatching { piper?.stop() } }
+                kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                    runCatching { piper?.stop() }
+                    runCatching { liveChatHistoryStore.clear() }
+                }
                 stopLocalBridge()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
@@ -502,6 +505,15 @@ class BotForegroundService : Service() {
                 .putExtra(EXTRA_MUTED, voiceMuted)
         )
         localBridge?.publish("status", JSONObject().put("value", status))
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Clear persisted visual history off the main thread without changing
+        // the LIVE connector or stopping an active broadcast.
+        serviceScope.launch(Dispatchers.IO) {
+            runCatching { liveChatHistoryStore.clear() }
+        }
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {

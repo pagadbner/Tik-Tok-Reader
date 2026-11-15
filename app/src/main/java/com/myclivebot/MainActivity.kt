@@ -52,6 +52,7 @@ import com.myclivebot.core.EdgeTtsVoiceCatalog
 import com.myclivebot.core.TikTokTtsVoiceCatalog
 import com.myclivebot.core.TikTokProfileLookup
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
@@ -72,6 +73,9 @@ class MainActivity : ComponentActivity() {
     private val liveCommentIds = HashSet<String>()
     private val voiceMutedFromService = mutableStateOf(false)
     private var statusReceiverRegistered = false
+    private var liveChatGeneration = 0L
+    private var clearHistoryOnFirstStart = false
+    private var chatClearJob: Job? = null
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -103,6 +107,28 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    private fun clearLiveChat(clearPersistentHistory: Boolean = true) {
+        // Invalidate history reads already in flight so they cannot restore
+        // old messages after a user-initiated clear.
+        liveChatGeneration++
+        liveComments.clear()
+        liveCommentIds.clear()
+        if (clearPersistentHistory) {
+            // Chain clears so a later history read cannot race ahead of a
+            // pending database deletion.
+            val previousClear = chatClearJob
+            chatClearJob = lifecycleScope.launch(Dispatchers.IO) {
+                previousClear?.join()
+                val store = LiveChatHistoryStore(this@MainActivity)
+                try {
+                    store.clear()
+                } finally {
+                    store.close()
+                }
+            }
+        }
+    }
+
     private fun insertLiveComment(comment: LiveCommentUi) {
         if (!liveCommentIds.add(comment.id)) return
         var low = 0
@@ -120,6 +146,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        // A cold launch clears old session history asynchronously in onStart.
+        // The foreground LIVE service itself is never stopped or modified.
+        clearHistoryOnFirstStart = savedInstanceState == null
         if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         setContent {
             var showBrandSplash by remember { mutableStateOf(true) }
@@ -209,8 +238,10 @@ class MainActivity : ComponentActivity() {
                 },
                 onStop = {
                     readerStatus.value = "Detenido"
+                    clearLiveChat()
                     startService(Intent(this@MainActivity, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_STOP))
                 },
+                onClearChat = { clearLiveChat() },
                 onSkipComment = { commentId ->
                     startService(
                         Intent(this@MainActivity, BotForegroundService::class.java)
@@ -303,20 +334,40 @@ class MainActivity : ComponentActivity() {
         val preferences = getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
         readerStatus.value = preferences.getString("reader_status", readerStatus.value).orEmpty()
         voiceMutedFromService.value = preferences.getBoolean("voice_muted", false)
-        if (!statusReceiverRegistered) {
-            val filter = IntentFilter().apply {
-                addAction(BotForegroundService.ACTION_STATUS)
-                addAction(BotForegroundService.ACTION_COMMENT)
-                addAction(BotForegroundService.ACTION_COMMENT_SKIPPED)
-            }
-            if (Build.VERSION.SDK_INT >= 33) registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-            else {
-                @Suppress("DEPRECATION")
-                registerReceiver(statusReceiver, filter)
-            }
-            statusReceiverRegistered = true
-        }
+
+        val shouldClearOldHistory = clearHistoryOnFirstStart
+        clearHistoryOnFirstStart = false
         lifecycleScope.launch {
+            // Complete pending/manual or cold-launch clears before registering
+            // the receiver and restoring history. This prevents old rows from
+            // racing with newly arriving LIVE comments.
+            chatClearJob?.join()
+            if (shouldClearOldHistory) {
+                withContext(Dispatchers.IO) {
+                    val store = LiveChatHistoryStore(this@MainActivity)
+                    try {
+                        store.clear()
+                    } finally {
+                        store.close()
+                    }
+                }
+            }
+
+            if (!statusReceiverRegistered) {
+                val filter = IntentFilter().apply {
+                    addAction(BotForegroundService.ACTION_STATUS)
+                    addAction(BotForegroundService.ACTION_COMMENT)
+                    addAction(BotForegroundService.ACTION_COMMENT_SKIPPED)
+                }
+                if (Build.VERSION.SDK_INT >= 33) registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                else {
+                    @Suppress("DEPRECATION")
+                    registerReceiver(statusReceiver, filter)
+                }
+                statusReceiverRegistered = true
+            }
+
+            val generationAtLoad = liveChatGeneration
             val history = withContext(Dispatchers.IO) {
                 val store = LiveChatHistoryStore(this@MainActivity)
                 try {
@@ -325,20 +376,29 @@ class MainActivity : ComponentActivity() {
                     store.close()
                 }
             }
-            history.forEach { comment ->
-                insertLiveComment(
-                    LiveCommentUi(
-                        id = comment.id,
-                        username = comment.displayName,
-                        message = comment.text,
-                        avatarUrl = comment.avatarUrl,
-                        replyToDisplayName = comment.replyToDisplayName,
-                        receivedAt = comment.receivedAt
+            // A manual clear/STOP may happen while the database read is active.
+            if (generationAtLoad == liveChatGeneration) {
+                history.forEach { comment ->
+                    insertLiveComment(
+                        LiveCommentUi(
+                            id = comment.id,
+                            username = comment.displayName,
+                            message = comment.text,
+                            avatarUrl = comment.avatarUrl,
+                            replyToDisplayName = comment.replyToDisplayName,
+                            receivedAt = comment.receivedAt
+                        )
                     )
-                )
+                }
             }
+            startService(Intent(this@MainActivity, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_REQUEST_STATUS))
         }
-        startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_REQUEST_STATUS))
+    }
+
+    override fun onDestroy() {
+        // Avoid synchronous database work during Activity destruction.
+        // Task removal and the next cold launch clear the stored session history.
+        super.onDestroy()
     }
 
     override fun onStop() {
@@ -358,6 +418,7 @@ private fun BotApp(
     externalMuted: Boolean,
     onStart: (String, ReaderSettings) -> Unit,
     onStop: () -> Unit,
+    onClearChat: () -> Unit,
     onSkipComment: (String) -> Unit,
     onSetMuted: (Boolean) -> Unit,
     onUpdateSettings: (ReaderSettings) -> Unit,
@@ -858,6 +919,7 @@ private fun BotApp(
                     LiveChatPanel(
                         liveComments = liveComments,
                         onSkipComment = onSkipComment,
+                        onClearChat = onClearChat,
                         modifier = Modifier
                     )
                     } else {
@@ -1311,6 +1373,7 @@ private fun BotApp(
 private fun LiveChatPanel(
     liveComments: SnapshotStateList<LiveCommentUi>,
     onSkipComment: (String) -> Unit,
+    onClearChat: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -1331,6 +1394,18 @@ private fun LiveChatPanel(
                     Text("CHAT EN VIVO", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
                     Spacer(Modifier.weight(1f))
                     Text("${liveComments.size} mensajes", color = Muted, style = MaterialTheme.typography.labelSmall)
+                    IconButton(
+                        onClick = onClearChat,
+                        enabled = liveComments.isNotEmpty(),
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.DeleteOutline,
+                            contentDescription = "Limpiar chat",
+                            tint = if (liveComments.isNotEmpty()) Muted else Muted.copy(alpha = .35f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
                 if (liveComments.isEmpty()) {
                     Text(
