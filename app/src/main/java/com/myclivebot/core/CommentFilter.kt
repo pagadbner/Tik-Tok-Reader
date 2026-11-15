@@ -112,22 +112,9 @@ class CommentFilter {
         return spokenName + safeText
     }
 
-    /** Keeps letters and meaningful spaces only; digits, emoji and decorative symbols are never spoken. */
-    private fun sanitizeUsername(input: String): String {
-        val output = StringBuilder(input.length)
-        var pendingSpace = false
-        input.codePoints().forEach { codePoint ->
-            when {
-                Character.isLetter(codePoint) -> {
-                    if (pendingSpace && output.isNotEmpty()) output.append(' ')
-                    output.appendCodePoint(codePoint)
-                    pendingSpace = false
-                }
-                Character.isWhitespace(codePoint) -> pendingSpace = output.isNotEmpty()
-            }
-        }
-        return output.toString().trim()
-    }
+    /** Names containing decorative or unsupported characters are spoken as "usuario". */
+    private fun sanitizeUsername(input: String): String =
+        ChatCommandParser.spokenUsername(input)
 
     private fun sanitize(input: String, settings: ReaderSettings): String {
         val output = StringBuilder(input.length)
