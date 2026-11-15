@@ -745,7 +745,7 @@ private fun BotApp(
                                 Spacer(Modifier.width(9.dp))
                                 Text("ACTUALIZACIONES", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
                             }
-                            Text(appUpdate?.let { "Nueva versión ${it.versionName} (código ${it.versionCode})" } ?: "Versión instalada al día", fontWeight = FontWeight.SemiBold)
+                            Text(appUpdate?.let { "Nueva versión ${it.versionName} (código ${it.versionCode})" } ?: if (appUpdateStatus.startsWith("No se pudo consultar")) "No se pudo comprobar la versión" else "Estado de actualización", fontWeight = FontWeight.SemiBold)
                             Text(appUpdateStatus, color = Muted, style = MaterialTheme.typography.bodySmall)
                             Button(
                                 onClick = { checkAppUpdateManually() },
