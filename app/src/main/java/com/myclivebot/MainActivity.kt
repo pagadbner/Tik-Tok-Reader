@@ -384,7 +384,7 @@ private fun BotApp(
     var profileLookupBusy by remember { mutableStateOf(false) }
     val normalizedProfileUsername = username.trim().removePrefix("@").substringBefore("/").trim()
     val cachedProfileAvatar = recentAvatarUrls[normalizedProfileUsername]
-    LaunchedEffect(normalizedProfileUsername, cachedProfileAvatar) {
+    LaunchedEffect(normalizedProfileUsername) {
         profileAvatarUrl = cachedProfileAvatar
         if (normalizedProfileUsername.isBlank()) {
             profileLookupBusy = false
