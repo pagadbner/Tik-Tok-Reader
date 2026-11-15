@@ -65,6 +65,7 @@ private data class CustomCommandEntry(val title: String, val trigger: String, va
 class MainActivity : ComponentActivity() {
     private val readerStatus = mutableStateOf("Detenido")
     private val liveComments = mutableStateListOf<LiveCommentUi>()
+    private val liveCommentIds = HashSet<String>()
     private val voiceMutedFromService = mutableStateOf(false)
     private var statusReceiverRegistered = false
     private val statusReceiver = object : BroadcastReceiver() {
@@ -120,9 +121,15 @@ class MainActivity : ComponentActivity() {
         }
     }
     private fun insertLiveComment(comment: LiveCommentUi) {
-        if (liveComments.any { it.id == comment.id }) return
-        val insertAt = liveComments.indexOfFirst { it.receivedAt > comment.receivedAt }
-        if (insertAt < 0) liveComments.add(comment) else liveComments.add(insertAt, comment)
+        if (!liveCommentIds.add(comment.id)) return
+        var low = 0
+        var high = liveComments.size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (liveComments[middle].receivedAt <= comment.receivedAt) low = middle + 1
+            else high = middle
+        }
+        liveComments.add(low, comment)
     }
 
     private val notificationPermission =
@@ -144,6 +151,7 @@ class MainActivity : ComponentActivity() {
                 externalMuted = voiceMutedFromService.value,
                 onStart = { username, settings ->
                     liveComments.clear()
+                    liveCommentIds.clear()
                     val intent = Intent(this@MainActivity, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_START)
                         .putExtra(BotForegroundService.EXTRA_USERNAME, username)
