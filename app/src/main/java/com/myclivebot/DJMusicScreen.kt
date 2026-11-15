@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
+import kotlinx.coroutines.delay
 import com.myclivebot.core.DjMusicController
 import com.myclivebot.core.DjMusicTrack
 import org.json.JSONArray
@@ -72,6 +73,16 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
         if (searchView != null && !searching && state.pendingSearches.isNotEmpty()) {
             val request = DjMusicController.takeNextSearch()
             if (request != null) startSearch(request.first, request.second)
+        }
+    }
+
+    LaunchedEffect(searching) {
+        if (searching) {
+            delay(15_000)
+            if (searching) {
+                searching = false
+                DjMusicController.setMessage("YouTube tardó demasiado en responder. Intenta de nuevo.")
+            }
         }
     }
 
