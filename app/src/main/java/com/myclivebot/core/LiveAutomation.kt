@@ -116,7 +116,7 @@ class ShareAlertTracker {
         if (sent >= MAX_ANNOUNCEMENTS_PER_USER) return null
         announcementsByUser[key] = sent + 1
         val name = ChatCommandParser.spokenUsername(event.displayName)
-        return "$name ha compartido el live"
+        return "@${name.removePrefix("@")} ha compartido el live"
     }
 
     companion object {
@@ -136,7 +136,7 @@ class LikeAlertTracker {
         if (key.isBlank()) return null
         val increment = event.detail.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
         val state = likesByUser.getOrPut(key) { UserLikes() }
-        state.total = (state.total + increment).coerceAtMost(Long.MAX_VALUE / 2)
+        state.total = if (Long.MAX_VALUE - state.total < increment) Long.MAX_VALUE else state.total + increment
         val now = event.receivedAt
         if (state.total < LIKES_THRESHOLD) return null
         if (state.lastAnnouncementAt != Long.MIN_VALUE &&
@@ -144,7 +144,7 @@ class LikeAlertTracker {
         ) return null
         state.lastAnnouncementAt = now
         val name = ChatCommandParser.spokenUsername(event.displayName)
-        return "Gracias por dar me gusta $name, tu apoyo es importante"
+        return "Gracias por dar me gusta @${name.removePrefix("@")}, tu apoyo es importante"
     }
 
     companion object {
