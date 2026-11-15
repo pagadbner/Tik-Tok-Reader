@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.*
@@ -259,7 +260,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun BotApp(
     externalStatus: String,
-    liveComments: List<LiveCommentUi>,
+    liveComments: SnapshotStateList<LiveCommentUi>,
     externalMuted: Boolean,
     onStart: (String, ReaderSettings) -> Unit,
     onStop: () -> Unit,
@@ -317,16 +318,6 @@ private fun BotApp(
     var navigationMenuExpanded by remember { mutableStateOf(false) }
     val navigationRequesters = List(6) { remember { BringIntoViewRequester() } }
     val navigationScope = rememberCoroutineScope()
-    val liveChatListState = rememberLazyListState()
-
-    LaunchedEffect(liveComments.size) {
-        // reverseLayout places item 0 at the bottom (newest message). Follow new
-        // messages only while the reader is already near the newest end, so manual
-        // scrolling through older messages is never interrupted.
-        if (liveComments.isNotEmpty() && liveChatListState.firstVisibleItemIndex <= 1) {
-            liveChatListState.animateScrollToItem(0)
-        }
-    }
 
     fun buildReaderSettings(): ReaderSettings = ReaderSettings(
         readUsername = readUsername,
@@ -520,58 +511,11 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("LIVE", "Comentarios del directo", "Mensajes recibidos en tiempo real", Modifier.bringIntoViewRequester(navigationRequesters[0]))
-                    GlassCard {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("CHAT EN VIVO", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
-                                Spacer(Modifier.weight(1f))
-                                Text("${liveComments.size} mensajes", color = Muted, style = MaterialTheme.typography.labelSmall)
-                            }
-                            OutlinedButton(
-                                onClick = onSkipNextComment,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(13.dp)
-                            ) {
-                                Icon(Icons.Default.SkipNext, contentDescription = null)
-                                Text("  OMITIR SIGUIENTE COMENTARIO")
-                            }
-                            if (liveComments.isEmpty()) {
-                                Text(
-                                    "Los comentarios aparecerán aquí cuando el lector se conecte y reciba mensajes.",
-                                    color = Muted,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            } else {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
-                                    state = liveChatListState,
-                                    reverseLayout = true,
-                                    verticalArrangement = Arrangement.spacedBy(9.dp)
-                                ) {
-                                    items(liveComments.asReversed(), key = { it.id }) { comment ->
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                            verticalAlignment = Alignment.Top
-                                        ) {
-                                            AsyncImage(
-                                                model = comment.avatarUrl,
-                                                contentDescription = "Foto de perfil de ${comment.username}",
-                                                modifier = Modifier.size(38.dp).clip(RoundedCornerShape(50.dp)).background(Panel),
-                                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                            )
-                                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                                Text(comment.username.ifBlank { "Usuario" }, color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
-                                                Text(comment.message, color = Color(0xFFF4F1FF), style = MaterialTheme.typography.bodyMedium)
-                                            }
-                                        }
-                                        HorizontalDivider(color = Color.White.copy(alpha = .08f))
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    LiveChatPanel(
+                        liveComments = liveComments,
+                        onSkipNextComment = onSkipNextComment,
+                        modifier = Modifier.bringIntoViewRequester(navigationRequesters[0])
+                    )
 
                     SectionHeader("01", "Conexión TikTok LIVE", "Introduce el usuario del creador", Modifier.bringIntoViewRequester(navigationRequesters[1]))
                     GlassCard {
@@ -791,6 +735,78 @@ private fun BotApp(
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         letterSpacing = 1.sp
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveChatPanel(
+    liveComments: SnapshotStateList<LiveCommentUi>,
+    onSkipNextComment: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(liveComments.size) {
+        // Keep the newest message at the bottom without pulling the reader away
+        // when they are manually reviewing older chat messages.
+        if (liveComments.isNotEmpty() && listState.firstVisibleItemIndex <= 1) {
+            listState.animateScrollToItem(0)
+        }
+    }
+
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SectionHeader("LIVE", "Comentarios del directo", "Mensajes recibidos en tiempo real")
+        GlassCard {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("CHAT EN VIVO", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                    Spacer(Modifier.weight(1f))
+                    Text("${liveComments.size} mensajes", color = Muted, style = MaterialTheme.typography.labelSmall)
+                }
+                OutlinedButton(
+                    onClick = onSkipNextComment,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(13.dp)
+                ) {
+                    Icon(Icons.Default.SkipNext, contentDescription = null)
+                    Text("  OMITIR SIGUIENTE COMENTARIO")
+                }
+                if (liveComments.isEmpty()) {
+                    Text(
+                        "Los comentarios aparecerán aquí cuando el lector se conecte y reciba mensajes.",
+                        color = Muted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                        state = listState,
+                        reverseLayout = true,
+                        verticalArrangement = Arrangement.spacedBy(9.dp)
+                    ) {
+                        items(liveComments.asReversed(), key = { it.id }) { comment ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                AsyncImage(
+                                    model = comment.avatarUrl,
+                                    contentDescription = "Foto de perfil de ${comment.username}",
+                                    modifier = Modifier.size(38.dp).clip(RoundedCornerShape(50.dp)).background(Panel),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                )
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text(comment.username.ifBlank { "Usuario" }, color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                                    Text(comment.message, color = Color(0xFFF4F1FF), style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                            HorizontalDivider(color = Color.White.copy(alpha = .08f))
+                        }
+                    }
                 }
             }
         }
