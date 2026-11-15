@@ -4,6 +4,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import org.junit.Test
 
 class LiveAutomationTest {
@@ -71,6 +75,33 @@ class LiveAutomationTest {
         val first = LiveComment("", "Ana", "hola")
         assertTrue(tracker.isNewSpeaker(first))
         assertFalse(tracker.isNewSpeaker(first.copy(text = "otra frase")))
+    }
+
+    @Test fun replyCommentAnnouncesTargetWithoutRepeatingTheAtMention() {
+        val spoken = mutableListOf<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) { spoken += text }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(CommentFilter(), queue, ReaderSettings(readUsername = true))
+
+        try {
+            pipeline.onComment(
+                LiveComment(
+                    userId = "ana-id",
+                    displayName = "Ana",
+                    text = "@Karla gracias por el dato",
+                    replyToDisplayName = "Karla"
+                )
+            )
+            assertEquals(listOf("Ana le respondió a Karla: gracias por el dato"), spoken)
+        } finally {
+            queue.close()
+            scope.cancel()
+        }
     }
 
     @Test fun welcomeRunsOnlyOncePerUserInOneSession() {
