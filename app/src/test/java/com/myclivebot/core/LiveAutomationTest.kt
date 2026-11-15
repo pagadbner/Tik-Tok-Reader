@@ -194,10 +194,34 @@ class LiveAutomationTest {
         assertNull(tracker.render(share, followerOnly))
 
         val followerShare = share.copy(isFollower = true)
-        assertEquals("@Ana ha compartido el live", tracker.render(followerShare, followerOnly))
-        assertEquals("@Ana ha compartido el live", tracker.render(followerShare, followerOnly))
-        assertNull(tracker.render(followerShare, followerOnly))
+        val firstAnnouncement = tracker.render(followerShare, followerOnly)
+        assertEquals("@Ana ha compartido el live", firstAnnouncement)
+        tracker.confirmQueued(followerShare)
+        val secondAnnouncement = followerShare.copy(receivedAt = followerShare.receivedAt + 1)
+        assertEquals("@Ana ha compartido el live", tracker.render(secondAnnouncement, followerOnly))
+        tracker.confirmQueued(secondAnnouncement)
+        assertNull(tracker.render(secondAnnouncement.copy(receivedAt = secondAnnouncement.receivedAt + 1), followerOnly))
         assertNull(tracker.render(followerShare, ReaderSettings(readShares = false)))
+    }
+
+    @Test fun rejectedShareAlertDoesNotConsumePerUserAnnouncementLimit() {
+        val tracker = ShareAlertTracker()
+        val settings = ReaderSettings(readShares = true)
+        val first = LiveEvent(
+            LiveEventType.SHARE, "Ana", receivedAt = 20_000L, userId = "user-1"
+        )
+
+        assertEquals("@Ana ha compartido el live", tracker.render(first, settings))
+        tracker.rollbackIfNotQueued(first)
+
+        val retry = first.copy(receivedAt = 20_001L)
+        assertEquals("@Ana ha compartido el live", tracker.render(retry, settings))
+        tracker.confirmQueued(retry)
+
+        val second = retry.copy(receivedAt = 20_002L)
+        assertEquals("@Ana ha compartido el live", tracker.render(second, settings))
+        tracker.confirmQueued(second)
+        assertNull(tracker.render(second.copy(receivedAt = 20_003L), settings))
     }
 
     @Test fun likeAlertsAccumulatePerUserAndRepeatOnlyAfterTenMinutes() {
