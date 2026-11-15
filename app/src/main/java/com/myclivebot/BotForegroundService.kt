@@ -508,9 +508,11 @@ class BotForegroundService : Service() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // Removing the app task clears the persisted visual chat without
-        // altering the LIVE connector or stopping an active broadcast.
-        runCatching { liveChatHistoryStore.clear() }
+        // Clear persisted visual history off the main thread without changing
+        // the LIVE connector or stopping an active broadcast.
+        serviceScope.launch(Dispatchers.IO) {
+            runCatching { liveChatHistoryStore.clear() }
+        }
         super.onTaskRemoved(rootIntent)
     }
 
