@@ -98,10 +98,11 @@ class TikTokTtsSpeechEngine(
         }
     }
 
-    override suspend fun stop() { activeCall?.cancel() }
+    override suspend fun stop() { activeCall?.cancel(); ApiAudioPlayer.stop() }
 
     fun release() {
         activeCall?.cancel()
+        ApiAudioPlayer.stop()
         client.dispatcher.executorService.shutdown()
         client.connectionPool.evictAll()
     }
