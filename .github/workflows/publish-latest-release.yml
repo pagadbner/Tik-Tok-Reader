@@ -1,0 +1,55 @@
+name: Publish latest TikLBot release
+
+on:
+  workflow_run:
+    workflows: ["Android APK"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: tiklbot-latest-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Update the single latest Release
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download APK from the successful main build
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          name: TikLBot-release-${{ github.event.workflow_run.head_sha }}
+          path: release-assets
+
+      - name: Validate release payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s release-assets/TikLBot-latest.apk
+          test -s release-assets/TikLBot-latest.apk.sha256
+          test -s release-assets/release-info.txt
+          cd release-assets
+          sha256sum --check TikLBot-latest.apk.sha256
+
+      - name: Publish or replace the single latest Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: TikLBot — Última versión
+          target_commitish: ${{ github.event.workflow_run.head_sha }}
+          body_path: release-assets/release-info.txt
+          files: |
+            release-assets/TikLBot-latest.apk
+            release-assets/TikLBot-latest.apk.sha256
+          overwrite_files: true
+          make_latest: true
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true

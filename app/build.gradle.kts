@@ -12,8 +12,27 @@ android {
         applicationId = "com.myclivebot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20
-        versionName = "0.13.3"
+        versionCode = 21
+        versionName = "0.13.4"
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = System.getenv("ANDROID_KEYSTORE_PATH")?.let { file(it) }
+            storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+            keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            // Keep the existing debug build behavior unchanged.
+        }
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+        }
     }
 
     buildFeatures { compose = true }

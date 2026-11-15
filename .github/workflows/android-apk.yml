@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, feature/in-app-updater-signing-release ]
     tags: [ 'v*' ]
   pull_request:
     branches: [ main, master ]
@@ -82,36 +82,96 @@ jobs:
           chmod +x scripts/prepare-piper-assets.sh
           ./scripts/prepare-piper-assets.sh
 
-      - name: Run unit tests and build APK
+      - name: Configure persistent Android release signing
+        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release')) || github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_KEYSTORE_BASE64" || { echo "::error::Missing ANDROID_KEYSTORE_BASE64 repository secret"; exit 1; }
+          test -n "$ANDROID_KEYSTORE_PASSWORD" || { echo "::error::Missing ANDROID_KEYSTORE_PASSWORD repository secret"; exit 1; }
+          test -n "$ANDROID_KEY_ALIAS" || { echo "::error::Missing ANDROID_KEY_ALIAS repository secret"; exit 1; }
+          test -n "$ANDROID_KEY_PASSWORD" || { echo "::error::Missing ANDROID_KEY_PASSWORD repository secret"; exit 1; }
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/tiklbot-release.jks"
+          test -s "$RUNNER_TEMP/tiklbot-release.jks"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/tiklbot-release.jks" >> "$GITHUB_ENV"
+          echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Run unit tests and build debug APK (pull requests)
+        if: ${{ !(github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release'))) }}
         shell: bash
         run: |
           set -euo pipefail
           gradle testDebugUnitTest assembleDebug --no-daemon --stacktrace
 
-      - name: Verify APK and show size
+      - name: Verify debug APK
+        if: ${{ !(github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release'))) }}
         shell: bash
         run: |
           set -euo pipefail
           APK="app/build/outputs/apk/debug/app-debug.apk"
           test -s "$APK"
           ls -lh "$APK"
-          sha256sum "$APK" | tee app/build/outputs/apk/debug/app-debug.apk.sha256
+          sha256sum "$APK" | tee "$APK.sha256"
 
-      - name: Upload installable APK
+      - name: Upload debug APK artifact
+        if: ${{ !(github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release'))) }}
         uses: actions/upload-artifact@v4
         with:
-          name: TikTok-Live-Reader-Android-${{ github.sha }}
+          name: TikLBot-debug-${{ github.sha }}
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/debug/app-debug.apk.sha256
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish APK to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
+      - name: Run unit tests and build signed release APK (main)
+        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release')) || github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle testDebugUnitTest assembleRelease --no-daemon --stacktrace
+
+      - name: Verify APK signature matches the permanent keystore
+        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release')) || github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          KEY_CERT="$(keytool -list -v -keystore "$ANDROID_KEYSTORE_PATH" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | sed -n 's/.*SHA256: //p' | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          APK_CERT="$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK" | awk -F': ' '/Signer #1 certificate SHA-256 digest/ {print $2; exit}' | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          test -n "$KEY_CERT" && test -n "$APK_CERT"
+          test "$KEY_CERT" = "$APK_CERT" || { echo "::error::APK certificate does not match the permanent signing key"; exit 1; }
+          echo "APK signature matches the permanent TikLBot signing certificate."
+
+      - name: Prepare verified release assets
+        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release')) || github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          mkdir -p release-assets
+          cp "$APK" release-assets/TikLBot-latest.apk
+          (cd release-assets && sha256sum TikLBot-latest.apk > TikLBot-latest.apk.sha256)
+          VERSION_NAME="$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts | head -n 1)"
+          VERSION_CODE="$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' app/build.gradle.kts | head -n 1)"
+          test -n "$VERSION_NAME" && test -n "$VERSION_CODE"
+          printf 'VersionName: %s\nVersionCode: %s\n\nActualización oficial de TikLBot.\n' "$VERSION_NAME" "$VERSION_CODE" > release-assets/release-info.txt
+          ls -lh release-assets
+          sha256sum release-assets/TikLBot-latest.apk
+
+      - name: Upload signed release APK artifact
+        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release')) || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
         with:
-          files: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/debug/app-debug.apk.sha256
-          generate_release_notes: true
+          name: TikLBot-release-${{ github.sha }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 30
