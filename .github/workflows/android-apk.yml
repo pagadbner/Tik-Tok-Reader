@@ -144,8 +144,8 @@ jobs:
         run: |
           set -euo pipefail
           APK="app/build/outputs/apk/release/app-release.apk"
-          KEY_CERT="$(keytool -list -v -keystore "$ANDROID_KEYSTORE_PATH" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | sed -n 's/.*SHA256: //p' | head -n 1 | tr -d ':')"
-          APK_CERT="$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK" | awk -F': ' '/Signer #1 certificate SHA-256 digest/ {print $2; exit}' | tr -d ':')"
+          KEY_CERT="$(keytool -list -v -keystore "$ANDROID_KEYSTORE_PATH" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | sed -n 's/.*SHA256: //p' | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          APK_CERT="$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK" | awk -F': ' '/Signer #1 certificate SHA-256 digest/ {print $2; exit}' | tr -d ':' | tr '[:upper:]' '[:lower:]')"
           test -n "$KEY_CERT" && test -n "$APK_CERT"
           test "$KEY_CERT" = "$APK_CERT" || { echo "::error::APK certificate does not match the permanent signing key"; exit 1; }
           echo "APK signature matches the permanent TikLBot signing certificate."
