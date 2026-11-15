@@ -1148,7 +1148,7 @@ private fun BotApp(
                     }
 
                     Text(
-                        "TIK TOK READER  •  v0.13.4  •  BY ROXI",
+                        "TIK TOK READER  •  v0.13.5  •  BY ROXI",
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         color = Muted.copy(alpha = .7f),
                         style = MaterialTheme.typography.labelSmall,
