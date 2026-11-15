@@ -47,6 +47,9 @@ import com.myclivebot.core.ChatCommandParser
 import com.myclivebot.core.PiperSpeechEngine
 import com.myclivebot.core.PiperVoiceCatalog
 import com.myclivebot.core.ReaderSettings
+import com.myclivebot.core.TikFinityVoiceCatalog
+import com.myclivebot.core.EdgeTtsVoiceCatalog
+import com.myclivebot.core.TikTokTtsVoiceCatalog
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -144,9 +147,20 @@ class MainActivity : ComponentActivity() {
                         .putExtra(BotForegroundService.EXTRA_VOLUME, settings.volume)
                         .putExtra(BotForegroundService.EXTRA_SPEED, settings.speed)
                         .putExtra(BotForegroundService.EXTRA_VOICE_ID, settings.voiceId)
+                        .putExtra(BotForegroundService.EXTRA_SPEECH_PROVIDER, settings.speechProvider)
+                        .putExtra(BotForegroundService.EXTRA_API_VOICE_ID, settings.apiVoiceId)
+                        .putExtra(BotForegroundService.EXTRA_API_RANDOM_VOICE, settings.apiRandomVoice)
+                        .putExtra(BotForegroundService.EXTRA_TIKFINITY_CHANNEL_ID, settings.tikFinityChannelId)
+                        .putExtra(BotForegroundService.EXTRA_EDGE_VOICE_ID, settings.edgeVoiceId)
+                        .putExtra(BotForegroundService.EXTRA_TIKTOK_VOICE_ID, settings.tikTokVoiceId)
                         .putExtra(BotForegroundService.EXTRA_FOLLOWER_ONLY, settings.followerOnlyChat)
                         .putExtra(BotForegroundService.EXTRA_READ_FOLLOWS, settings.readFollows)
                         .putExtra(BotForegroundService.EXTRA_READ_GIFTS, settings.readGifts)
+                        .putExtra(BotForegroundService.EXTRA_READ_SHARES, settings.readShares)
+                        .putExtra(BotForegroundService.EXTRA_SHARE_FOLLOWER_ONLY, settings.shareFollowerOnly)
+                        .putExtra(BotForegroundService.EXTRA_READ_JOINS, settings.readJoins)
+                        .putExtra(BotForegroundService.EXTRA_JOIN_FOLLOWER_ONLY, settings.joinFollowerOnly)
+                        .putExtra(BotForegroundService.EXTRA_READ_LIKES, settings.readLikes)
                         .putExtra(BotForegroundService.EXTRA_RANDOM_VOICES, settings.randomVoices)
                         .putExtra(BotForegroundService.EXTRA_COMMANDS_ENABLED, settings.customCommandsEnabled)
                         .putStringArrayListExtra(BotForegroundService.EXTRA_CUSTOM_COMMANDS, ArrayList(settings.customCommands.map { "${it.key}=${it.value}" }))
@@ -169,9 +183,20 @@ class MainActivity : ComponentActivity() {
                         .putExtra(BotForegroundService.EXTRA_VOLUME, settings.volume)
                         .putExtra(BotForegroundService.EXTRA_SPEED, settings.speed)
                         .putExtra(BotForegroundService.EXTRA_VOICE_ID, settings.voiceId)
+                        .putExtra(BotForegroundService.EXTRA_SPEECH_PROVIDER, settings.speechProvider)
+                        .putExtra(BotForegroundService.EXTRA_API_VOICE_ID, settings.apiVoiceId)
+                        .putExtra(BotForegroundService.EXTRA_API_RANDOM_VOICE, settings.apiRandomVoice)
+                        .putExtra(BotForegroundService.EXTRA_TIKFINITY_CHANNEL_ID, settings.tikFinityChannelId)
+                        .putExtra(BotForegroundService.EXTRA_EDGE_VOICE_ID, settings.edgeVoiceId)
+                        .putExtra(BotForegroundService.EXTRA_TIKTOK_VOICE_ID, settings.tikTokVoiceId)
                         .putExtra(BotForegroundService.EXTRA_FOLLOWER_ONLY, settings.followerOnlyChat)
                         .putExtra(BotForegroundService.EXTRA_READ_FOLLOWS, settings.readFollows)
                         .putExtra(BotForegroundService.EXTRA_READ_GIFTS, settings.readGifts)
+                        .putExtra(BotForegroundService.EXTRA_READ_SHARES, settings.readShares)
+                        .putExtra(BotForegroundService.EXTRA_SHARE_FOLLOWER_ONLY, settings.shareFollowerOnly)
+                        .putExtra(BotForegroundService.EXTRA_READ_JOINS, settings.readJoins)
+                        .putExtra(BotForegroundService.EXTRA_JOIN_FOLLOWER_ONLY, settings.joinFollowerOnly)
+                        .putExtra(BotForegroundService.EXTRA_READ_LIKES, settings.readLikes)
                         .putExtra(BotForegroundService.EXTRA_RANDOM_VOICES, settings.randomVoices)
                         .putExtra(BotForegroundService.EXTRA_COMMANDS_ENABLED, settings.customCommandsEnabled)
                         .putStringArrayListExtra(BotForegroundService.EXTRA_CUSTOM_COMMANDS, ArrayList(settings.customCommands.map { "${it.key}=${it.value}" }))
@@ -197,12 +222,18 @@ class MainActivity : ComponentActivity() {
                         .setAction(BotForegroundService.ACTION_SET_MUTE)
                         .putExtra(BotForegroundService.EXTRA_MUTED, muted))
                 },
-                onTestVoice = { voiceId, volume, speed ->
+                onTestVoice = { settings ->
                     val intent = Intent(this@MainActivity, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_TEST_VOICE)
-                        .putExtra(BotForegroundService.EXTRA_VOICE_ID, voiceId)
-                        .putExtra(BotForegroundService.EXTRA_VOLUME, volume)
-                        .putExtra(BotForegroundService.EXTRA_SPEED, speed)
+                        .putExtra(BotForegroundService.EXTRA_VOICE_ID, settings.voiceId)
+                        .putExtra(BotForegroundService.EXTRA_SPEECH_PROVIDER, settings.speechProvider)
+                        .putExtra(BotForegroundService.EXTRA_API_VOICE_ID, settings.apiVoiceId)
+                        .putExtra(BotForegroundService.EXTRA_API_RANDOM_VOICE, settings.apiRandomVoice)
+                        .putExtra(BotForegroundService.EXTRA_TIKFINITY_CHANNEL_ID, settings.tikFinityChannelId)
+                        .putExtra(BotForegroundService.EXTRA_EDGE_VOICE_ID, settings.edgeVoiceId)
+                        .putExtra(BotForegroundService.EXTRA_TIKTOK_VOICE_ID, settings.tikTokVoiceId)
+                        .putExtra(BotForegroundService.EXTRA_VOLUME, settings.volume)
+                        .putExtra(BotForegroundService.EXTRA_SPEED, settings.speed)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
                 },
                 onDownloadVoice = { voiceId, onProgress, callback ->
@@ -238,7 +269,7 @@ class MainActivity : ComponentActivity() {
                             factory = { context ->
                                 ImageView(context).apply {
                                     setImageResource(R.mipmap.ic_launcher)
-                                    contentDescription = "TikTok Live Reader"
+                                    contentDescription = "Tik Tok Reader"
                                     scaleType = ImageView.ScaleType.FIT_CENTER
                                 }
                             },
@@ -329,7 +360,7 @@ private fun BotApp(
     onSkipComment: (String) -> Unit,
     onSetMuted: (Boolean) -> Unit,
     onUpdateSettings: (ReaderSettings) -> Unit,
-    onTestVoice: (String, Float, Float) -> Unit,
+    onTestVoice: (ReaderSettings) -> Unit,
     onDownloadVoice: (String, (Int, String) -> Unit, (String?) -> Unit) -> Unit,
     onDeleteVoice: (String, (String?) -> Unit) -> Unit
 ) {
@@ -347,6 +378,11 @@ private fun BotApp(
     var followerOnlyChat by remember { mutableStateOf(prefs.getBoolean("follower_only_chat", false)) }
     var readFollows by remember { mutableStateOf(prefs.getBoolean("read_follows", true)) }
     var readGifts by remember { mutableStateOf(prefs.getBoolean("read_gifts", true)) }
+    var readShares by remember { mutableStateOf(prefs.getBoolean("read_shares", true)) }
+    var shareFollowerOnly by remember { mutableStateOf(prefs.getBoolean("share_follower_only", false)) }
+    var readJoins by remember { mutableStateOf(prefs.getBoolean("read_joins", true)) }
+    var joinFollowerOnly by remember { mutableStateOf(prefs.getBoolean("join_follower_only", false)) }
+    var readLikes by remember { mutableStateOf(prefs.getBoolean("read_likes", true)) }
     var randomVoices by remember { mutableStateOf(prefs.getBoolean("random_voices", false)) }
     var customCommandsEnabled by remember { mutableStateOf(prefs.getBoolean("custom_commands_enabled", false)) }
     var customCommandsText by remember {
@@ -373,8 +409,16 @@ private fun BotApp(
     var voiceId by remember {
         mutableStateOf(prefs.getString("voice_id", PiperVoiceCatalog.DEFAULT_VOICE_ID) ?: PiperVoiceCatalog.DEFAULT_VOICE_ID)
     }
+    var speechProvider by remember { mutableStateOf(prefs.getString("speech_provider", "piper") ?: "piper") }
+    var apiVoiceId by remember { mutableStateOf(prefs.getString("api_voice_id", "es_mx_002") ?: "es_mx_002") }
+    var apiRandomVoice by remember { mutableStateOf(prefs.getBoolean("api_random_voice", false)) }
+    var tikFinityChannelId by remember { mutableStateOf(prefs.getString("tikfinity_channel_id", "0") ?: "0") }
+    var edgeVoiceId by remember { mutableStateOf(prefs.getString("edge_voice_id", EdgeTtsVoiceCatalog.DEFAULT_VOICE_ID) ?: EdgeTtsVoiceCatalog.DEFAULT_VOICE_ID) }
+    var tikTokVoiceId by remember { mutableStateOf(prefs.getString("tiktok_voice_id", TikTokTtsVoiceCatalog.DEFAULT_VOICE_ID) ?: TikTokTtsVoiceCatalog.DEFAULT_VOICE_ID) }
+    var apiVoiceMenuExpanded by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Detenido") }
     var voiceInstalled by remember(voiceId) { mutableStateOf(PiperSpeechEngine.isVoiceInstalled(context, voiceId)) }
+    val selectedProviderReady = speechProvider != "piper" || voiceInstalled
     var downloading by remember { mutableStateOf(false) }
     var voiceError by remember { mutableStateOf("") }
     var voiceMenuExpanded by remember { mutableStateOf(false) }
@@ -402,9 +446,20 @@ private fun BotApp(
         volume = volume,
         speed = speed,
         voiceId = voiceId,
+        speechProvider = speechProvider,
+        apiVoiceId = apiVoiceId,
+        apiRandomVoice = apiRandomVoice,
+        tikFinityChannelId = tikFinityChannelId.trim().ifBlank { "0" },
+        edgeVoiceId = edgeVoiceId,
+        tikTokVoiceId = tikTokVoiceId,
         followerOnlyChat = followerOnlyChat,
         readFollows = readFollows,
         readGifts = readGifts,
+        readShares = readShares,
+        shareFollowerOnly = shareFollowerOnly,
+        readJoins = readJoins,
+        joinFollowerOnly = joinFollowerOnly,
+        readLikes = readLikes,
         randomVoices = randomVoices,
         customCommandsEnabled = customCommandsEnabled,
         customCommands = if (customCommandsEnabled) ChatCommandParser.parseConfig(customCommandsText) else emptyMap(),
@@ -439,7 +494,7 @@ private fun BotApp(
                 appUpdateStatus = if (installerOpened) {
                     "Instalador de Android abierto. Confirma la actualización para conservar tus datos."
                 } else {
-                    "Autoriza a TikLBot a instalar aplicaciones y vuelve aquí para pulsar INSTALAR ACTUALIZACIÓN."
+                    "Autoriza a Tik Tok Reader a instalar aplicaciones y vuelve aquí para pulsar INSTALAR ACTUALIZACIÓN."
                 }
                 if (installerOpened) showAppUpdateDialog = false
             } catch (error: Exception) {
@@ -468,16 +523,27 @@ private fun BotApp(
     LaunchedEffect(username) { prefs.edit().putString("last_username", username).apply() }
     LaunchedEffect(voiceMuted) { prefs.edit().putBoolean("voice_muted", voiceMuted).apply() }
     LaunchedEffect(externalMuted) { voiceMuted = externalMuted }
-    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId) {
+    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, readShares, shareFollowerOnly, readJoins, joinFollowerOnly, readLikes, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId, edgeVoiceId, tikTokVoiceId) {
         prefs.edit()
             .putBoolean("follower_only_chat", followerOnlyChat)
             .putBoolean("read_follows", readFollows)
             .putBoolean("read_gifts", readGifts)
+            .putBoolean("read_shares", readShares)
+            .putBoolean("share_follower_only", shareFollowerOnly)
+            .putBoolean("read_joins", readJoins)
+            .putBoolean("join_follower_only", joinFollowerOnly)
+            .putBoolean("read_likes", readLikes)
             .putBoolean("random_voices", randomVoices)
+            .putString("speech_provider", speechProvider)
+            .putString("api_voice_id", apiVoiceId)
+            .putBoolean("api_random_voice", apiRandomVoice)
+            .putString("tikfinity_channel_id", tikFinityChannelId)
+            .putString("edge_voice_id", edgeVoiceId)
+            .putString("tiktok_voice_id", tikTokVoiceId)
             .apply()
     }
 
-    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId) {
+    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId, edgeVoiceId, tikTokVoiceId) {
         prefs.edit()
             .putBoolean("read_username", readUsername)
             .putBoolean("only_username", onlyUsername)
@@ -489,6 +555,8 @@ private fun BotApp(
             .putFloat("volume", volume)
             .putFloat("speed", speed)
             .putString("voice_id", voiceId)
+            .putString("edge_voice_id", edgeVoiceId)
+            .putString("tiktok_voice_id", tikTokVoiceId)
             .apply()
     }
 
@@ -507,21 +575,29 @@ private fun BotApp(
     }
 
     val selectedVoice = PiperVoiceCatalog.find(voiceId)
+    val apiVoiceItems = when (speechProvider) {
+        "edge" -> EdgeTtsVoiceCatalog.voices.map { Triple(it.id, it.name, it.description) }
+        "tiktok" -> TikTokTtsVoiceCatalog.voices.map { Triple(it.id, it.name, it.description) }
+        else -> TikFinityVoiceCatalog.voices.map { Triple(it.id, it.name, it.description) }
+    }
+    val selectedApiVoiceId = when (speechProvider) { "edge" -> edgeVoiceId; "tiktok" -> tikTokVoiceId; else -> apiVoiceId }
+    val selectedApiVoiceName = apiVoiceItems.firstOrNull { it.first == selectedApiVoiceId }?.second ?: apiVoiceItems.first().second
     val connected = status.contains("Conectado", true) && !status.contains("no se pudo", true)
     LaunchedEffect(
         connected, readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat,
-        readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers,
-        speed, voiceId, voiceInstalled, customCommandsEnabled, customCommandsText,
+        readFollows, readGifts, readShares, shareFollowerOnly, readJoins, joinFollowerOnly, readLikes,
+        randomVoices, maxQueue, blockedWords, ignoredUsers,
+        speed, voiceId, voiceInstalled, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId, edgeVoiceId, tikTokVoiceId, customCommandsEnabled, customCommandsText,
         welcomeEnabled, welcomeTemplate, giftMinimumRepeat, giftAlertTemplate
     ) {
-        if (connected && voiceInstalled) {
+        if (connected && selectedProviderReady) {
             delay(180)
             onUpdateSettings(buildReaderSettings())
         }
     }
     // Volume changes are applied immediately to the active AudioTrack; don't debounce slider input.
-    LaunchedEffect(volume, connected, voiceInstalled) {
-        if (connected && voiceInstalled) onUpdateSettings(buildReaderSettings())
+    LaunchedEffect(volume, connected, selectedProviderReady) {
+        if (connected && selectedProviderReady) onUpdateSettings(buildReaderSettings())
     }
     val pulse by animateFloatAsState(if (connected) 1f else 0.72f, label = "statusPulse")
 
@@ -542,8 +618,8 @@ private fun BotApp(
                     TopAppBar(
                         title = {
                             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                                Text("TIKTOK LIVE READER", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleSmall, letterSpacing = 1.1.sp)
-                                Text("PIPER OFFLINE · CONTROL EN VIVO", style = MaterialTheme.typography.labelSmall, color = Cyan, letterSpacing = .8.sp)
+                                Text("TIK TOK READER", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleSmall, letterSpacing = 1.1.sp)
+                                Text(when (speechProvider) { "tikfinity" -> "TIKFINITY API · CONTROL EN VIVO"; "edge" -> "EDGE-TTS · CONTROL EN VIVO"; "tiktok" -> "TIKTOK TTS · CONTROL EN VIVO"; else -> "PIPER OFFLINE · CONTROL EN VIVO" }, style = MaterialTheme.typography.labelSmall, color = Cyan, letterSpacing = .8.sp)
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
@@ -595,7 +671,7 @@ private fun BotApp(
                                         val clean = username.trim().removePrefix("@").substringBefore("/")
                                         when {
                                             clean.isBlank() -> status = "Escribe el usuario de TikTok"
-                                            !voiceInstalled -> status = "Descarga primero la voz seleccionada"
+                                            !selectedProviderReady -> status = "Descarga primero la voz seleccionada"
                                             else -> {
                                                 recentUsernames = (listOf(clean) + recentUsernames.filterNot { it.equals(clean, true) }).take(8)
                                                 prefs.edit().putStringSet("recent_usernames", recentUsernames.toSet()).apply()
@@ -681,8 +757,18 @@ private fun BotApp(
                             SettingSwitch("Leer solo comentarios de seguidores", followerOnlyChat) { followerOnlyChat = it }
                             SettingSwitch("Avisar cuando alguien te siga", readFollows) { readFollows = it }
                             SettingSwitch("Avisar cuando recibas regalos", readGifts) { readGifts = it }
-                            SettingSwitch("Cambiar de voz aleatoriamente", randomVoices) { randomVoices = it }
-                            Text("El modo aleatorio alterna entre las voces descargadas. Si solo tienes una instalada, utilizará esa.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            HorizontalDivider(color = Color.White.copy(alpha = .09f))
+                            Text("ALERTAS DE ACTIVIDAD", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                            SettingSwitch("Avisar cuando compartan el LIVE (máx. 2 por usuario)", readShares) { readShares = it }
+                            if (readShares) SettingSwitch("Compartidos: solo seguidores", shareFollowerOnly) { shareFollowerOnly = it }
+                            SettingSwitch("Avisar cuando alguien se una al LIVE", readJoins) { readJoins = it }
+                            if (readJoins) SettingSwitch("Usuarios que se unen: solo seguidores", joinFollowerOnly) { joinFollowerOnly = it }
+                            SettingSwitch("Agradecer al usuario cada 1,000 me gusta", readLikes) { readLikes = it }
+                            Text("Los compartidos se anuncian hasta 2 veces por usuario en cada LIVE. Los me gusta se acumulan por usuario y la alerta puede repetirse después de 10 minutos.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            if (speechProvider == "piper") {
+                                SettingSwitch("Cambiar de voz Piper aleatoriamente", randomVoices) { randomVoices = it }
+                                Text("El modo aleatorio alterna entre las voces Piper descargadas. Si solo tienes una instalada, utilizará esa.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            }
                             Text("El filtro de seguidores depende del estado que TikTok incluya en cada comentario; si no llega ese dato, el comentario se descarta por seguridad.", color = Muted, style = MaterialTheme.typography.bodySmall)
                             HorizontalDivider(color = Color.White.copy(alpha = .09f))
                             EditableStringList(
@@ -748,7 +834,32 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("04", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local")
+                    SectionHeader("04", "Proveedor de voz", "Elige el motor que leerá los comentarios")
+                    GlassCard {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                listOf("piper" to "Piper", "tikfinity" to "TikFinity", "edge" to "Edge", "tiktok" to "TikTok").forEach { (provider, label) ->
+                                    Button(
+                                        onClick = { speechProvider = provider },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 3.dp, vertical = 8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = if (speechProvider == provider) Violet else Color.White.copy(alpha = .08f), contentColor = Color.White),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) { Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1) }
+                                }
+                            }
+                            Text(
+                                when (speechProvider) {
+                                    "piper" -> "Piper genera voz en el dispositivo y puede funcionar sin internet."
+                                    "tikfinity" -> "TikFinity genera audio MP3 mediante su API. Requiere conexión a internet."
+                                    "edge" -> "Edge-TTS utiliza las voces neuronales de Microsoft mediante WebSocket seguro."
+                                    else -> "TikTok TTS genera audio MP3 mediante el servicio de voces de TikTok."
+                                }, color = Muted, style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                    if (speechProvider == "piper") {
+                    SectionHeader("05", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local")
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("SELECCIONA UNA VOZ", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
@@ -896,7 +1007,79 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("05", "Controles de voz", "Ajusta la reproducción a tu gusto")
+                    } else {
+                        SectionHeader("05", "Voces API", when (speechProvider) { "tikfinity" -> "TikFinity · generación de audio por internet"; "edge" -> "Edge-TTS · voces neuronales de Microsoft"; else -> "TikTok TTS · voces de TikTok" })
+                        GlassCard {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("SELECCIONA UNA VOZ API", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                                OutlinedButton(
+                                    onClick = { apiVoiceMenuExpanded = true },
+                                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                                    shape = RoundedCornerShape(15.dp),
+                                    enabled = speechProvider != "tikfinity" || !apiRandomVoice
+                                ) {
+                                    Icon(Icons.Default.RecordVoiceOver, null, tint = Violet)
+                                    Text("  $selectedApiVoiceName", modifier = Modifier.weight(1f))
+                                    Icon(Icons.Default.ExpandMore, null)
+                                }
+                                if (apiVoiceMenuExpanded) {
+                                    AlertDialog(
+                                        onDismissRequest = { apiVoiceMenuExpanded = false },
+                                        title = { Text("Voces API · ${when (speechProvider) { "tikfinity" -> "TikFinity"; "edge" -> "Edge-TTS"; else -> "TikTok TTS" }}") },
+                                        text = {
+                                            Column(
+                                                Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                                                verticalArrangement = Arrangement.spacedBy(7.dp)
+                                            ) {
+                                                apiVoiceItems.forEach { voice ->
+                                                    Surface(
+                                                        onClick = {
+                                                            when (speechProvider) { "edge" -> edgeVoiceId = voice.first; "tiktok" -> tikTokVoiceId = voice.first; else -> apiVoiceId = voice.first }
+                                                            apiVoiceMenuExpanded = false
+                                                        },
+                                                        color = if (voice.first == selectedApiVoiceId) Violet.copy(alpha = .20f) else Color.White.copy(alpha = .045f),
+                                                        shape = RoundedCornerShape(13.dp),
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    ) {
+                                                        Row(
+                                                            Modifier.fillMaxWidth().padding(12.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                                                Text(voice.second, fontWeight = FontWeight.SemiBold)
+                                                                Text(voice.third, style = MaterialTheme.typography.bodySmall, color = Muted)
+                                                                Text(voice.first, style = MaterialTheme.typography.labelSmall, color = Muted)
+                                                            }
+                                                            if (voice.first == selectedApiVoiceId) Icon(Icons.Default.CheckCircle, contentDescription = "Seleccionada", tint = Cyan)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        confirmButton = {
+                                            TextButton(onClick = { apiVoiceMenuExpanded = false }) { Text("CERRAR") }
+                                        }
+                                    )
+                                }
+                                if (speechProvider == "tikfinity") {
+                                    SettingSwitch("Usar voces aleatorias", apiRandomVoice) { apiRandomVoice = it }
+                                    Text("Cada comentario utilizará una voz TikFinity aleatoria del catálogo.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                                    OutlinedTextField(
+                                        value = tikFinityChannelId,
+                                        onValueChange = { tikFinityChannelId = it.filter(Char::isDigit).take(24) },
+                                        label = { Text("Channel ID de TikFinity") },
+                                        supportingText = { Text("Valor predeterminado: 0") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(15.dp)
+                                    )
+                                }
+                                Text("Cada proveedor conserva su propia voz seleccionada. Todos utilizan la misma cola FIFO; Piper mantiene sus modelos y ajustes locales independientes.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+
+                    SectionHeader("06", "Controles de voz", "Ajusta la reproducción a tu gusto")
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -928,9 +1111,9 @@ private fun BotApp(
                                 Text(if (voiceMuted) "  ACTIVAR VOZ" else "  SILENCIAR VOZ")
                             }
                             OutlinedButton(
-                                onClick = { onTestVoice(voiceId, volume, speed) },
+                                onClick = { onTestVoice(buildReaderSettings()) },
                                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                                enabled = voiceInstalled && !downloading,
+                                enabled = selectedProviderReady && !downloading,
                                 shape = RoundedCornerShape(15.dp)
                             ) {
                                 Icon(Icons.Default.VolumeUp, null)
@@ -940,7 +1123,7 @@ private fun BotApp(
                     }
 
                     Text(
-                        "TIKTOK LIVE READER  •  v0.13.4  •  BY ROXI",
+                        "TIK TOK READER  •  v0.13.4  •  BY ROXI",
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         color = Muted.copy(alpha = .7f),
                         style = MaterialTheme.typography.labelSmall,
@@ -957,7 +1140,7 @@ private fun BotApp(
                     title = { Text("Nueva actualización disponible") },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("TikLBot ${appUpdate!!.versionName} ya está publicado en GitHub Releases.")
+                            Text("Tik Tok Reader ${appUpdate!!.versionName} ya está publicado en GitHub Releases.")
                             Text("Puedes descargarlo e iniciar la instalación desde aquí, sin abrir el navegador.", color = Muted, style = MaterialTheme.typography.bodySmall)
                             if (appUpdateStatus.isNotBlank()) Text(appUpdateStatus, color = Muted, style = MaterialTheme.typography.bodySmall)
                         }

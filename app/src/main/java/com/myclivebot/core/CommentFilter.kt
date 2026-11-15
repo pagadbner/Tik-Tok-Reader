@@ -17,9 +17,20 @@ data class ReaderSettings(
     val volume: Float = 1.0f,
     val speed: Float = 1.0f,
     val voiceId: String = PiperVoiceCatalog.DEFAULT_VOICE_ID,
+    val speechProvider: String = "piper",
+    val apiVoiceId: String = "es_mx_002",
+    val apiRandomVoice: Boolean = false,
+    val tikFinityChannelId: String = "0",
+    val edgeVoiceId: String = EdgeTtsVoiceCatalog.DEFAULT_VOICE_ID,
+    val tikTokVoiceId: String = TikTokTtsVoiceCatalog.DEFAULT_VOICE_ID,
     val followerOnlyChat: Boolean = false,
     val readFollows: Boolean = true,
     val readGifts: Boolean = true,
+    val readShares: Boolean = true,
+    val shareFollowerOnly: Boolean = false,
+    val readJoins: Boolean = true,
+    val joinFollowerOnly: Boolean = false,
+    val readLikes: Boolean = true,
     val randomVoices: Boolean = false,
     val customCommandsEnabled: Boolean = false,
     val customCommands: Map<String, String> = emptyMap(),
@@ -106,22 +117,9 @@ class CommentFilter {
         return spokenName + safeText
     }
 
-    /** Keeps letters and meaningful spaces only; digits, emoji and decorative symbols are never spoken. */
-    private fun sanitizeUsername(input: String): String {
-        val output = StringBuilder(input.length)
-        var pendingSpace = false
-        input.codePoints().forEach { codePoint ->
-            when {
-                Character.isLetter(codePoint) -> {
-                    if (pendingSpace && output.isNotEmpty()) output.append(' ')
-                    output.appendCodePoint(codePoint)
-                    pendingSpace = false
-                }
-                Character.isWhitespace(codePoint) -> pendingSpace = output.isNotEmpty()
-            }
-        }
-        return output.toString().trim()
-    }
+    /** Preserve decorated names; use "usuario" only when the name has no letters or digits. */
+    private fun sanitizeUsername(input: String): String =
+        ChatCommandParser.spokenUsername(input)
 
     private fun sanitize(input: String, settings: ReaderSettings): String {
         val output = StringBuilder(input.length)

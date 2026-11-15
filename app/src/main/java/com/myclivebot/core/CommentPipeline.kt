@@ -20,6 +20,8 @@ class CommentPipeline(
 ) {
     private val settings = AtomicReference(initialSettings)
     private val welcomeTracker = WelcomeMessageTracker()
+    private val shareAlertTracker = ShareAlertTracker()
+    private val likeAlertTracker = LikeAlertTracker()
     private val speakerTracker = CommentSpeakerTracker()
     private val commentsReceived = AtomicLong()
     private val commentsFiltered = AtomicLong()
@@ -62,11 +64,13 @@ class CommentPipeline(
                 val replyMention = Regex("(?i)@${Regex.escape(replyTarget)}(?![\\p{L}\\p{N}_])")
                 val cleanReplyText = comment.text.replace(replyMention, "")
                     .replace(Regex("\\s+"), " ").trim()
+                val safeSpeaker = ChatCommandParser.spokenUsername(comment.displayName)
+                val safeTarget = ChatCommandParser.spokenUsername(replyTarget)
                 comment.copy(
                     text = if (cleanReplyText.isBlank()) {
-                        "${comment.displayName} le respondió a ${replyTarget}"
+                        "${safeSpeaker} le respondió a ${safeTarget}"
                     } else {
-                        "${comment.displayName} le respondió a ${replyTarget}: ${cleanReplyText}"
+                        "${safeSpeaker} le respondió a ${safeTarget}: ${cleanReplyText}"
                     },
                     replyToDisplayName = null
                 )
@@ -88,10 +92,19 @@ class CommentPipeline(
         val current = settings.get()
         val speech = when (event.type) {
             LiveEventType.FOLLOW -> if (current.readFollows) {
-                "${event.displayName} te ha seguido"
+                "${ChatCommandParser.spokenUsername(event.displayName)} te ha seguido"
             } else ""
             LiveEventType.GIFT -> GiftAlertRules.render(event, current).orEmpty()
+            LiveEventType.SHARE -> shareAlertTracker.render(event, current).orEmpty()
+            LiveEventType.JOIN -> if (current.readJoins &&
+                (!current.joinFollowerOnly || event.isFollower == true)
+            ) {
+                "@${ChatCommandParser.spokenUsername(event.displayName).removePrefix("@")} se ha unido al live"
+            } else ""
+            LiveEventType.LIKE -> likeAlertTracker.render(event, current).orEmpty()
         }
+        // Ignore disabled/empty alerts instead of passing blank utterances to any provider.
+        if (speech.isBlank()) return false
         // Alerts use the priority lane so they are not buried under chat backlog.
         val queued = speechQueue.enqueue(speech, priority = true)
         if (queued) eventsQueued.incrementAndGet()
