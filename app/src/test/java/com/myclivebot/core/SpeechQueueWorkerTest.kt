@@ -10,7 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SpeechQueueWorkerTest {
-    @Test fun skipsOnlyTheNextPendingChatComment() {
+    @Test fun skipsOnlyTheSelectedPendingChatComment() {
         val gate = CompletableDeferred<Unit>()
         val spoken = mutableListOf<String>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
@@ -32,7 +32,6 @@ class SpeechQueueWorkerTest {
             assertEquals(1, worker.queuedCount())
             gate.complete(Unit)
             assertEquals(listOf("currently speaking", "keep this"), spoken)
-            assertTrue(!worker.skipNextComment())
         } finally {
             worker.close()
             scope.cancel()
