@@ -100,6 +100,14 @@ class CommentFilterTest {
         assertTrue(filter.shouldRead(LiveComment("3", "Mia", "hola", isFollower = true), settings))
     }
 
+    @Test fun allowsLatinSpanishAndEnglishButRejectsOtherWritingSystems() {
+        assertTrue(CommentLanguageFilter.isSupported("¡Qué tal! How are you?"))
+        assertFalse(CommentLanguageFilter.isSupported("مرحبا كيف حالك"))
+        assertFalse(CommentLanguageFilter.isSupported("Привет как дела"))
+        assertFalse(CommentLanguageFilter.isSupported("नमस्ते आप कैसे हैं"))
+        assertFalse(CommentLanguageFilter.isSupported("你好"))
+    }
+
     @Test fun usernameOnlyModeDoesNotFilterByCommentBody() {
         val filter = CommentFilter()
         val settings = ReaderSettings(onlyUsername = true, blockedWords = setOf("spoiler"))
