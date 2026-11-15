@@ -53,6 +53,26 @@ class LiveAutomationTest {
         assertEquals("Mi Discord", ChatCommandParser.responseFor("!discord", "Mod", commands, isModerator = true))
     }
 
+
+    @Test fun speakerIsAnnouncedOnceUntilAnotherUserTakesTheFloor() {
+        val tracker = CommentSpeakerTracker()
+        val ana = LiveComment("user-1", "Ana", "hola")
+        val luis = LiveComment("user-2", "Luis", "buenas")
+
+        assertTrue(tracker.isNewSpeaker(ana))
+        assertFalse(tracker.isNewSpeaker(ana.copy(text = "¿cómo están?")))
+        assertTrue(tracker.isNewSpeaker(luis))
+        assertTrue(tracker.isNewSpeaker(ana.copy(text = "volví")))
+        assertFalse(tracker.isNewSpeaker(ana.copy(text = "otra vez")))
+    }
+
+    @Test fun speakerTrackerFallsBackToDisplayNameWhenUserIdIsMissing() {
+        val tracker = CommentSpeakerTracker()
+        val first = LiveComment("", "Ana", "hola")
+        assertTrue(tracker.isNewSpeaker(first))
+        assertFalse(tracker.isNewSpeaker(first.copy(text = "otra frase")))
+    }
+
     @Test fun welcomeRunsOnlyOncePerUserInOneSession() {
         val tracker = WelcomeMessageTracker()
         val settings = ReaderSettings(
