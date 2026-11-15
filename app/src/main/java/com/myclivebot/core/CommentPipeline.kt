@@ -20,6 +20,8 @@ class CommentPipeline(
 ) {
     private val settings = AtomicReference(initialSettings)
     private val welcomeTracker = WelcomeMessageTracker()
+    private val shareAlertTracker = ShareAlertTracker()
+    private val likeAlertTracker = LikeAlertTracker()
     private val speakerTracker = CommentSpeakerTracker()
     private val commentsReceived = AtomicLong()
     private val commentsFiltered = AtomicLong()
@@ -93,6 +95,13 @@ class CommentPipeline(
                 "${ChatCommandParser.spokenUsername(event.displayName)} te ha seguido"
             } else ""
             LiveEventType.GIFT -> GiftAlertRules.render(event, current).orEmpty()
+            LiveEventType.SHARE -> shareAlertTracker.render(event, current).orEmpty()
+            LiveEventType.JOIN -> if (current.readJoins &&
+                (!current.joinFollowerOnly || event.isFollower == true)
+            ) {
+                "${ChatCommandParser.spokenUsername(event.displayName)} se ha unido al live"
+            } else ""
+            LiveEventType.LIKE -> likeAlertTracker.render(event, current).orEmpty()
         }
         // Ignore disabled/empty alerts instead of passing blank utterances to any provider.
         if (speech.isBlank()) return false
