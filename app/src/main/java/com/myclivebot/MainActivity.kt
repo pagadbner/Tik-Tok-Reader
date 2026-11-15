@@ -476,7 +476,10 @@ private fun BotApp(
             appUpdateStatus = if (latest == null) "Tu aplicación está actualizada." else "Nueva versión ${latest.versionName} disponible."
             if (latest != null) showAppUpdateDialog = true
         } catch (error: Exception) {
-            appUpdateStatus = "No se pudo comprobar: ${error.message ?: "error de conexión"}"
+            appUpdate = null
+            downloadedUpdatePath = null
+            showAppUpdateDialog = false
+            appUpdateStatus = "No se pudo consultar GitHub. Comprueba tu conexión e inténtalo de nuevo. Detalle: ${error.message ?: "error desconocido"}"
         }
     }
 
@@ -507,14 +510,25 @@ private fun BotApp(
 
     fun checkAppUpdateManually() {
         updateScope.launch {
-            appUpdateStatus = "Comprobando GitHub Releases…"
+            appUpdateBusy = true
+            appUpdateStatus = "Comprobando la versión instalada contra GitHub Releases…"
             try {
                 val latest = withContext(Dispatchers.IO) { AppUpdateManager.checkForUpdate(context) }
                 appUpdate = latest
-                appUpdateStatus = if (latest == null) "Tu aplicación está actualizada." else "Nueva versión ${latest.versionName} disponible."
-                if (latest != null) showAppUpdateDialog = true
+                downloadedUpdatePath = null
+                appUpdateStatus = if (latest == null) {
+                    "No hay una versión más reciente. Tu versionCode está actualizado."
+                } else {
+                    "Nueva versión ${latest.versionName} (código ${latest.versionCode}) disponible."
+                }
+                showAppUpdateDialog = latest != null
             } catch (error: Exception) {
-                appUpdateStatus = "No se pudo comprobar: ${error.message ?: "error de conexión"}"
+                appUpdate = null
+                downloadedUpdatePath = null
+                showAppUpdateDialog = false
+                appUpdateStatus = "No se pudo consultar GitHub. Comprueba tu conexión e inténtalo de nuevo. Detalle: ${error.message ?: "error desconocido"}"
+            } finally {
+                appUpdateBusy = false
             }
         }
     }
@@ -734,14 +748,25 @@ private fun BotApp(
                             Text(appUpdate?.let { "Nueva versión ${it.versionName} (código ${it.versionCode})" } ?: "Versión instalada al día", fontWeight = FontWeight.SemiBold)
                             Text(appUpdateStatus, color = Muted, style = MaterialTheme.typography.bodySmall)
                             Button(
-                                onClick = { if (appUpdate != null) startAppUpdate() else checkAppUpdateManually() },
+                                onClick = { checkAppUpdateManually() },
                                 enabled = !appUpdateBusy,
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(14.dp)
                             ) {
                                 if (appUpdateBusy) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
-                                else Icon(if (appUpdate == null) Icons.Default.Refresh else Icons.Default.SystemUpdate, contentDescription = null)
-                                Text(if (appUpdateBusy) "  PROCESANDO…" else if (appUpdate == null) "  COMPROBAR ACTUALIZACIONES" else if (downloadedUpdatePath == null) "  ACTUALIZAR DESDE LA APP" else "  INSTALAR ACTUALIZACIÓN")
+                                else Icon(Icons.Default.Refresh, contentDescription = null)
+                                Text(if (appUpdateBusy) "  COMPROBANDO…" else "  COMPROBAR ACTUALIZACIONES")
+                            }
+                            if (appUpdate != null) {
+                                Button(
+                                    onClick = { startAppUpdate() },
+                                    enabled = !appUpdateBusy,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(14.dp)
+                                ) {
+                                    Icon(Icons.Default.SystemUpdate, contentDescription = null)
+                                    Text(if (downloadedUpdatePath == null) "  ACTUALIZAR DESDE LA APP" else "  INSTALAR ACTUALIZACIÓN")
+                                }
                             }
                             Text("La descarga se verifica mediante SHA-256. Android mostrará su confirmación de instalación; los datos de la app se conservan si la firma coincide.", color = Muted, style = MaterialTheme.typography.bodySmall)
                         }
