@@ -830,8 +830,13 @@ private fun LiveChatPanel(
                         verticalArrangement = Arrangement.spacedBy(9.dp)
                     ) {
                         items(liveComments.asReversed(), key = { it.id }) { comment ->
-                            Row(
+                            Surface(
                                 modifier = Modifier.fillMaxWidth(),
+                                color = Panel.copy(alpha = .48f),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(10.dp),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 verticalAlignment = Alignment.Top
                             ) {
@@ -859,7 +864,7 @@ private fun LiveChatPanel(
                                     }
                                 }
                             }
-                            HorizontalDivider(color = Color.White.copy(alpha = .08f))
+                            }
                         }
                     }
                 }
