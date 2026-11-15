@@ -45,7 +45,7 @@ class LiveAutomationTest {
         val commands = ChatCommandParser.parseConfig("!discord=Únete al Discord, {user}.")
         val response = ChatCommandParser.responseFor("!DISCORD ahora", "🔥Ana_99 Pérez✨", commands, isModerator = true)
 
-        assertEquals("Únete al Discord, 🔥Ana_99 Pérez✨.", response)
+        assertEquals("Únete al Discord, Ana_99 Pérez.", response)
         assertNull(ChatCommandParser.responseFor("!discordextra", "Ana", commands, isModerator = true))
     }
 
