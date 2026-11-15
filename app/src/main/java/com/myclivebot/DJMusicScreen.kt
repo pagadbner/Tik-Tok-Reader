@@ -52,7 +52,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
         webView?.loadUrl("https://www.youtube.com/results?search_query=" + URLEncoder.encode(query, "UTF-8"))
     }
 
-    LaunchedEffect(state.pendingSearches.size, webView) {
+    LaunchedEffect(state.pendingSearches.size, webView, searching) {
         if (webView != null && !searching && state.pendingSearches.isNotEmpty()) {
             val request = DjMusicController.takeNextSearch()
             if (request != null) search(request.first, request.second, false)
@@ -110,7 +110,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                             if (id.length != 11) null else DjMusicTrack(id, item.optString("title", "YouTube"), item.optString("thumbnail"), requester ?: "Tú")
                                         }
                                     }.getOrDefault(emptyList())
-                                    post {
+                                    webView?.post {
                                         results = found
                                         searching = false
                                         if (!manualSearch) {
@@ -121,14 +121,14 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                         }
                                     }
                                 }
-                                @JavascriptInterface fun onPlayerEnded() { post { DjMusicController.skip("La canción terminó.") } }
+                                @JavascriptInterface fun onPlayerEnded() { webView?.post { DjMusicController.skip("La canción terminó.") } }
                             }, "TikLBotMusic")
                             webView = this
                             webViewClient = object : WebViewClient() {
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     if (url?.contains("youtube.com/results") == true) {
-                                        view.evaluateJavascript("(function(){var a=[...document.querySelectorAll('ytd-video-renderer a#video-title')].slice(0,8);var r=a.map(function(e){var h=e.href||'';var m=h.match(/[?&]v=([^&]+)/);var p=e.closest('ytd-video-renderer');var im=p&&p.querySelector('img');return {id:m?m[1]:'',title:e.innerText||e.title||'',thumbnail:im?im.src:''};}).filter(x=>x.id.length===11);window.TikLBotMusic.onResults(JSON.stringify(r));})();", null)
+                                        view?.evaluateJavascript("(function(){var a=[...document.querySelectorAll('ytd-video-renderer a#video-title')].slice(0,8);var r=a.map(function(e){var h=e.href||'';var m=h.match(/[?&]v=([^&]+)/);var p=e.closest('ytd-video-renderer');var im=p&&p.querySelector('img');return {id:m?m[1]:'',title:e.innerText||e.title||'',thumbnail:im?im.src:''};}).filter(x=>x.id.length===11);window.TikLBotMusic.onResults(JSON.stringify(r));})();", null)
                                     }
                                 }
                             }
