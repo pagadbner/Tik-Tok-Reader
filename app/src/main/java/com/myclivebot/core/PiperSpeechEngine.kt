@@ -111,7 +111,8 @@ class PiperSpeechEngine(
         }
 
         suspend fun deleteVoice(context: Context, id: String) = withContext(Dispatchers.IO) {
-            val voice = PiperVoiceCatalog.find(id)
+            val voice = PiperVoiceCatalog.voices.firstOrNull { it.id == id }
+                ?: throw IllegalArgumentException("La voz seleccionada no existe en el catálogo.")
             val model = PiperVoiceCatalog.modelFile(context, voice.id)
             val config = PiperVoiceCatalog.configFile(context, voice.id)
             val temporaryFiles = listOf(
@@ -162,12 +163,12 @@ class PiperSpeechEngine(
                     }
                 }
                 check(temp.length() > 100L) { "Archivo de voz vacío o inválido" }
-                onProgress(100)
                 if (expectedSha256 != null) check(sha256(temp) == expectedSha256) {
                     "El modelo descargado no coincide con su huella SHA-256."
                 }
                 if (target.exists()) target.delete()
                 check(temp.renameTo(target)) { "No se pudo guardar ${target.name}" }
+                onProgress(100)
             } finally {
                 connection.disconnect()
                 temp.delete()
