@@ -156,6 +156,7 @@ class EdgeTtsSpeechEngine(
                         }
                     }
                 })
+                if (!continuation.isActive) socket?.cancel()
             }
         }
 
