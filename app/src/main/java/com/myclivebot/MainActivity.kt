@@ -156,6 +156,11 @@ class MainActivity : ComponentActivity() {
                         .putExtra(BotForegroundService.EXTRA_FOLLOWER_ONLY, settings.followerOnlyChat)
                         .putExtra(BotForegroundService.EXTRA_READ_FOLLOWS, settings.readFollows)
                         .putExtra(BotForegroundService.EXTRA_READ_GIFTS, settings.readGifts)
+                        .putExtra(BotForegroundService.EXTRA_READ_SHARES, settings.readShares)
+                        .putExtra(BotForegroundService.EXTRA_SHARE_FOLLOWER_ONLY, settings.shareFollowerOnly)
+                        .putExtra(BotForegroundService.EXTRA_READ_JOINS, settings.readJoins)
+                        .putExtra(BotForegroundService.EXTRA_JOIN_FOLLOWER_ONLY, settings.joinFollowerOnly)
+                        .putExtra(BotForegroundService.EXTRA_READ_LIKES, settings.readLikes)
                         .putExtra(BotForegroundService.EXTRA_RANDOM_VOICES, settings.randomVoices)
                         .putExtra(BotForegroundService.EXTRA_COMMANDS_ENABLED, settings.customCommandsEnabled)
                         .putStringArrayListExtra(BotForegroundService.EXTRA_CUSTOM_COMMANDS, ArrayList(settings.customCommands.map { "${it.key}=${it.value}" }))
@@ -187,6 +192,11 @@ class MainActivity : ComponentActivity() {
                         .putExtra(BotForegroundService.EXTRA_FOLLOWER_ONLY, settings.followerOnlyChat)
                         .putExtra(BotForegroundService.EXTRA_READ_FOLLOWS, settings.readFollows)
                         .putExtra(BotForegroundService.EXTRA_READ_GIFTS, settings.readGifts)
+                        .putExtra(BotForegroundService.EXTRA_READ_SHARES, settings.readShares)
+                        .putExtra(BotForegroundService.EXTRA_SHARE_FOLLOWER_ONLY, settings.shareFollowerOnly)
+                        .putExtra(BotForegroundService.EXTRA_READ_JOINS, settings.readJoins)
+                        .putExtra(BotForegroundService.EXTRA_JOIN_FOLLOWER_ONLY, settings.joinFollowerOnly)
+                        .putExtra(BotForegroundService.EXTRA_READ_LIKES, settings.readLikes)
                         .putExtra(BotForegroundService.EXTRA_RANDOM_VOICES, settings.randomVoices)
                         .putExtra(BotForegroundService.EXTRA_COMMANDS_ENABLED, settings.customCommandsEnabled)
                         .putStringArrayListExtra(BotForegroundService.EXTRA_CUSTOM_COMMANDS, ArrayList(settings.customCommands.map { "${it.key}=${it.value}" }))
@@ -368,6 +378,11 @@ private fun BotApp(
     var followerOnlyChat by remember { mutableStateOf(prefs.getBoolean("follower_only_chat", false)) }
     var readFollows by remember { mutableStateOf(prefs.getBoolean("read_follows", true)) }
     var readGifts by remember { mutableStateOf(prefs.getBoolean("read_gifts", true)) }
+    var readShares by remember { mutableStateOf(prefs.getBoolean("read_shares", true)) }
+    var shareFollowerOnly by remember { mutableStateOf(prefs.getBoolean("share_follower_only", false)) }
+    var readJoins by remember { mutableStateOf(prefs.getBoolean("read_joins", true)) }
+    var joinFollowerOnly by remember { mutableStateOf(prefs.getBoolean("join_follower_only", false)) }
+    var readLikes by remember { mutableStateOf(prefs.getBoolean("read_likes", true)) }
     var randomVoices by remember { mutableStateOf(prefs.getBoolean("random_voices", false)) }
     var customCommandsEnabled by remember { mutableStateOf(prefs.getBoolean("custom_commands_enabled", false)) }
     var customCommandsText by remember {
@@ -440,6 +455,11 @@ private fun BotApp(
         followerOnlyChat = followerOnlyChat,
         readFollows = readFollows,
         readGifts = readGifts,
+        readShares = readShares,
+        shareFollowerOnly = shareFollowerOnly,
+        readJoins = readJoins,
+        joinFollowerOnly = joinFollowerOnly,
+        readLikes = readLikes,
         randomVoices = randomVoices,
         customCommandsEnabled = customCommandsEnabled,
         customCommands = if (customCommandsEnabled) ChatCommandParser.parseConfig(customCommandsText) else emptyMap(),
@@ -503,11 +523,16 @@ private fun BotApp(
     LaunchedEffect(username) { prefs.edit().putString("last_username", username).apply() }
     LaunchedEffect(voiceMuted) { prefs.edit().putBoolean("voice_muted", voiceMuted).apply() }
     LaunchedEffect(externalMuted) { voiceMuted = externalMuted }
-    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId, edgeVoiceId, tikTokVoiceId) {
+    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, readShares, shareFollowerOnly, readJoins, joinFollowerOnly, readLikes, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId, edgeVoiceId, tikTokVoiceId) {
         prefs.edit()
             .putBoolean("follower_only_chat", followerOnlyChat)
             .putBoolean("read_follows", readFollows)
             .putBoolean("read_gifts", readGifts)
+            .putBoolean("read_shares", readShares)
+            .putBoolean("share_follower_only", shareFollowerOnly)
+            .putBoolean("read_joins", readJoins)
+            .putBoolean("join_follower_only", joinFollowerOnly)
+            .putBoolean("read_likes", readLikes)
             .putBoolean("random_voices", randomVoices)
             .putString("speech_provider", speechProvider)
             .putString("api_voice_id", apiVoiceId)
@@ -560,7 +585,8 @@ private fun BotApp(
     val connected = status.contains("Conectado", true) && !status.contains("no se pudo", true)
     LaunchedEffect(
         connected, readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat,
-        readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers,
+        readFollows, readGifts, readShares, shareFollowerOnly, readJoins, joinFollowerOnly, readLikes,
+        randomVoices, maxQueue, blockedWords, ignoredUsers,
         speed, voiceId, voiceInstalled, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId, edgeVoiceId, tikTokVoiceId, customCommandsEnabled, customCommandsText,
         welcomeEnabled, welcomeTemplate, giftMinimumRepeat, giftAlertTemplate
     ) {
@@ -731,6 +757,14 @@ private fun BotApp(
                             SettingSwitch("Leer solo comentarios de seguidores", followerOnlyChat) { followerOnlyChat = it }
                             SettingSwitch("Avisar cuando alguien te siga", readFollows) { readFollows = it }
                             SettingSwitch("Avisar cuando recibas regalos", readGifts) { readGifts = it }
+                            HorizontalDivider(color = Color.White.copy(alpha = .09f))
+                            Text("ALERTAS DE ACTIVIDAD", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                            SettingSwitch("Avisar cuando compartan el LIVE (máx. 2 por usuario)", readShares) { readShares = it }
+                            if (readShares) SettingSwitch("Compartidos: solo seguidores", shareFollowerOnly) { shareFollowerOnly = it }
+                            SettingSwitch("Avisar cuando alguien se una al LIVE", readJoins) { readJoins = it }
+                            if (readJoins) SettingSwitch("Usuarios que se unen: solo seguidores", joinFollowerOnly) { joinFollowerOnly = it }
+                            SettingSwitch("Agradecer al usuario cada 1,000 me gusta", readLikes) { readLikes = it }
+                            Text("Los compartidos se anuncian hasta 2 veces por usuario en cada LIVE. Los me gusta se acumulan por usuario y la alerta puede repetirse después de 10 minutos.", color = Muted, style = MaterialTheme.typography.bodySmall)
                             if (speechProvider == "piper") {
                                 SettingSwitch("Cambiar de voz Piper aleatoriamente", randomVoices) { randomVoices = it }
                                 Text("El modo aleatorio alterna entre las voces Piper descargadas. Si solo tienes una instalada, utilizará esa.", color = Muted, style = MaterialTheme.typography.bodySmall)
