@@ -18,8 +18,9 @@ class SpeechQueueWorker(
     private val onSpoken: (String) -> Unit = {}
 ) {
     private val lock = Any()
-    private val normalQueue = ArrayDeque<String>()
-    private val priorityQueue = ArrayDeque<String>()
+    private data class QueuedSpeech(val text: String, val itemId: String?)
+    private val normalQueue = ArrayDeque<QueuedSpeech>()
+    private val priorityQueue = ArrayDeque<QueuedSpeech>()
     private val normalCapacity = capacity.coerceAtLeast(1)
     private val importantCapacity = priorityCapacity.coerceAtLeast(1)
     private val priorityBurstLimit = 3
@@ -52,8 +53,8 @@ class SpeechQueueWorker(
                     continue
                 }
                 try {
-                    engine.speak(next)
-                    onSpoken(next)
+                    engine.speak(next.text)
+                    onSpoken(next.text)
                 } catch (_: Exception) {
                     // A failed utterance must not kill the worker or block later comments.
                 }
@@ -62,14 +63,14 @@ class SpeechQueueWorker(
     }
 
     /** Returns false when the selected bounded lane is full. */
-    fun enqueue(text: String, priority: Boolean = false): Boolean {
+    fun enqueue(text: String, priority: Boolean = false, itemId: String? = null): Boolean {
         if (text.isBlank()) return false
         val accepted = synchronized(lock) {
             val queue = if (priority) priorityQueue else normalQueue
             val limit = if (priority) importantCapacity else normalCapacity
             if (priority) {
                 if (queue.size >= limit) false else {
-                    queue.addLast(text)
+                    queue.addLast(QueuedSpeech(text, itemId))
                     true
                 }
             } else {
@@ -90,6 +91,12 @@ class SpeechQueueWorker(
             normalQueue.removeFirst()
             true
         }
+    }
+
+    /** Removes one pending chat utterance by its originating LIVE comment ID. */
+    fun skipComment(itemId: String): Boolean = synchronized(lock) {
+        val queued = normalQueue.firstOrNull { it.itemId == itemId } ?: return@synchronized false
+        normalQueue.remove(queued)
     }
 
     /** Drops pending chat comments while preserving priority LIVE alerts. */
