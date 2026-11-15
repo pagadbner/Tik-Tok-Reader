@@ -4,12 +4,12 @@ import android.content.Context
 import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
-import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -82,28 +82,22 @@ class TikFinitySpeechEngine(
     }
 
     private fun requestAudio(text: String, voice: String, channel: String): File {
-        val tokenSeed = text + "_audio"
-        val tokenValue = abs(tokenSeed.hashCode().toLong() * 257533L).toString().take(6)
-        val url = HttpUrl.Builder()
-            .scheme("https")
-            .host("tikfinity-tts-api.zerody.one")
-            .addPathSegments("api/voice/generate")
-            .addQueryParameter("voice", voice)
-            .addQueryParameter("text", text)
-            .addQueryParameter("isWidget", "false")
-            .addQueryParameter("cid", channel)
-            .addQueryParameter("token", tokenValue)
-            .build()
-        val request = Request.Builder().url(url).get().header("Accept", "audio/mpeg, audio/mp3").build()
+        val query = "voice=${urlQueryEscape(voice)}" +
+            "&text=${urlQueryEscape(text)}" +
+            "&isWidget=false" +
+            "&cid=${urlQueryEscape(channel)}"
+        val tokenValue = tikFinityToken(query)
+        val fullUrl = "$API_URL?$query&token=$tokenValue"
+        val request = Request.Builder().url(fullUrl).get().header("Accept", "audio/mpeg, audio/mp3").build()
         val call = client.newCall(request)
         activeCall = call
         try {
             call.execute().use { response ->
-                if (!response.isSuccessful) throw IOException("TikFinity respondió con HTTP ${response.code}.")
+                if (response.code != 200) throw IOException("TikFinity respondió con HTTP ${response.code}.")
                 val body = response.body ?: throw IOException("TikFinity no devolvió audio.")
-                val contentType = body.contentType()?.toString()?.lowercase().orEmpty()
-                if (contentType.isNotBlank() && !contentType.contains("audio") && !contentType.contains("mpeg")) {
-                    throw IOException("La respuesta de TikFinity no es un archivo de audio.")
+                val contentType = body.contentType()?.let { "${it.type}/${it.subtype}".lowercase() }.orEmpty()
+                if (contentType !in setOf("audio/mpeg", "audio/mp3")) {
+                    throw IOException("TikFinity no devolvió un MP3 válido (Content-Type: ${contentType.ifBlank { "desconocido" }}).")
                 }
                 if (body.contentLength() > MAX_AUDIO_BYTES) throw IOException("El audio de TikFinity supera el límite permitido.")
                 val output = ByteArrayOutputStream()
@@ -203,7 +197,19 @@ class TikFinitySpeechEngine(
         else mainHandler.post { cancelPlayback() }
     }
 
+    private fun urlQueryEscape(value: String): String =
+        URLEncoder.encode(value, "UTF-8")
+
+    private fun tikFinityToken(query: String): String {
+        val input = query + "_audio"
+        var hash = 0
+        input.forEach { character -> hash = hash * 31 + character.code }
+        val number = abs(hash.toLong() * 257533L)
+        return number.toString().take(6)
+    }
+
     companion object {
+        private const val API_URL = "https://tikfinity-tts-api.zerody.one/api/voice/generate"
         private const val MAX_AUDIO_BYTES = 10 * 1024 * 1024
     }
 }
