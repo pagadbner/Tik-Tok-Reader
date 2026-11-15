@@ -55,13 +55,15 @@ class TikFinitySpeechEngine(
         selectedChannelId = channelId.trim().ifBlank { "0" }
         selectedVolume = volume.coerceIn(0f, 1f)
         selectedSpeed = speed.coerceIn(0.65f, 1.5f)
-        activePlayer?.setVolume(if (muted) 0f else selectedVolume, if (muted) 0f else selectedVolume)
+        activePlayer?.let { player ->
+            runCatching { player.setVolume(if (muted) 0f else selectedVolume, if (muted) 0f else selectedVolume) }
+        }
     }
 
     fun setMuted(value: Boolean) {
         muted = value
         val level = if (value) 0f else selectedVolume
-        activePlayer?.setVolume(level, level)
+        activePlayer?.let { player -> runCatching { player.setVolume(level, level) } }
     }
 
     override suspend fun initialize() {
