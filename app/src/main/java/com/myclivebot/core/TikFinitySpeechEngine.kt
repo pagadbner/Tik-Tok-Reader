@@ -46,6 +46,7 @@ class TikFinitySpeechEngine(
     @Volatile private var muted = false
     @Volatile private var activePlayer: MediaPlayer? = null
     @Volatile private var activeCall: okhttp3.Call? = null
+    @Volatile private var stopPlayback: (() -> Unit)? = null
 
     fun update(voiceId: String, channelId: String, volume: Float, speed: Float) {
         selectedVoiceId = TikFinityVoiceCatalog.find(voiceId).id
@@ -127,6 +128,7 @@ class TikFinitySpeechEngine(
                         if (completed) return
                         completed = true
                         activePlayer = null
+                        stopPlayback = null
                         runCatching { player.reset() }
                         runCatching { player.release() }
                         if (continuation.isActive) {
@@ -134,6 +136,7 @@ class TikFinitySpeechEngine(
                             else continuation.resumeWithException(error)
                         }
                     }
+                    stopPlayback = { finish(IOException("Reproducción detenida.")) }
                     continuation.invokeOnCancellation {
                         mainHandler.post { finish() }
                     }
@@ -166,11 +169,14 @@ class TikFinitySpeechEngine(
     override suspend fun stop() {
         activeCall?.cancel()
         withContext(Dispatchers.Main.immediate) {
-            val player = activePlayer
-            activePlayer = null
-            if (player != null) {
-                runCatching { player.stop() }
-                runCatching { player.release() }
+            val stop = stopPlayback
+            if (stop != null) stop() else {
+                val player = activePlayer
+                activePlayer = null
+                if (player != null) {
+                    runCatching { player.stop() }
+                    runCatching { player.release() }
+                }
             }
         }
     }
