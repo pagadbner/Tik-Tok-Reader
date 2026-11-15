@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, feature/in-app-updater-signing-release ]
     tags: [ 'v*' ]
   pull_request:
     branches: [ main, master ]
