@@ -462,7 +462,7 @@ private fun BotApp(
                 appUpdateStatus = if (installerOpened) {
                     "Instalador de Android abierto. Confirma la actualización para conservar tus datos."
                 } else {
-                    "Autoriza a TikLBot a instalar aplicaciones y vuelve aquí para pulsar INSTALAR ACTUALIZACIÓN."
+                    "Autoriza a Tik Tok Reader a instalar aplicaciones y vuelve aquí para pulsar INSTALAR ACTUALIZACIÓN."
                 }
                 if (installerOpened) showAppUpdateDialog = false
             } catch (error: Exception) {
@@ -570,7 +570,7 @@ private fun BotApp(
                         title = {
                             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                 Text("TIK TOK READER", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleSmall, letterSpacing = 1.1.sp)
-                                Text("PIPER OFFLINE · CONTROL EN VIVO", style = MaterialTheme.typography.labelSmall, color = Cyan, letterSpacing = .8.sp)
+                                Text(if (speechProvider == "tikfinity") "TIKFINITY API · CONTROL EN VIVO" else "PIPER OFFLINE · CONTROL EN VIVO", style = MaterialTheme.typography.labelSmall, color = Cyan, letterSpacing = .8.sp)
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
@@ -1092,7 +1092,7 @@ private fun BotApp(
                     title = { Text("Nueva actualización disponible") },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("TikLBot ${appUpdate!!.versionName} ya está publicado en GitHub Releases.")
+                            Text("Tik Tok Reader ${appUpdate!!.versionName} ya está publicado en GitHub Releases.")
                             Text("Puedes descargarlo e iniciar la instalación desde aquí, sin abrir el navegador.", color = Muted, style = MaterialTheme.typography.bodySmall)
                             if (appUpdateStatus.isNotBlank()) Text(appUpdateStatus, color = Muted, style = MaterialTheme.typography.bodySmall)
                         }
