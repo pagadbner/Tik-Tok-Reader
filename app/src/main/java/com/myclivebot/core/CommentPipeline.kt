@@ -62,11 +62,13 @@ class CommentPipeline(
                 val replyMention = Regex("(?i)@${Regex.escape(replyTarget)}(?![\\p{L}\\p{N}_])")
                 val cleanReplyText = comment.text.replace(replyMention, "")
                     .replace(Regex("\\s+"), " ").trim()
+                val safeSpeaker = ChatCommandParser.spokenUsername(comment.displayName)
+                val safeTarget = ChatCommandParser.spokenUsername(replyTarget)
                 comment.copy(
                     text = if (cleanReplyText.isBlank()) {
-                        "${comment.displayName} le respondió a ${replyTarget}"
+                        "${safeSpeaker} le respondió a ${safeTarget}"
                     } else {
-                        "${comment.displayName} le respondió a ${replyTarget}: ${cleanReplyText}"
+                        "${safeSpeaker} le respondió a ${safeTarget}: ${cleanReplyText}"
                     },
                     replyToDisplayName = null
                 )
