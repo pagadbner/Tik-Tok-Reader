@@ -381,6 +381,8 @@ private fun BotApp(
     var downloadStage by remember { mutableStateOf("") }
     var showDeleteVoiceDialog by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    val homeScrollState = rememberScrollState()
+    val settingsScrollState = rememberScrollState()
 
     fun buildReaderSettings(): ReaderSettings = ReaderSettings(
         readUsername = readUsername,
@@ -512,7 +514,7 @@ private fun BotApp(
                 }
             ) { padding ->
                 Column(
-                    Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 12.dp),
+                    Modifier.padding(padding).fillMaxSize().verticalScroll(if (showSettings) settingsScrollState else homeScrollState).padding(horizontal = 14.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     if (!showSettings) {
@@ -557,12 +559,6 @@ private fun BotApp(
                         }
                     }
 
-                    LiveChatPanel(
-                        liveComments = liveComments,
-                        onSkipComment = onSkipComment,
-                        modifier = Modifier
-                    )
-
                     SectionHeader("01", "Conexión TikTok LIVE", "Introduce el usuario del creador")
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -588,6 +584,11 @@ private fun BotApp(
                         }
                     }
 
+                    LiveChatPanel(
+                        liveComments = liveComments,
+                        onSkipComment = onSkipComment,
+                        modifier = Modifier
+                    )
                     } else {
                     SectionHeader("02", "Lectura y moderación", "Personaliza qué contenido se convierte en voz")
                     GlassCard {
