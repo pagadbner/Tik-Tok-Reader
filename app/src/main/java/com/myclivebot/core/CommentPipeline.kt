@@ -58,14 +58,23 @@ class CommentPipeline(
         val replyTarget = comment.replyToDisplayName?.takeIf { it.isNotBlank() }
         val speechComment = when {
             commandResponse != null -> comment.copy(text = commandResponse, replyToDisplayName = null)
-            replyTarget != null -> comment.copy(
-                text = "${comment.displayName} le respondió a ${replyTarget}: ${comment.text}",
-                replyToDisplayName = null
-            )
+            replyTarget != null -> {
+                val replyMention = Regex("(?i)@${Regex.escape(replyTarget)}(?![\\p{L}\\p{N}_])")
+                val cleanReplyText = comment.text.replace(replyMention, "")
+                    .replace(Regex("\\s+"), " ").trim()
+                comment.copy(
+                    text = if (cleanReplyText.isBlank()) {
+                        "${comment.displayName} le respondió a ${replyTarget}"
+                    } else {
+                        "${comment.displayName} le respondió a ${replyTarget}: ${cleanReplyText}"
+                    },
+                    replyToDisplayName = null
+                )
+            }
             else -> comment
         }
         val speechSettings = current.copy(
-            onlyUsername = if (commandResponse != null) false else current.onlyUsername,
+            onlyUsername = if (commandResponse != null || replyTarget != null) false else current.onlyUsername,
             readUsername = current.readUsername && announceSpeaker && replyTarget == null
         )
         val speech = filter.toSpeech(speechComment, speechSettings)
