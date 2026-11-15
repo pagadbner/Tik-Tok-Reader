@@ -392,23 +392,50 @@ class TikTokLiveConnector(
                             // Current Webcast User exposes is_follower at field 1029 and
                             // follow_status at 1024. Older schemas may nest follow_status
                             // under follow_info (field 22 / subfield 3).
-                            isFollower = user?.let { sender ->
-                                val explicitFlag = if (sender.has(1029)) sender.bool(1029) else null
-                                val status = when {
-                                    sender.has(1024) -> sender.long(1024)
-                                    sender.message(22)?.has(3) == true -> sender.message(22)?.long(3)
-                                    else -> null
-                                }
-                                FollowerStatusParser.isFollower(explicitFlag, status)
-                            }
+                            isFollower = followerStatus(user)
                         )
                     )
                 }
                 "WebcastSocialMessage" -> {
                     val user = payloadMessage.message(2)
                     // Current public webcast schema: action=1 is follow; action=3 is share.
-                    if (payloadMessage.long(4) == 1L) {
-                        onEvent(LiveEvent(LiveEventType.FOLLOW, displayName(user)))
+                    val userName = displayName(user)
+                    val userId = user?.long(1)?.toString().orEmpty()
+                    val follower = followerStatus(user)
+                    when (payloadMessage.long(4)) {
+                        1L -> onEvent(
+                            LiveEvent(LiveEventType.FOLLOW, userName, userId = userId, isFollower = follower)
+                        )
+                        3L -> onEvent(
+                            LiveEvent(LiveEventType.SHARE, userName, userId = userId, isFollower = follower)
+                        )
+                    }
+                }
+                "WebcastMemberMessage" -> {
+                    val user = payloadMessage.message(2)
+                    if (user != null) {
+                        onEvent(
+                            LiveEvent(
+                                LiveEventType.JOIN,
+                                displayName(user),
+                                userId = user.long(1).toString(),
+                                isFollower = followerStatus(user)
+                            )
+                        )
+                    }
+                }
+                "WebcastLikeMessage" -> {
+                    val user = payloadMessage.message(5)
+                    if (user != null) {
+                        val likesInEvent = payloadMessage.long(2).coerceAtLeast(1L)
+                        onEvent(
+                            LiveEvent(
+                                LiveEventType.LIKE,
+                                displayName(user),
+                                detail = likesInEvent.toString(),
+                                userId = user.long(1).toString()
+                            )
+                        )
                     }
                 }
                 "WebcastGiftMessage" -> {
@@ -425,6 +452,17 @@ class TikTokLiveConnector(
         user?.string(3)?.takeIf { it.isNotBlank() }
             ?: user?.string(38)?.takeIf { it.isNotBlank() }
             ?: "Usuario"
+
+    private fun followerStatus(user: ProtoMessage?): Boolean? {
+        if (user == null) return null
+        val explicitFlag = if (user.has(1029)) user.bool(1029) else null
+        val status = when {
+            user.has(1024) -> user.long(1024)
+            user.message(22)?.has(3) == true -> user.message(22)?.long(3)
+            else -> null
+        }
+        return FollowerStatusParser.isFollower(explicitFlag, status)
+    }
 
     @Synchronized
     private fun rememberMessage(id: String): Boolean {
