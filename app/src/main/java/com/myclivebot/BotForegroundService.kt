@@ -7,6 +7,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.provider.Settings
 import com.myclivebot.core.CommentFilter
 import com.myclivebot.core.CommentPipeline
@@ -25,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 
 class BotForegroundService : Service() {
@@ -33,7 +35,9 @@ class BotForegroundService : Service() {
         const val ACTION_STOP = "com.myclivebot.STOP"
         const val ACTION_TEST_VOICE = "com.myclivebot.TEST_VOICE"
         const val ACTION_UPDATE_SETTINGS = "com.myclivebot.UPDATE_SETTINGS"
-        const val ACTION_SKIP_NEXT_COMMENT = "com.myclivebot.SKIP_NEXT_COMMENT"
+        const val ACTION_SKIP_COMMENT = "com.myclivebot.SKIP_COMMENT"
+        const val ACTION_COMMENT_SKIPPED = "com.myclivebot.COMMENT_SKIPPED"
+        const val ACTION_CHAT_HISTORY = "com.myclivebot.CHAT_HISTORY"
         const val ACTION_SET_MUTE = "com.myclivebot.SET_MUTE"
         const val EXTRA_MUTED = "voice_muted"
         const val ACTION_STATUS = "com.myclivebot.STATUS"
@@ -43,6 +47,9 @@ class BotForegroundService : Service() {
         const val EXTRA_COMMENT_TEXT = "comment_text"
         const val EXTRA_COMMENT_TIME = "comment_time"
         const val EXTRA_COMMENT_AVATAR = "comment_avatar"
+        const val EXTRA_COMMENT_ID = "comment_id"
+        const val EXTRA_REPLY_TO = "reply_to_username"
+        const val EXTRA_CHAT_HISTORY = "chat_history"
         const val EXTRA_STATUS = "reader_status"
         const val EXTRA_USERNAME = "username"
         const val EXTRA_READ_USERNAME = "read_username"
@@ -74,6 +81,8 @@ class BotForegroundService : Service() {
     private var speechQueue: SpeechQueueWorker? = null
     private var connector: TikTokLiveConnector? = null
     private var localBridge: LocalBridgeServer? = null
+    private lateinit var liveChatHistoryStore: LiveChatHistoryStore
+    private var liveWakeLock: PowerManager.WakeLock? = null
     private var activeVoiceId: String? = null
     private var activeVolume: Float? = null
     private var activeSpeed: Float? = null
@@ -86,6 +95,7 @@ class BotForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        liveChatHistoryStore = LiveChatHistoryStore(this)
         startLocalBridge()
     }
 
@@ -112,6 +122,7 @@ class BotForegroundService : Service() {
             ACTION_STOP -> {
                 connector?.disconnect()
                 connector = null
+                releaseLiveWakeLock()
                 pipeline = null
                 activeSettings = null
                 updateStatus("Detenido")
@@ -152,12 +163,18 @@ class BotForegroundService : Service() {
                 sendBroadcast(Intent(ACTION_STATUS).setPackage(packageName)
                     .putExtra(EXTRA_STATUS, status)
                     .putExtra(EXTRA_MUTED, voiceMuted))
+                sendChatHistory()
                 if (activeSettings == null) stopSelf(startId)
             }
 
-            ACTION_SKIP_NEXT_COMMENT -> {
-                val skipped = speechQueue?.skipNextComment() == true
-                updateStatus(if (skipped) "Comentario pendiente omitido" else "No hay comentarios pendientes para omitir")
+            ACTION_SKIP_COMMENT -> {
+                val commentId = intent.getStringExtra(EXTRA_COMMENT_ID).orEmpty()
+                if (commentId.isNotBlank() && speechQueue?.skipComment(commentId) == true) {
+                    sendBroadcast(
+                        Intent(ACTION_COMMENT_SKIPPED).setPackage(packageName)
+                            .putExtra(EXTRA_COMMENT_ID, commentId)
+                    )
+                }
             }
 
             ACTION_SET_MUTE -> {
@@ -222,9 +239,12 @@ class BotForegroundService : Service() {
     private fun startReader(username: String, settings: ReaderSettings) {
         connector?.disconnect()
         connector = null
+        releaseLiveWakeLock()
         speechQueue?.close()
         speechQueue = null
         activeSettings = settings
+        liveChatHistoryStore.clear()
+        acquireLiveWakeLock()
         ensureSpeechQueue(settings.maxQueueSize, settings)
         // Warm the selected native voice before the first LIVE comment arrives.
         // This moves model initialization and asset preparation off the first utterance.
@@ -295,21 +315,64 @@ class BotForegroundService : Service() {
 
     private fun publishLiveComment(comment: LiveComment) {
         val timestamp = comment.receivedAt
+        runCatching { liveChatHistoryStore.add(comment) }
         sendBroadcast(
             Intent(ACTION_COMMENT)
                 .setPackage(packageName)
+                .putExtra(EXTRA_COMMENT_ID, comment.id)
                 .putExtra(EXTRA_COMMENT_USERNAME, comment.displayName)
                 .putExtra(EXTRA_COMMENT_TEXT, comment.text)
                 .putExtra(EXTRA_COMMENT_AVATAR, comment.avatarUrl.orEmpty())
+                .putExtra(EXTRA_REPLY_TO, comment.replyToDisplayName.orEmpty())
                 .putExtra(EXTRA_COMMENT_TIME, timestamp)
         )
         localBridge?.publish(
             "live_comment",
             JSONObject()
+                .put("id", comment.id)
                 .put("username", comment.displayName)
                 .put("comment", comment.text)
+                .put("reply_to", comment.replyToDisplayName.orEmpty())
                 .put("received_at", timestamp)
         )
+    }
+
+    private fun sendChatHistory() {
+        val history = JSONArray()
+        runCatching { liveChatHistoryStore.getAll() }.getOrDefault(emptyList()).forEach { comment ->
+            history.put(
+                JSONObject()
+                    .put("id", comment.id)
+                    .put("username", comment.displayName)
+                    .put("message", comment.text)
+                    .put("avatar", comment.avatarUrl.orEmpty())
+                    .put("reply_to", comment.replyToDisplayName.orEmpty())
+                    .put("received_at", comment.receivedAt)
+            )
+        }
+        sendBroadcast(
+            Intent(ACTION_CHAT_HISTORY).setPackage(packageName)
+                .putExtra(EXTRA_CHAT_HISTORY, history.toString())
+        )
+    }
+
+    private fun acquireLiveWakeLock() {
+        if (liveWakeLock?.isHeld == true) return
+        val powerManager = getSystemService(PowerManager::class.java)
+        liveWakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "TikLBot:LiveConnection"
+        ).apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
+    private fun releaseLiveWakeLock() {
+        liveWakeLock?.let { lock ->
+            if (lock.isHeld) lock.release()
+        }
+        liveWakeLock = null
     }
 
     private fun publishLiveStatsIfDue() {
@@ -359,6 +422,8 @@ class BotForegroundService : Service() {
         pipeline = null
         activeSettings = null
         stopLocalBridge()
+        releaseLiveWakeLock()
+        liveChatHistoryStore.close()
         kotlinx.coroutines.runBlocking(Dispatchers.IO) {
             runCatching { piper?.stop() }
             runCatching { piper?.release() }
