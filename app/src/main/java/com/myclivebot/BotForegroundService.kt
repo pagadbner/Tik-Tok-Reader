@@ -29,6 +29,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 class BotForegroundService : Service() {
@@ -102,6 +103,7 @@ class BotForegroundService : Service() {
     private var pipeline: CommentPipeline? = null
     @Volatile private var lastKnownStatus: String = "Detenido"
     @Volatile private var lastStatsPublishAt: Long = 0L
+    private var isolatedVoiceTests = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -174,7 +176,7 @@ class BotForegroundService : Service() {
                 sendBroadcast(Intent(ACTION_STATUS).setPackage(packageName)
                     .putExtra(EXTRA_STATUS, status)
                     .putExtra(EXTRA_MUTED, voiceMuted))
-                if (activeSettings == null) stopSelf(startId)
+                if (activeSettings == null && isolatedVoiceTests == 0) stopSelf(startId)
             }
 
             ACTION_SKIP_COMMENT -> {
@@ -246,7 +248,7 @@ class BotForegroundService : Service() {
                         pipeline?.updateSettings(testSettings)
                         speechQueue?.enqueue(testText, priority = true)
                     } else {
-                        serviceScope.launch(Dispatchers.IO) {
+                        launchIsolatedVoiceTest {
                             val testEngine = SelectableSpeechEngine(this@BotForegroundService, testSettings, ::reportSpeechError)
                             try {
                                 testEngine.speak(testText)
@@ -275,7 +277,7 @@ class BotForegroundService : Service() {
                         pipeline?.updateSettings(testSettings)
                         speechQueue?.enqueue(testText, priority = true)
                     } else {
-                        serviceScope.launch(Dispatchers.IO) {
+                        launchIsolatedVoiceTest {
                             val testEngine = PiperSpeechEngine(this@BotForegroundService, voiceId, volume, speed)
                             try {
                                 testEngine.speak(testText)
@@ -285,6 +287,10 @@ class BotForegroundService : Service() {
                         }
                     }
                 }
+                if (activeSettings == null && isolatedVoiceTests == 0) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf(startId)
+                }
             }
 
             else -> {
@@ -293,6 +299,23 @@ class BotForegroundService : Service() {
             }
         }
         return START_NOT_STICKY
+    }
+
+    private fun launchIsolatedVoiceTest(block: suspend () -> Unit) {
+        isolatedVoiceTests++
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                block()
+            } finally {
+                withContext(Dispatchers.Main.immediate) {
+                    isolatedVoiceTests = (isolatedVoiceTests - 1).coerceAtLeast(0)
+                    if (activeSettings == null && isolatedVoiceTests == 0) {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf()
+                    }
+                }
+            }
+        }
     }
 
     private fun startReader(username: String, settings: ReaderSettings) {
