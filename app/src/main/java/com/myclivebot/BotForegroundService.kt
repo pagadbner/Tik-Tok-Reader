@@ -222,15 +222,15 @@ class BotForegroundService : Service() {
                         speed = speed
                     )
                     val testText = "Hola, esta es una prueba de voz de TikFinity."
-                    if (activeSettings?.speechProvider == provider) {
-                        // Reuse the shared FIFO queue while a LIVE session is active.
+                    if (activeSettings != null) {
+                        // Every test during a LIVE session uses the same FIFO queue.
                         piper?.update(testSettings)
                         activeSettings = testSettings
                         pipeline?.updateSettings(testSettings)
                         speechQueue?.enqueue(testText, priority = true)
                     } else {
                         serviceScope.launch(Dispatchers.IO) {
-                            val testEngine = SelectableSpeechEngine(this@BotForegroundService, testSettings) { error -> updateStatus("Error de TikFinity API: ${error.message ?: "no se pudo generar el audio"}") }
+                            val testEngine = SelectableSpeechEngine(this@BotForegroundService, testSettings, ::reportSpeechError)
                             try {
                                 testEngine.speak(testText)
                             } catch (error: Exception) {
@@ -307,7 +307,7 @@ class BotForegroundService : Service() {
 
     private fun ensureSpeechQueue(capacity: Int, settings: ReaderSettings) {
         if (piper == null) {
-            piper = SelectableSpeechEngine(this, settings) { error -> updateStatus("Error de TikFinity API: ${error.message ?: "no se pudo generar el audio"}") }
+            piper = SelectableSpeechEngine(this, settings, ::reportSpeechError)
         } else {
             piper?.update(settings)
         }
@@ -371,6 +371,16 @@ class BotForegroundService : Service() {
                 .put("reply_to", comment.replyToDisplayName.orEmpty())
                 .put("received_at", timestamp)
         )
+    }
+
+    private fun reportSpeechError(error: Throwable) {
+        val message = error.message ?: "no se pudo generar el audio"
+        val status = if (activeSettings != null && lastKnownStatus.contains("conect", ignoreCase = true)) {
+            "Conectado · Error de TikFinity API: $message"
+        } else {
+            "Error de TikFinity API: $message"
+        }
+        updateStatus(status)
     }
 
     private fun acquireLiveWakeLock() {
