@@ -23,7 +23,7 @@ internal data class AppUpdateInfo(
 )
 
 internal object AppUpdateManager {
-    private const val RELEASE_API = "https://api.github.com/repos/pagadbner/TikLBot/releases/tags/latest"
+    private const val RELEASE_API = "https://api.github.com/repos/pagadbner/TikLBot/releases/latest"
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
@@ -44,10 +44,14 @@ internal object AppUpdateManager {
         }
         if (release.optBoolean("draft", true) || release.optBoolean("prerelease", true)) return null
         val body = release.optString("body")
-        val code = Regex("(?im)^VersionCode:\\s*(\\d+)\\s*$").find(body)?.groupValues?.get(1)?.toLongOrNull()
-            ?: error("La publicación no contiene VersionCode válido")
-        val name = Regex("(?im)^VersionName:\\s*([^\\r\\n]+)").find(body)?.groupValues?.get(1)?.trim()
-            ?: release.optString("name", "Nueva versión")
+        val code = Regex("(?im)^\\s*VersionCode\\s*[:=]\\s*(\\d+)\\s*$")
+            .find(body)?.groupValues?.get(1)?.toLongOrNull()
+            ?: error("La publicación oficial no incluye un VersionCode válido. No se instalará una versión sin identificar.")
+        val name = Regex("(?im)^\\s*VersionName\\s*[:=]\\s*([^\\r\\n]+)")
+            .find(body)?.groupValues?.get(1)?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: release.optString("name").takeIf { it.isNotBlank() }
+            ?: release.optString("tag_name", "Nueva versión")
         val assets = release.optJSONArray("assets") ?: error("La publicación no contiene archivos")
         var apkUrl: String? = null
         var checksumUrl: String? = null
@@ -64,8 +68,16 @@ internal object AppUpdateManager {
             @Suppress("DEPRECATION")
             context.packageManager.getPackageInfo(context.packageName, 0).versionCode.toLong()
         }
+        // versionCode is the authoritative Android version identifier. Never compare display names.
         if (code <= installed) return null
-        return AppUpdateInfo(code, name, apkUrl ?: error("No se encontró TikLBot-latest.apk"), checksumUrl ?: error("No se encontró el SHA-256 de la APK"), body)
+
+        val assetPrefix = "https://github.com/pagadbner/TikLBot/releases/download/"
+        val verifiedApkUrl = apkUrl?.takeIf { it.startsWith(assetPrefix) }
+            ?: error("No se encontró la APK oficial TikLBot-latest.apk en GitHub Releases.")
+        val verifiedChecksumUrl = checksumUrl?.takeIf { it.startsWith(assetPrefix) }
+            ?: error("No se encontró el archivo SHA-256 oficial de la APK.")
+
+        return AppUpdateInfo(code, name, verifiedApkUrl, verifiedChecksumUrl, body)
     }
 
     fun downloadAndVerify(context: Context, update: AppUpdateInfo): File {
