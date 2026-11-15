@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import coil.compose.AsyncImage
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -56,12 +57,13 @@ private val Violet = Color(0xFF9B86FF)
 private val Cyan = Color(0xFF69DED2)
 private val Muted = Color(0xFFB8BBD0)
 
-private data class LiveCommentUi(val username: String, val message: String, val avatarUrl: String?, val receivedAt: Long)
+private data class LiveCommentUi(val id: Long, val username: String, val message: String, val avatarUrl: String?, val receivedAt: Long)
 private data class CustomCommandEntry(val title: String, val trigger: String, val response: String)
 
 class MainActivity : ComponentActivity() {
     private val readerStatus = mutableStateOf("Detenido")
     private val liveComments = mutableStateListOf<LiveCommentUi>()
+    private var nextLiveCommentId = 0L
     private val voiceMutedFromService = mutableStateOf(false)
     private var statusReceiverRegistered = false
     private val statusReceiver = object : BroadcastReceiver() {
@@ -76,13 +78,13 @@ class MainActivity : ComponentActivity() {
                     if (message.isNotBlank()) {
                         liveComments.add(
                             LiveCommentUi(
+                                id = ++nextLiveCommentId,
                                 username = intent.getStringExtra(BotForegroundService.EXTRA_COMMENT_USERNAME).orEmpty(),
                                 message = message,
                                 avatarUrl = intent.getStringExtra(BotForegroundService.EXTRA_COMMENT_AVATAR),
                                 receivedAt = intent.getLongExtra(BotForegroundService.EXTRA_COMMENT_TIME, System.currentTimeMillis())
                             )
                         )
-                        while (liveComments.size > 60) liveComments.removeAt(0)
                     }
                 }
             }
@@ -315,6 +317,16 @@ private fun BotApp(
     var navigationMenuExpanded by remember { mutableStateOf(false) }
     val navigationRequesters = List(6) { remember { BringIntoViewRequester() } }
     val navigationScope = rememberCoroutineScope()
+    val liveChatListState = rememberLazyListState()
+
+    LaunchedEffect(liveComments.size) {
+        // reverseLayout places item 0 at the bottom (newest message). Follow new
+        // messages only while the reader is already near the newest end, so manual
+        // scrolling through older messages is never interrupted.
+        if (liveComments.isNotEmpty() && liveChatListState.firstVisibleItemIndex <= 1) {
+            liveChatListState.animateScrollToItem(0)
+        }
+    }
 
     fun buildReaderSettings(): ReaderSettings = ReaderSettings(
         readUsername = readUsername,
@@ -514,7 +526,7 @@ private fun BotApp(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text("CHAT EN VIVO", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
                                 Spacer(Modifier.weight(1f))
-                                Text("${liveComments.size} / 60", color = Muted, style = MaterialTheme.typography.labelSmall)
+                                Text("${liveComments.size} mensajes", color = Muted, style = MaterialTheme.typography.labelSmall)
                             }
                             OutlinedButton(
                                 onClick = onSkipNextComment,
@@ -533,10 +545,11 @@ private fun BotApp(
                             } else {
                                 LazyColumn(
                                     modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                                    state = liveChatListState,
                                     reverseLayout = true,
                                     verticalArrangement = Arrangement.spacedBy(9.dp)
                                 ) {
-                                    items(liveComments.asReversed(), key = { "${it.receivedAt}-${it.username}-${it.message.hashCode()}" }) { comment ->
+                                    items(liveComments.asReversed(), key = { it.id }) { comment ->
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.spacedBy(10.dp),
