@@ -433,7 +433,7 @@ class TikTokLiveConnector(
                                 LiveEventType.LIKE,
                                 displayName(user),
                                 detail = likesInEvent.toString(),
-                                userId = user.long(1).toString()
+                                userId = user.long(1).takeIf { it != 0L }?.toString().orEmpty()
                             )
                         )
                     }
