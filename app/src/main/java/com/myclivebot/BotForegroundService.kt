@@ -244,8 +244,18 @@ class BotForegroundService : Service() {
                     updateStatus("Descarga primero la voz seleccionada")
                 } else {
                     val testText = PiperVoiceCatalog.find(voiceId).testPhrase
-                    val testSettings = activeSettings
-                    if (testSettings != null && testSettings.speechProvider == SelectableSpeechEngine.PROVIDER_PIPER && testSettings.voiceId == voiceId) {
+                    val currentSettings = activeSettings
+                    if (currentSettings != null) {
+                        val testSettings = currentSettings.copy(
+                            speechProvider = SelectableSpeechEngine.PROVIDER_PIPER,
+                            voiceId = voiceId,
+                            randomVoices = false,
+                            volume = volume,
+                            speed = speed
+                        )
+                        piper?.update(testSettings)
+                        activeSettings = testSettings
+                        pipeline?.updateSettings(testSettings)
                         speechQueue?.enqueue(testText, priority = true)
                     } else {
                         serviceScope.launch(Dispatchers.IO) {
