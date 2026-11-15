@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.abs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
@@ -124,6 +125,11 @@ class TikFinitySpeechEngine(
                     writeBytes(bytes)
                 }
             }
+        } catch (error: IOException) {
+            if (call.isCanceled()) {
+                throw CancellationException("Solicitud de TikFinity cancelada.").apply { initCause(error) }
+            }
+            throw error
         } finally {
             activeCall = null
         }
@@ -148,7 +154,7 @@ class TikFinitySpeechEngine(
                             else continuation.resumeWithException(error)
                         }
                     }
-                    stopPlayback = { finish(IOException("Reproducción detenida.")) }
+                    stopPlayback = { finish() }
                     continuation.invokeOnCancellation {
                         mainHandler.post { finish() }
                     }
@@ -192,7 +198,7 @@ class TikFinitySpeechEngine(
             }
         }
         if (Looper.myLooper() == Looper.getMainLooper()) cancelPlayback()
-        else mainHandler.post(cancelPlayback)
+        else mainHandler.post { cancelPlayback() }
     }
 
     companion object {
