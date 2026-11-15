@@ -383,6 +383,11 @@ class TikTokLiveConnector(
                                     ?: sender.message(17)?.strings(1)?.firstOrNull()
                             },
                             isModerator = identity?.bool(5) == true,
+                            // TikTok exposes the addressed user on the chat payload (atUser).
+                            // When present, announce the response target instead of reading
+                            // the raw @mention in the message text.
+                            replyToDisplayName = payloadMessage.message(12)?.let(::displayName)
+                                ?.takeUnless { it == "Usuario" },
                             // Current Webcast User exposes is_follower at field 1029 and
                             // follow_status at 1024. Older schemas may nest follow_status
                             // under follow_info (field 22 / subfield 3).
