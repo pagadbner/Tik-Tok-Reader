@@ -400,7 +400,7 @@ class TikTokLiveConnector(
                     val user = payloadMessage.message(2)
                     // Current public webcast schema: action=1 is follow; action=3 is share.
                     val userName = displayName(user)
-                    val userId = user?.long(1)?.toString().orEmpty()
+                    val userId = user?.long(1)?.takeIf { it != 0L }?.toString().orEmpty()
                     val follower = followerStatus(user)
                     when (payloadMessage.long(4)) {
                         1L -> onEvent(
@@ -418,7 +418,7 @@ class TikTokLiveConnector(
                             LiveEvent(
                                 LiveEventType.JOIN,
                                 displayName(user),
-                                userId = user.long(1).toString(),
+                                userId = user.long(1).takeIf { it != 0L }?.toString().orEmpty(),
                                 isFollower = followerStatus(user)
                             )
                         )
