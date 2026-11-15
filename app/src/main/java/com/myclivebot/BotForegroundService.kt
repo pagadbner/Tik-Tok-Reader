@@ -26,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -163,8 +164,9 @@ class BotForegroundService : Service() {
                 sendBroadcast(Intent(ACTION_STATUS).setPackage(packageName)
                     .putExtra(EXTRA_STATUS, status)
                     .putExtra(EXTRA_MUTED, voiceMuted))
-                sendChatHistory()
-                if (activeSettings == null) stopSelf(startId)
+                sendChatHistory {
+                    if (activeSettings == null) stopSelf(startId)
+                }
             }
 
             ACTION_SKIP_COMMENT -> {
@@ -337,23 +339,31 @@ class BotForegroundService : Service() {
         )
     }
 
-    private fun sendChatHistory() {
-        val history = JSONArray()
-        runCatching { liveChatHistoryStore.getAll() }.getOrDefault(emptyList()).forEach { comment ->
-            history.put(
-                JSONObject()
-                    .put("id", comment.id)
-                    .put("username", comment.displayName)
-                    .put("message", comment.text)
-                    .put("avatar", comment.avatarUrl.orEmpty())
-                    .put("reply_to", comment.replyToDisplayName.orEmpty())
-                    .put("received_at", comment.receivedAt)
-            )
+    private fun sendChatHistory(onComplete: (() -> Unit)? = null) {
+        serviceScope.launch(Dispatchers.IO) {
+            val historyJson = runCatching {
+                val history = JSONArray()
+                liveChatHistoryStore.getAll().forEach { comment ->
+                    history.put(
+                        JSONObject()
+                            .put("id", comment.id)
+                            .put("username", comment.displayName)
+                            .put("message", comment.text)
+                            .put("avatar", comment.avatarUrl.orEmpty())
+                            .put("reply_to", comment.replyToDisplayName.orEmpty())
+                            .put("received_at", comment.receivedAt)
+                    )
+                }
+                history.toString()
+            }.getOrDefault("[]")
+            withContext(Dispatchers.Main.immediate) {
+                sendBroadcast(
+                    Intent(ACTION_CHAT_HISTORY).setPackage(packageName)
+                        .putExtra(EXTRA_CHAT_HISTORY, historyJson)
+                )
+                onComplete?.invoke()
+            }
         }
-        sendBroadcast(
-            Intent(ACTION_CHAT_HISTORY).setPackage(packageName)
-                .putExtra(EXTRA_CHAT_HISTORY, history.toString())
-        )
     }
 
     private fun acquireLiveWakeLock() {
