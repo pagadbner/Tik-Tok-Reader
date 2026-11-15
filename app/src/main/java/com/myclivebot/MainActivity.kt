@@ -204,12 +204,25 @@ class MainActivity : ComponentActivity() {
                         .putExtra(BotForegroundService.EXTRA_SPEED, speed)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
                 },
-                onDownloadVoice = { voiceId, callback ->
+                onDownloadVoice = { voiceId, onProgress, callback ->
                     lifecycleScope.launch {
-                        runCatching { PiperSpeechEngine.downloadVoice(this@MainActivity, voiceId) }
+                        runCatching {
+                            PiperSpeechEngine.downloadVoice(this@MainActivity, voiceId) { percent, stage ->
+                                runOnUiThread { onProgress(percent, stage) }
+                            }
+                        }
                             .onSuccess { runOnUiThread { callback(null) } }
                             .onFailure { error ->
                                 runOnUiThread { callback(error.message ?: "Error descargando la voz") }
+                            }
+                    }
+                },
+                onDeleteVoice = { voiceId, callback ->
+                    lifecycleScope.launch {
+                        runCatching { PiperSpeechEngine.deleteVoice(this@MainActivity, voiceId) }
+                            .onSuccess { runOnUiThread { callback(null) } }
+                            .onFailure { error ->
+                                runOnUiThread { callback(error.message ?: "No se pudo eliminar la voz") }
                             }
                     }
                 }
@@ -547,10 +560,10 @@ private fun BotApp(
                     LiveChatPanel(
                         liveComments = liveComments,
                         onSkipComment = onSkipComment,
-                        modifier = Modifier.bringIntoViewRequester(navigationRequesters[0])
+                        modifier = Modifier
                     )
 
-                    SectionHeader("01", "Conexión TikTok LIVE", "Introduce el usuario del creador", Modifier.bringIntoViewRequester(navigationRequesters[1]))
+                    SectionHeader("01", "Conexión TikTok LIVE", "Introduce el usuario del creador")
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             OutlinedTextField(
@@ -753,7 +766,7 @@ private fun BotApp(
                                         Text("${downloadProgress}%", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
                                     }
                                     LinearProgressIndicator(
-                                        progress = { downloadProgress / 100f },
+                                        progress = downloadProgress / 100f,
                                         modifier = Modifier.fillMaxWidth(),
                                         color = Cyan,
                                         trackColor = Color.White.copy(alpha = .10f)
@@ -788,7 +801,6 @@ private fun BotApp(
                                                     if (error == null) {
                                                         voiceInstalled = false
                                                         voiceError = "Voz eliminada del dispositivo."
-                                                        randomVoices = false
                                                     } else voiceError = error
                                                 }
                                             }
@@ -846,7 +858,7 @@ private fun BotApp(
                     }
 
                     Text(
-                        "TIKTOK LIVE READER  •  v0.13.2  •  BY ROXI",
+                        "TIKTOK LIVE READER  •  v0.13.3  •  BY ROXI",
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         color = Muted.copy(alpha = .7f),
                         style = MaterialTheme.typography.labelSmall,
