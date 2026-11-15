@@ -15,6 +15,13 @@ object TikFinityVoiceCatalog {
         TikFinityVoice("en_random_singing", "Random singing", "Voz de canto aleatoria")
     )
 
+    private val randomVoiceIds = listOf(
+        "en_female_f08_salut_damour",
+        "en_male_m03_lobby",
+        "en_female_f08_warmy_breeze",
+        "en_male_m03_sunshine_soon"
+    )
+
     fun find(id: String): TikFinityVoice = voices.firstOrNull { it.id == id } ?: voices.first()
-    fun randomVoice(): String = voices.filterNot { it.id == DEFAULT_VOICE_ID }.randomOrNull()?.id ?: DEFAULT_VOICE_ID
+    fun randomVoice(): String = randomVoiceIds.random()
 }
