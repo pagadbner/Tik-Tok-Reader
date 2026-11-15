@@ -21,6 +21,8 @@ data class ReaderSettings(
     val apiVoiceId: String = "es_mx_002",
     val apiRandomVoice: Boolean = false,
     val tikFinityChannelId: String = "0",
+    val edgeVoiceId: String = EdgeTtsVoiceCatalog.DEFAULT_VOICE_ID,
+    val tikTokVoiceId: String = TikTokTtsVoiceCatalog.DEFAULT_VOICE_ID,
     val followerOnlyChat: Boolean = false,
     val readFollows: Boolean = true,
     val readGifts: Boolean = true,
