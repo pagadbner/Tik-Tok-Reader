@@ -52,6 +52,7 @@ import com.myclivebot.core.EdgeTtsVoiceCatalog
 import com.myclivebot.core.TikTokTtsVoiceCatalog
 import com.myclivebot.core.TikTokProfileLookup
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
@@ -74,6 +75,7 @@ class MainActivity : ComponentActivity() {
     private var statusReceiverRegistered = false
     private var liveChatGeneration = 0L
     private var clearHistoryOnFirstStart = false
+    private var chatClearJob: Job? = null
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -112,7 +114,11 @@ class MainActivity : ComponentActivity() {
         liveComments.clear()
         liveCommentIds.clear()
         if (clearPersistentHistory) {
-            lifecycleScope.launch(Dispatchers.IO) {
+            // Chain clears so a later history read cannot race ahead of a
+            // pending database deletion.
+            val previousClear = chatClearJob
+            chatClearJob = lifecycleScope.launch(Dispatchers.IO) {
+                previousClear?.join()
                 val store = LiveChatHistoryStore(this@MainActivity)
                 try {
                     store.clear()
@@ -232,7 +238,7 @@ class MainActivity : ComponentActivity() {
                 },
                 onStop = {
                     readerStatus.value = "Detenido"
-                    clearLiveChat(clearPersistentHistory = false)
+                    clearLiveChat()
                     startService(Intent(this@MainActivity, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_STOP))
                 },
                 onClearChat = { clearLiveChat() },
@@ -345,6 +351,8 @@ class MainActivity : ComponentActivity() {
         val shouldClearOldHistory = clearHistoryOnFirstStart
         clearHistoryOnFirstStart = false
         lifecycleScope.launch {
+            // Wait for any user-triggered clear before reading persisted chat.
+            chatClearJob?.join()
             val history = withContext(Dispatchers.IO) {
                 val store = LiveChatHistoryStore(this@MainActivity)
                 try {
