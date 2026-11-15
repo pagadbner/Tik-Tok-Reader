@@ -13,6 +13,20 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
 internal object ApiAudioPlayer {
+    @Volatile private var activePlayer: MediaPlayer? = null
+    @Volatile private var activeFinish: (() -> Unit)? = null
+
+    fun stop() {
+        Handler(Looper.getMainLooper()).post {
+            activeFinish?.invoke()
+            activePlayer?.let { player ->
+                activePlayer = null
+                runCatching { player.stop() }
+                runCatching { player.release() }
+            }
+            activeFinish = null
+        }
+    }
     suspend fun play(context: Context, audio: ByteArray, volume: Float, speed: Float, muted: Boolean) {
         if (audio.isEmpty()) throw IOException("El proveedor no devolvió audio.")
         val file = withContext(Dispatchers.IO) {
@@ -22,10 +36,13 @@ internal object ApiAudioPlayer {
             withContext(Dispatchers.Main.immediate) {
                 suspendCancellableCoroutine<Unit> { continuation ->
                     val player = MediaPlayer()
+                    activePlayer = player
                     var finished = false
                     fun finish(error: Throwable? = null) {
                         if (finished) return
                         finished = true
+                        if (activePlayer === player) activePlayer = null
+                        if (activeFinish != null) activeFinish = null
                         runCatching { player.reset() }
                         runCatching { player.release() }
                         if (continuation.isActive) {
@@ -33,6 +50,7 @@ internal object ApiAudioPlayer {
                             else continuation.resumeWithException(error)
                         }
                     }
+                    activeFinish = { finish() }
                     continuation.invokeOnCancellation {
                         Handler(Looper.getMainLooper()).post { finish() }
                     }
