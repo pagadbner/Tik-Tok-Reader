@@ -88,10 +88,12 @@ class CommentPipeline(
         val current = settings.get()
         val speech = when (event.type) {
             LiveEventType.FOLLOW -> if (current.readFollows) {
-                "${event.displayName} te ha seguido"
+                "${ChatCommandParser.spokenUsername(event.displayName)} te ha seguido"
             } else ""
             LiveEventType.GIFT -> GiftAlertRules.render(event, current).orEmpty()
         }
+        // Ignore disabled/empty alerts instead of passing blank utterances to any provider.
+        if (speech.isBlank()) return false
         // Alerts use the priority lane so they are not buried under chat backlog.
         val queued = speechQueue.enqueue(speech, priority = true)
         if (queued) eventsQueued.incrementAndGet()
