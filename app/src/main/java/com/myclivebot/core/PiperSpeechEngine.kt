@@ -72,7 +72,11 @@ class PiperSpeechEngine(
 
         suspend fun downloadVoice(context: Context) = downloadVoice(context, VOICE_ID)
 
-        suspend fun downloadVoice(context: Context, id: String) = withContext(Dispatchers.IO) {
+        suspend fun downloadVoice(
+            context: Context,
+            id: String,
+            onProgress: (Int, String) -> Unit = { _, _ -> }
+        ) = withContext(Dispatchers.IO) {
             val voice = PiperVoiceCatalog.find(id)
             val model = PiperVoiceCatalog.modelFile(context, voice.id)
             val config = PiperVoiceCatalog.configFile(context, voice.id)
@@ -83,12 +87,17 @@ class PiperSpeechEngine(
                         voice.modelUrl ?: error("Falta URL del modelo"),
                         model,
                         voice.expectedSha256 ?: if (voice.id == VOICE_ID) ALD_SHA256 else null
-                    )
-                    downloadFile(voice.configUrl ?: error("Falta URL de configuración"), config)
+                    ) { percent -> onProgress(percent, "Descargando modelo") }
+                    downloadFile(voice.configUrl ?: error("Falta URL de configuración"), config) { percent ->
+                        onProgress(percent, "Descargando configuración")
+                    }
                 } else {
                     val archive = File(model.parentFile, "${voice.id}.tar.gz.part")
                     try {
-                        downloadFile(voice.archiveUrl ?: error("Falta URL del paquete"), archive)
+                        downloadFile(voice.archiveUrl ?: error("Falta URL del paquete"), archive) { percent ->
+                            onProgress(percent, "Descargando paquete de voz")
+                        }
+                        onProgress(100, "Instalando modelo")
                         extractVoiceArchive(archive, model, config)
                     } finally {
                         archive.delete()
@@ -98,9 +107,32 @@ class PiperSpeechEngine(
             check(isVoiceInstalled(context, voice.id)) {
                 "La voz ${voice.name} no superó la validación. El modelo o su configuración están incompletos."
             }
+            onProgress(100, "Voz instalada")
         }
 
-        private fun downloadFile(url: String, target: File, expectedSha256: String? = null) {
+        suspend fun deleteVoice(context: Context, id: String) = withContext(Dispatchers.IO) {
+            val voice = PiperVoiceCatalog.find(id)
+            val model = PiperVoiceCatalog.modelFile(context, voice.id)
+            val config = PiperVoiceCatalog.configFile(context, voice.id)
+            val temporaryFiles = listOf(
+                File(model.parentFile, model.name + ".part"),
+                File(config.parentFile, config.name + ".part"),
+                File(model.parentFile, "${voice.id}.tar.gz.part")
+            )
+            (listOf(model, config) + temporaryFiles).forEach { file ->
+                if (file.exists() && !file.delete()) {
+                    throw IOException("No se pudo eliminar ${file.name}.")
+                }
+            }
+            check(!model.exists() && !config.exists()) { "La voz no se eliminó completamente." }
+        }
+
+        private fun downloadFile(
+            url: String,
+            target: File,
+            expectedSha256: String? = null,
+            onProgress: (Int) -> Unit = {}
+        ) {
             val temp = File(target.parentFile, target.name + ".part")
             val connection = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 25_000
@@ -111,10 +143,26 @@ class PiperSpeechEngine(
             try {
                 connection.connect()
                 check(connection.responseCode in 200..299) { "Descarga HTTP ${connection.responseCode}" }
+                val totalBytes = connection.contentLengthLong
+                var downloadedBytes = 0L
+                onProgress(0)
                 connection.inputStream.use { input ->
-                    temp.outputStream().buffered().use { output -> input.copyTo(output) }
+                    temp.outputStream().buffered().use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            output.write(buffer, 0, count)
+                            downloadedBytes += count
+                            if (totalBytes > 0L) {
+                                val percent = ((downloadedBytes * 100L) / totalBytes).toInt().coerceIn(0, 99)
+                                onProgress(percent)
+                            }
+                        }
+                    }
                 }
                 check(temp.length() > 100L) { "Archivo de voz vacío o inválido" }
+                onProgress(100)
                 if (expectedSha256 != null) check(sha256(temp) == expectedSha256) {
                     "El modelo descargado no coincide con su huella SHA-256."
                 }
