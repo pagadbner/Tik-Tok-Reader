@@ -214,10 +214,11 @@ class LiveAutomationTest {
             "Gracias por dar me gusta @Astrid, tu apoyo es importante",
             tracker.render(likes(1, start + 1), settings)
         )
-        assertNull(tracker.render(likes(50, start + LikeAlertTracker.COOLDOWN_MS - 1), settings))
+        // The cooldown starts when the first thank-you is actually announced (start + 1).
+        assertNull(tracker.render(likes(50, start + 1 + LikeAlertTracker.COOLDOWN_MS - 1), settings))
         assertEquals(
             "Gracias por dar me gusta @Astrid, tu apoyo es importante",
-            tracker.render(likes(1, start + LikeAlertTracker.COOLDOWN_MS), settings)
+            tracker.render(likes(1, start + 1 + LikeAlertTracker.COOLDOWN_MS), settings)
         )
     }
 
