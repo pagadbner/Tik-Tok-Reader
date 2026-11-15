@@ -70,7 +70,9 @@ class TikTokTtsSpeechEngine(
         try {
             call.execute().use { response ->
                 if (!response.isSuccessful) throw IOException("TikTok TTS respondió con HTTP ${response.code}.")
-                val raw = response.body?.string().orEmpty()
+                val responseBody = response.body ?: throw IOException("TikTok TTS no devolvió contenido.")
+                if (responseBody.contentLength() > MAX_RESPONSE_CHARS.toLong()) throw IOException("La respuesta de TikTok TTS supera el límite permitido.")
+                val raw = responseBody.string()
                 if (raw.isBlank() || raw.length > MAX_RESPONSE_CHARS) throw IOException("Respuesta vacía o demasiado grande de TikTok TTS.")
                 val result = try { JSONObject(raw) } catch (_: Exception) {
                     throw IOException("TikTok TTS devolvió una respuesta no válida.")
@@ -117,7 +119,7 @@ class TikTokTtsSpeechEngine(
 
     private fun looksLikeMp3(bytes: ByteArray): Boolean =
         bytes.size >= 3 && (bytes[0] == 0x49.toByte() && bytes[1] == 0x44.toByte() && bytes[2] == 0x33.toByte() ||
-            bytes[0] == 0xFF.toByte() && bytes[1].toInt() and 0xE0 == 0xE0)
+            bytes[0] == 0xFF.toByte() && (bytes[1].toInt() and 0xE0) == 0xE0)
 
     companion object {
         private const val API_URL = "https://ottsy.weilbyte.dev/api/generation"
