@@ -127,7 +127,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     if (url?.contains("youtube.com/results") == true) {
-                                        view?.evaluateJavascript("(function(){var a=[...document.querySelectorAll('ytd-video-renderer a#video-title')].slice(0,8);var r=a.map(function(e){var h=e.href||'';var m=h.match(/[?&]v=([^&]+)/);var p=e.closest('ytd-video-renderer');var im=p&&p.querySelector('img');return {id:m?m[1]:'',title:e.innerText||e.title||'',thumbnail:im?im.src:''};}).filter(x=>x.id.length===11);window.TikLBotMusicSearch.onResults(JSON.stringify(r));})();", null)
+                                        view?.evaluateJavascript("setTimeout(function(){var a=[...document.querySelectorAll('ytd-video-renderer a#video-title')].slice(0,8);var r=a.map(function(e){var h=e.href||'';var m=h.match(/[?&]v=([^&]+)/);var p=e.closest('ytd-video-renderer');var im=p&&p.querySelector('img');return {id:m?m[1]:'',title:e.innerText||e.title||'',thumbnail:im?im.src:''};}).filter(x=>x.id.length===11);window.TikLBotMusicSearch.onResults(JSON.stringify(r));},1200);", null)
                                     }
                                 }
                             }
@@ -197,8 +197,8 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                     IconButton(onClick = { DjMusicController.skip() }) { Icon(Icons.Default.SkipNext, contentDescription = "Siguiente") }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { DjMusicController.setMuted(!state.muted); webView?.evaluateJavascript("setMuted(${!state.muted})", null) }) { Icon(if (state.muted) Icons.Default.VolumeOff else Icons.Default.VolumeUp, contentDescription = "Silenciar") }
-                    Slider(value = state.volume.toFloat(), onValueChange = { DjMusicController.setVolume(it.toInt()); webView?.evaluateJavascript("setVolume(${it.toInt()})", null) }, valueRange = 0f..100f, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { DjMusicController.setMuted(!state.muted); playerWebView?.evaluateJavascript("setMuted(${!state.muted})", null) }) { Icon(if (state.muted) Icons.Default.VolumeOff else Icons.Default.VolumeUp, contentDescription = "Silenciar") }
+                    Slider(value = state.volume.toFloat(), onValueChange = { DjMusicController.setVolume(it.toInt()); playerWebView?.evaluateJavascript("setVolume(${it.toInt()})", null) }, valueRange = 0f..100f, modifier = Modifier.weight(1f))
                     Text("${state.volume}%", color = DjMuted, style = MaterialTheme.typography.labelSmall)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
