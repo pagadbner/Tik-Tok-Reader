@@ -11,6 +11,6 @@ data class LiveComment(
     val isFollower: Boolean? = null,
     val receivedAt: Long = System.currentTimeMillis(),
     val id: String = UUID.randomUUID().toString(),
-    val replyToDisplayName: String? = null
+    val replyToDisplayName: String? = null,
     val contentLanguage: String? = null
 )
