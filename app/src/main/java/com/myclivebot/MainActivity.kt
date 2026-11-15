@@ -173,6 +173,10 @@ class MainActivity : ComponentActivity() {
                         .putExtra(BotForegroundService.EXTRA_VOLUME, settings.volume)
                         .putExtra(BotForegroundService.EXTRA_SPEED, settings.speed)
                         .putExtra(BotForegroundService.EXTRA_VOICE_ID, settings.voiceId)
+                        .putExtra(BotForegroundService.EXTRA_SPEECH_PROVIDER, settings.speechProvider)
+                        .putExtra(BotForegroundService.EXTRA_API_VOICE_ID, settings.apiVoiceId)
+                        .putExtra(BotForegroundService.EXTRA_API_RANDOM_VOICE, settings.apiRandomVoice)
+                        .putExtra(BotForegroundService.EXTRA_TIKFINITY_CHANNEL_ID, settings.tikFinityChannelId)
                         .putExtra(BotForegroundService.EXTRA_FOLLOWER_ONLY, settings.followerOnlyChat)
                         .putExtra(BotForegroundService.EXTRA_READ_FOLLOWS, settings.readFollows)
                         .putExtra(BotForegroundService.EXTRA_READ_GIFTS, settings.readGifts)
@@ -337,7 +341,7 @@ private fun BotApp(
     onSkipComment: (String) -> Unit,
     onSetMuted: (Boolean) -> Unit,
     onUpdateSettings: (ReaderSettings) -> Unit,
-    onTestVoice: (String, Float, Float) -> Unit,
+    onTestVoice: (ReaderSettings) -> Unit,
     onDownloadVoice: (String, (Int, String) -> Unit, (String?) -> Unit) -> Unit,
     onDeleteVoice: (String, (String?) -> Unit) -> Unit
 ) {
@@ -381,8 +385,14 @@ private fun BotApp(
     var voiceId by remember {
         mutableStateOf(prefs.getString("voice_id", PiperVoiceCatalog.DEFAULT_VOICE_ID) ?: PiperVoiceCatalog.DEFAULT_VOICE_ID)
     }
+    var speechProvider by remember { mutableStateOf(prefs.getString("speech_provider", "piper") ?: "piper") }
+    var apiVoiceId by remember { mutableStateOf(prefs.getString("api_voice_id", "es_mx_002") ?: "es_mx_002") }
+    var apiRandomVoice by remember { mutableStateOf(prefs.getBoolean("api_random_voice", false)) }
+    var tikFinityChannelId by remember { mutableStateOf(prefs.getString("tikfinity_channel_id", "0") ?: "0") }
+    var apiVoiceMenuExpanded by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Detenido") }
     var voiceInstalled by remember(voiceId) { mutableStateOf(PiperSpeechEngine.isVoiceInstalled(context, voiceId)) }
+    val selectedProviderReady = speechProvider == "tikfinity" || voiceInstalled
     var downloading by remember { mutableStateOf(false) }
     var voiceError by remember { mutableStateOf("") }
     var voiceMenuExpanded by remember { mutableStateOf(false) }
@@ -410,6 +420,10 @@ private fun BotApp(
         volume = volume,
         speed = speed,
         voiceId = voiceId,
+        speechProvider = speechProvider,
+        apiVoiceId = apiVoiceId,
+        apiRandomVoice = apiRandomVoice,
+        tikFinityChannelId = tikFinityChannelId.trim().ifBlank { "0" },
         followerOnlyChat = followerOnlyChat,
         readFollows = readFollows,
         readGifts = readGifts,
@@ -476,16 +490,20 @@ private fun BotApp(
     LaunchedEffect(username) { prefs.edit().putString("last_username", username).apply() }
     LaunchedEffect(voiceMuted) { prefs.edit().putBoolean("voice_muted", voiceMuted).apply() }
     LaunchedEffect(externalMuted) { voiceMuted = externalMuted }
-    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId) {
+    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId) {
         prefs.edit()
             .putBoolean("follower_only_chat", followerOnlyChat)
             .putBoolean("read_follows", readFollows)
             .putBoolean("read_gifts", readGifts)
             .putBoolean("random_voices", randomVoices)
+            .putString("speech_provider", speechProvider)
+            .putString("api_voice_id", apiVoiceId)
+            .putBoolean("api_random_voice", apiRandomVoice)
+            .putString("tikfinity_channel_id", tikFinityChannelId)
             .apply()
     }
 
-    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId) {
+    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId) {
         prefs.edit()
             .putBoolean("read_username", readUsername)
             .putBoolean("only_username", onlyUsername)
@@ -519,17 +537,17 @@ private fun BotApp(
     LaunchedEffect(
         connected, readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat,
         readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers,
-        speed, voiceId, voiceInstalled, customCommandsEnabled, customCommandsText,
+        speed, voiceId, voiceInstalled, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId, customCommandsEnabled, customCommandsText,
         welcomeEnabled, welcomeTemplate, giftMinimumRepeat, giftAlertTemplate
     ) {
-        if (connected && voiceInstalled) {
+        if (connected && selectedProviderReady) {
             delay(180)
             onUpdateSettings(buildReaderSettings())
         }
     }
     // Volume changes are applied immediately to the active AudioTrack; don't debounce slider input.
-    LaunchedEffect(volume, connected, voiceInstalled) {
-        if (connected && voiceInstalled) onUpdateSettings(buildReaderSettings())
+    LaunchedEffect(volume, connected, selectedProviderReady) {
+        if (connected && selectedProviderReady) onUpdateSettings(buildReaderSettings())
     }
     val pulse by animateFloatAsState(if (connected) 1f else 0.72f, label = "statusPulse")
 
@@ -603,7 +621,7 @@ private fun BotApp(
                                         val clean = username.trim().removePrefix("@").substringBefore("/")
                                         when {
                                             clean.isBlank() -> status = "Escribe el usuario de TikTok"
-                                            !voiceInstalled -> status = "Descarga primero la voz seleccionada"
+                                            !selectedProviderReady -> status = "Descarga primero la voz seleccionada"
                                             else -> {
                                                 recentUsernames = (listOf(clean) + recentUsernames.filterNot { it.equals(clean, true) }).take(8)
                                                 prefs.edit().putStringSet("recent_usernames", recentUsernames.toSet()).apply()
@@ -938,7 +956,7 @@ private fun BotApp(
                             OutlinedButton(
                                 onClick = { onTestVoice(voiceId, volume, speed) },
                                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                                enabled = voiceInstalled && !downloading,
+                                enabled = selectedProviderReady && !downloading,
                                 shape = RoundedCornerShape(15.dp)
                             ) {
                                 Icon(Icons.Default.VolumeUp, null)
