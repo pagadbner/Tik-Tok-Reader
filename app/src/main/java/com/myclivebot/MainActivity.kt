@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import com.myclivebot.core.ChatCommandParser
+import com.myclivebot.core.DjMusicController
 import com.myclivebot.core.PiperSpeechEngine
 import com.myclivebot.core.PiperVoiceCatalog
 import com.myclivebot.core.ReaderSettings
@@ -531,6 +532,7 @@ private fun BotApp(
     var downloadStage by remember { mutableStateOf("") }
     var showDeleteVoiceDialog by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showDjMusic by remember { mutableStateOf(false) }
     var appUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
     var appUpdateStatus by remember { mutableStateOf("Buscando actualizaciones oficiales…") }
     var appUpdateBusy by remember { mutableStateOf(false) }
@@ -751,25 +753,33 @@ private fun BotApp(
                 bottomBar = {
                     NavigationBar(containerColor = Color(0xCC111629), contentColor = Color(0xFFF4F1FF)) {
                         NavigationBarItem(
-                            selected = !showSettings,
-                            onClick = { showSettings = false },
+                            selected = !showSettings && !showDjMusic,
+                            onClick = { showSettings = false; showDjMusic = false },
                             icon = { Icon(Icons.Default.Home, contentDescription = null) },
                             label = { Text("Home") }
                         )
                         NavigationBarItem(
                             selected = showSettings,
-                            onClick = { showSettings = true },
+                            onClick = { showSettings = true; showDjMusic = false },
                             icon = { Icon(Icons.Default.Settings, contentDescription = null) },
                             label = { Text("Settings") }
+                        )
+                        NavigationBarItem(
+                            selected = showDjMusic,
+                            onClick = { showSettings = false; showDjMusic = true },
+                            icon = { Icon(Icons.Default.MusicNote, contentDescription = null) },
+                            label = { Text("DJ Music") }
                         )
                     }
                 }
             ) { padding ->
                 Column(
-                    Modifier.padding(padding).fillMaxSize().verticalScroll(if (showSettings) settingsScrollState else homeScrollState).padding(horizontal = 14.dp, vertical = 12.dp),
+                    Modifier.padding(padding).fillMaxSize().then(if (showDjMusic) Modifier else Modifier.verticalScroll(if (showSettings) settingsScrollState else homeScrollState)).padding(horizontal = 14.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    if (!showSettings) {
+                    if (showDjMusic) {
+                        DJMusicScreen(Modifier.fillMaxWidth())
+                    } else if (!showSettings) {
                     GlassCard {
                         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
