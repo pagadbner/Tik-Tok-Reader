@@ -535,6 +535,8 @@ private fun BotApp(
     var appUpdateStatus by remember { mutableStateOf("Buscando actualizaciones oficiales…") }
     var appUpdateBusy by remember { mutableStateOf(false) }
     var showAppUpdateDialog by remember { mutableStateOf(false) }
+    var showAppUpdatedDialog by remember { mutableStateOf(false) }
+    var appUpdatedTimestamp by remember { mutableStateOf(0L) }
     var downloadedUpdatePath by remember { mutableStateOf<String?>(null) }
     val updateScope = rememberCoroutineScope()
     val homeScrollState = rememberScrollState()
@@ -585,6 +587,27 @@ private fun BotApp(
             downloadedUpdatePath = null
             showAppUpdateDialog = false
             appUpdateStatus = "No se pudo consultar GitHub. Comprueba tu conexión e inténtalo de nuevo. Detalle: ${error.message ?: "error desconocido"}"
+        }
+    }
+
+    // Show a one-time confirmation after an actual package update.
+    // Android preserves firstInstallTime and advances lastUpdateTime on updates.
+    LaunchedEffect(Unit) {
+        try {
+            val updateTimestamp = withContext(Dispatchers.IO) {
+                @Suppress("DEPRECATION")
+                val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+                val acknowledgedTimestamp = prefs.getLong("acknowledged_app_update_timestamp", 0L)
+                packageInfo.lastUpdateTime.takeIf {
+                    it > packageInfo.firstInstallTime && it > acknowledgedTimestamp
+                } ?: 0L
+            }
+            if (updateTimestamp > 0L) {
+                appUpdatedTimestamp = updateTimestamp
+                showAppUpdatedDialog = true
+            }
+        } catch (_: Exception) {
+            // A failed package-info check must not interrupt the app startup.
         }
     }
 
@@ -1345,7 +1368,28 @@ private fun BotApp(
                 }
             }
         }
-            if (showAppUpdateDialog && appUpdate != null) {
+            if (showAppUpdatedDialog) {
+                AlertDialog(
+                    onDismissRequest = { },
+                    modifier = Modifier.widthIn(max = 280.dp),
+                    title = {
+                        Text("App Actualizada", fontWeight = FontWeight.SemiBold)
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                prefs.edit()
+                                    .putLong("acknowledged_app_update_timestamp", appUpdatedTimestamp)
+                                    .apply()
+                                showAppUpdatedDialog = false
+                            }
+                        ) {
+                            Text("ACEPTAR")
+                        }
+                    }
+                )
+            }
+            if (showAppUpdateDialog && appUpdate != null && !showAppUpdatedDialog) {
                 AlertDialog(
                     onDismissRequest = { showAppUpdateDialog = false },
                     title = { Text("Nueva actualización disponible") },
