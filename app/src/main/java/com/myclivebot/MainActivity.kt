@@ -144,6 +144,10 @@ class MainActivity : ComponentActivity() {
                         .putExtra(BotForegroundService.EXTRA_VOLUME, settings.volume)
                         .putExtra(BotForegroundService.EXTRA_SPEED, settings.speed)
                         .putExtra(BotForegroundService.EXTRA_VOICE_ID, settings.voiceId)
+                        .putExtra(BotForegroundService.EXTRA_SPEECH_PROVIDER, settings.speechProvider)
+                        .putExtra(BotForegroundService.EXTRA_API_VOICE_ID, settings.apiVoiceId)
+                        .putExtra(BotForegroundService.EXTRA_API_RANDOM_VOICE, settings.apiRandomVoice)
+                        .putExtra(BotForegroundService.EXTRA_TIKFINITY_CHANNEL_ID, settings.tikFinityChannelId)
                         .putExtra(BotForegroundService.EXTRA_FOLLOWER_ONLY, settings.followerOnlyChat)
                         .putExtra(BotForegroundService.EXTRA_READ_FOLLOWS, settings.readFollows)
                         .putExtra(BotForegroundService.EXTRA_READ_GIFTS, settings.readGifts)
@@ -197,12 +201,16 @@ class MainActivity : ComponentActivity() {
                         .setAction(BotForegroundService.ACTION_SET_MUTE)
                         .putExtra(BotForegroundService.EXTRA_MUTED, muted))
                 },
-                onTestVoice = { voiceId, volume, speed ->
+                onTestVoice = { settings ->
                     val intent = Intent(this@MainActivity, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_TEST_VOICE)
-                        .putExtra(BotForegroundService.EXTRA_VOICE_ID, voiceId)
-                        .putExtra(BotForegroundService.EXTRA_VOLUME, volume)
-                        .putExtra(BotForegroundService.EXTRA_SPEED, speed)
+                        .putExtra(BotForegroundService.EXTRA_VOICE_ID, settings.voiceId)
+                        .putExtra(BotForegroundService.EXTRA_SPEECH_PROVIDER, settings.speechProvider)
+                        .putExtra(BotForegroundService.EXTRA_API_VOICE_ID, settings.apiVoiceId)
+                        .putExtra(BotForegroundService.EXTRA_API_RANDOM_VOICE, settings.apiRandomVoice)
+                        .putExtra(BotForegroundService.EXTRA_TIKFINITY_CHANNEL_ID, settings.tikFinityChannelId)
+                        .putExtra(BotForegroundService.EXTRA_VOLUME, settings.volume)
+                        .putExtra(BotForegroundService.EXTRA_SPEED, settings.speed)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
                 },
                 onDownloadVoice = { voiceId, onProgress, callback ->
