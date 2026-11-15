@@ -22,6 +22,9 @@ internal data class AppUpdateInfo(
     val releaseNotes: String
 )
 
+internal fun isNewerAppVersion(installedVersionCode: Long, publishedVersionCode: Long): Boolean =
+    publishedVersionCode > installedVersionCode
+
 internal object AppUpdateManager {
     private const val RELEASE_API = "https://api.github.com/repos/pagadbner/TikLBot/releases/latest"
     private val client = OkHttpClient.Builder()
@@ -69,7 +72,7 @@ internal object AppUpdateManager {
             context.packageManager.getPackageInfo(context.packageName, 0).versionCode.toLong()
         }
         // versionCode is the authoritative Android version identifier. Never compare display names.
-        if (code <= installed) return null
+        if (!isNewerAppVersion(installed, code)) return null
 
         val assetPrefix = "https://github.com/pagadbner/TikLBot/releases/download/"
         val verifiedApkUrl = apkUrl?.takeIf { it.startsWith(assetPrefix) }
@@ -85,35 +88,39 @@ internal object AppUpdateManager {
         val apk = File(folder, "TikLBot-update-${update.versionCode}.apk")
         val digest = MessageDigest.getInstance("SHA-256")
         val apkRequest = Request.Builder().url(update.apkUrl).header("User-Agent", "TikLBot-Android-Updater").get().build()
-        client.newCall(apkRequest).execute().use { response ->
-            if (!response.isSuccessful) error("No se pudo descargar la APK (HTTP ${response.code})")
-            val body = response.body ?: error("La descarga llegó vacía")
-            body.byteStream().use { input ->
-                FileOutputStream(apk).use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        digest.update(buffer, 0, count)
-                        output.write(buffer, 0, count)
+        try {
+            client.newCall(apkRequest).execute().use { response ->
+                if (!response.isSuccessful) error("No se pudo descargar la APK (HTTP ${response.code})")
+                val body = response.body ?: error("La descarga llegó vacía")
+                body.byteStream().use { input ->
+                    FileOutputStream(apk).use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            digest.update(buffer, 0, count)
+                            output.write(buffer, 0, count)
+                        }
+                        output.fd.sync()
                     }
-                    output.fd.sync()
                 }
             }
-        }
-        if (!apk.isFile || apk.length() <= 0L) error("La APK descargada está vacía")
-        val expectedRequest = Request.Builder().url(update.checksumUrl).header("User-Agent", "TikLBot-Android-Updater").get().build()
-        val expected = client.newCall(expectedRequest).execute().use { response ->
-            if (!response.isSuccessful) error("No se pudo verificar el SHA-256 (HTTP ${response.code})")
-            Regex("(?i)\\b[0-9a-f]{64}\\b").find(response.body?.string().orEmpty())?.value
-                ?: error("El archivo SHA-256 no tiene un hash válido")
-        }
-        val actual = digest.digest().joinToString("") { "%02x".format(it) }
-        if (!actual.equals(expected, ignoreCase = true)) {
+            if (!apk.isFile || apk.length() <= 0L) error("La APK descargada está vacía")
+            val expectedRequest = Request.Builder().url(update.checksumUrl).header("User-Agent", "TikLBot-Android-Updater").get().build()
+            val expected = client.newCall(expectedRequest).execute().use { response ->
+                if (!response.isSuccessful) error("No se pudo verificar el SHA-256 (HTTP ${response.code})")
+                Regex("(?i)\\b[0-9a-f]{64}\\b").find(response.body?.string().orEmpty())?.value
+                    ?: error("El archivo SHA-256 no tiene un hash válido")
+            }
+            val actual = digest.digest().joinToString("") { "%02x".format(it) }
+            if (!actual.equals(expected, ignoreCase = true)) {
+                error("La verificación SHA-256 falló. La APK se descartó por seguridad.")
+            }
+            return apk
+        } catch (error: Exception) {
             apk.delete()
-            error("La verificación SHA-256 falló. La APK se descartó por seguridad.")
+            throw error
         }
-        return apk
     }
 
     fun installOrOpenPermissionSettings(context: Context, apk: File): Boolean {
