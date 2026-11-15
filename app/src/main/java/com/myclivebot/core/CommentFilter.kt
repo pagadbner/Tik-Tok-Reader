@@ -112,7 +112,7 @@ class CommentFilter {
         return spokenName + safeText
     }
 
-    /** Names containing decorative or unsupported characters are spoken as "usuario". */
+    /** Preserve decorated names; use "usuario" only when the name has no letters or digits. */
     private fun sanitizeUsername(input: String): String =
         ChatCommandParser.spokenUsername(input)
 
