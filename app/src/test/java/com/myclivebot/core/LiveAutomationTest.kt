@@ -6,6 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import org.junit.Test
@@ -202,6 +203,39 @@ class LiveAutomationTest {
         tracker.confirmQueued(secondAnnouncement)
         assertNull(tracker.render(secondAnnouncement.copy(receivedAt = secondAnnouncement.receivedAt + 1), followerOnly))
         assertNull(tracker.render(followerShare, ReaderSettings(readShares = false)))
+    }
+
+    @Test fun shareAlertRetriesWhenPrioritySpeechQueueWasFull() {
+        val spoken = mutableListOf<String>()
+        val releaseFirstSpeech = CompletableDeferred<Unit>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                if (text == "bloqueo") releaseFirstSpeech.await()
+                spoken += text
+            }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4, priorityCapacity = 1)
+        val pipeline = CommentPipeline(CommentFilter(), queue, ReaderSettings(readShares = true))
+        val share = LiveEvent(
+            LiveEventType.SHARE, "Ana", receivedAt = 30_000L, userId = "user-1"
+        )
+
+        try {
+            assertTrue(queue.enqueue("bloqueo", priority = true))
+            assertTrue(queue.enqueue("ocupado", priority = true))
+            assertFalse(pipeline.onEvent(share))
+
+            releaseFirstSpeech.complete(Unit)
+            assertTrue(pipeline.onEvent(share.copy(receivedAt = 30_001L)))
+            assertTrue(spoken.contains("@Ana ha compartido el live"))
+        } finally {
+            releaseFirstSpeech.complete(Unit)
+            queue.close()
+            scope.cancel()
+        }
     }
 
     @Test fun rejectedShareAlertDoesNotConsumePerUserAnnouncementLimit() {
