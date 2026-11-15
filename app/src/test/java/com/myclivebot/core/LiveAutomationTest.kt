@@ -170,7 +170,7 @@ class LiveAutomationTest {
             assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "🔥Ana_99✨")))
             assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.GIFT, "♡", "")))
             assertEquals(
-                listOf("usuario te ha seguido", "usuario te envió un regalo"),
+                listOf("🔥Ana_99✨ te ha seguido", "usuario te envió un regalo"),
                 spoken
             )
         } finally {
@@ -187,4 +187,61 @@ class LiveAutomationTest {
         assertFalse(GiftAlertRules.shouldAnnounce(follow, ReaderSettings()))
         assertNull(GiftAlertRules.render(follow, ReaderSettings()))
     }
+    @Test fun shareAlertsStopAfterTwoPerUserAndRespectFollowerFilter() {
+        val tracker = ShareAlertTracker()
+        val followerOnly = ReaderSettings(readShares = true, shareFollowerOnly = true)
+        val share = LiveEvent(LiveEventType.SHARE, "Ana", userId = "user-1", isFollower = false)
+        assertNull(tracker.render(share, followerOnly))
+
+        val followerShare = share.copy(isFollower = true)
+        assertEquals("@Ana ha compartido el live", tracker.render(followerShare, followerOnly))
+        assertEquals("@Ana ha compartido el live", tracker.render(followerShare, followerOnly))
+        assertNull(tracker.render(followerShare, followerOnly))
+        assertNull(tracker.render(followerShare, ReaderSettings(readShares = false)))
+    }
+
+    @Test fun likeAlertsAccumulatePerUserAndRepeatOnlyAfterTenMinutes() {
+        val tracker = LikeAlertTracker()
+        val settings = ReaderSettings(readLikes = true)
+        val start = 1_000_000L
+        fun likes(count: Long, at: Long) = LiveEvent(
+            LiveEventType.LIKE, "Astrid", count.toString(),
+            receivedAt = at, userId = "user-1"
+        )
+
+        assertNull(tracker.render(likes(999, start), settings))
+        assertEquals(
+            "Gracias por dar me gusta @Astrid, tu apoyo es importante",
+            tracker.render(likes(1, start + 1), settings)
+        )
+        assertNull(tracker.render(likes(50, start + LikeAlertTracker.COOLDOWN_MS - 1), settings))
+        assertEquals(
+            "Gracias por dar me gusta @Astrid, tu apoyo es importante",
+            tracker.render(likes(1, start + LikeAlertTracker.COOLDOWN_MS), settings)
+        )
+    }
+
+    @Test fun joinAlertsRespectFollowerOnlySettingAndUseSharedQueue() {
+        val spoken = mutableListOf<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) { spoken += text }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(
+            CommentFilter(), queue,
+            ReaderSettings(readJoins = true, joinFollowerOnly = true)
+        )
+        try {
+            assertFalse(pipeline.onEvent(LiveEvent(LiveEventType.JOIN, "Luis", userId = "2", isFollower = false)))
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.JOIN, "Ana", userId = "1", isFollower = true)))
+            assertEquals(listOf("@Ana se ha unido al live"), spoken)
+        } finally {
+            queue.close()
+            scope.cancel()
+        }
+    }
+
 }
