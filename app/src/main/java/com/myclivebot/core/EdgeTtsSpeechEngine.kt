@@ -15,6 +15,7 @@ import java.nio.ByteOrder
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.Locale
+import java.security.SecureRandom
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
@@ -85,6 +86,7 @@ class EdgeTtsSpeechEngine(
                     .url("$WEBSOCKET_URL?$query")
                     .header("Origin", ORIGIN)
                     .header("User-Agent", USER_AGENT)
+                    .header("Cookie", "muid=${generateMuid()};")
                     .build()
                 val audio = ByteArrayOutputStream()
                 var completed = false
@@ -172,6 +174,19 @@ class EdgeTtsSpeechEngine(
         .replace("'", "&apos;")
 
     private fun urlEncode(value: String): String = URLEncoder.encode(value, "UTF-8")
+
+    private fun generateMuid(): String {
+        val bytes = ByteArray(16)
+        SecureRandom().nextBytes(bytes)
+        val alphabet = "0123456789ABCDEF"
+        return buildString(32) {
+            bytes.forEach { byte ->
+                val value = byte.toInt() and 0xff
+                append(alphabet[value ushr 4])
+                append(alphabet[value and 0x0f])
+            }
+        }
+    }
 
     override suspend fun stop() { activeSocket?.cancel(); ApiAudioPlayer.stop() }
 
