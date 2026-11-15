@@ -55,7 +55,7 @@ object ChatCommandParser {
     
     private fun isEmojiCodePoint(codePoint: Int): Boolean =
         codePoint in 0x1F000..0x1FAFF ||
-            codePoint in 0x2600..0x27BF ||
+            (codePoint in 0x2600..0x27BF && codePoint != 0x2726) ||
             codePoint in 0x2300..0x23FF ||
             codePoint in 0xFE00..0xFE0F ||
             codePoint in 0x1F1E6..0x1F1FF ||
