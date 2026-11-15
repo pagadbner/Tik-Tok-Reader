@@ -50,8 +50,9 @@ import com.myclivebot.core.PiperSpeechEngine
 import com.myclivebot.core.PiperVoiceCatalog
 import com.myclivebot.core.ReaderSettings
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
-import org.json.JSONArray
 
 private val Night = Color(0xFF090B18)
 private val Panel = Color(0xCC1B2036)
@@ -87,27 +88,6 @@ class MainActivity : ComponentActivity() {
                                 avatarUrl = intent.getStringExtra(BotForegroundService.EXTRA_COMMENT_AVATAR),
                                 replyToDisplayName = intent.getStringExtra(BotForegroundService.EXTRA_REPLY_TO)?.takeIf { it.isNotBlank() },
                                 receivedAt = intent.getLongExtra(BotForegroundService.EXTRA_COMMENT_TIME, System.currentTimeMillis())
-                            )
-                        )
-                    }
-                }
-                BotForegroundService.ACTION_CHAT_HISTORY -> {
-                    val history = runCatching {
-                        JSONArray(intent.getStringExtra(BotForegroundService.EXTRA_CHAT_HISTORY).orEmpty())
-                    }.getOrNull() ?: return
-                    for (index in 0 until history.length()) {
-                        val item = history.optJSONObject(index) ?: continue
-                        val commentId = item.optString("id")
-                        val message = item.optString("message")
-                        if (commentId.isBlank() || message.isBlank()) continue
-                        insertLiveComment(
-                            LiveCommentUi(
-                                id = commentId,
-                                username = item.optString("username"),
-                                message = message,
-                                avatarUrl = item.optString("avatar").takeIf { it.isNotBlank() },
-                                replyToDisplayName = item.optString("reply_to").takeIf { it.isNotBlank() },
-                                receivedAt = item.optLong("received_at", System.currentTimeMillis())
                             )
                         )
                     }
@@ -283,7 +263,6 @@ class MainActivity : ComponentActivity() {
             val filter = IntentFilter().apply {
                 addAction(BotForegroundService.ACTION_STATUS)
                 addAction(BotForegroundService.ACTION_COMMENT)
-                addAction(BotForegroundService.ACTION_CHAT_HISTORY)
                 addAction(BotForegroundService.ACTION_COMMENT_SKIPPED)
             }
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -292,6 +271,28 @@ class MainActivity : ComponentActivity() {
                 registerReceiver(statusReceiver, filter)
             }
             statusReceiverRegistered = true
+        }
+        lifecycleScope.launch {
+            val history = withContext(Dispatchers.IO) {
+                val store = LiveChatHistoryStore(this@MainActivity)
+                try {
+                    store.getAll()
+                } finally {
+                    store.close()
+                }
+            }
+            history.forEach { comment ->
+                insertLiveComment(
+                    LiveCommentUi(
+                        id = comment.id,
+                        username = comment.displayName,
+                        message = comment.text,
+                        avatarUrl = comment.avatarUrl,
+                        replyToDisplayName = comment.replyToDisplayName,
+                        receivedAt = comment.receivedAt
+                    )
+                )
+            }
         }
         startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_REQUEST_STATUS))
     }
