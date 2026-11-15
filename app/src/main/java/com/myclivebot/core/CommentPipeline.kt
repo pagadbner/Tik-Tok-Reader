@@ -55,13 +55,21 @@ class CommentPipeline(
         val commandResponse = if (current.customCommandsEnabled) {
             ChatCommandParser.responseFor(comment.text, comment.displayName, current.customCommands, comment.isModerator)
         } else null
-        val speechComment = if (commandResponse != null) comment.copy(text = commandResponse) else comment
+        val replyTarget = comment.replyToDisplayName?.takeIf { it.isNotBlank() }
+        val speechComment = when {
+            commandResponse != null -> comment.copy(text = commandResponse, replyToDisplayName = null)
+            replyTarget != null -> comment.copy(
+                text = "${comment.displayName} le respondió a ${replyTarget}: ${comment.text}",
+                replyToDisplayName = null
+            )
+            else -> comment
+        }
         val speechSettings = current.copy(
             onlyUsername = if (commandResponse != null) false else current.onlyUsername,
-            readUsername = current.readUsername && announceSpeaker
+            readUsername = current.readUsername && announceSpeaker && replyTarget == null
         )
         val speech = filter.toSpeech(speechComment, speechSettings)
-        val queued = speechQueue.enqueue(speech)
+        val queued = speechQueue.enqueue(speech, itemId = comment.id)
         if (queued) commentsQueued.incrementAndGet()
         return queued
     }
