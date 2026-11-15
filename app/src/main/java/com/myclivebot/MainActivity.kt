@@ -55,6 +55,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import java.io.File
 
 private val Night = Color(0xFF090B18)
@@ -103,6 +104,32 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    private fun clearLiveChat() {
+        liveComments.clear()
+        liveCommentIds.clear()
+        lifecycleScope.launch(Dispatchers.IO) {
+            val store = LiveChatHistoryStore(this@MainActivity)
+            try {
+                store.clear()
+            } finally {
+                store.close()
+            }
+        }
+    }
+
+    private fun clearStoredLiveChatBlocking() {
+        runBlocking(Dispatchers.IO) {
+            val store = LiveChatHistoryStore(this@MainActivity)
+            try {
+                store.clear()
+            } finally {
+                store.close()
+            }
+        }
+        liveComments.clear()
+        liveCommentIds.clear()
+    }
+
     private fun insertLiveComment(comment: LiveCommentUi) {
         if (!liveCommentIds.add(comment.id)) return
         var low = 0
@@ -120,6 +147,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        // A fresh app launch starts with an empty visual chat; the active LIVE
+        // service can continue publishing new messages after the screen opens.
+        if (savedInstanceState == null) clearStoredLiveChatBlocking()
         if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         setContent {
             var showBrandSplash by remember { mutableStateOf(true) }
@@ -209,8 +239,10 @@ class MainActivity : ComponentActivity() {
                 },
                 onStop = {
                     readerStatus.value = "Detenido"
+                    clearLiveChat()
                     startService(Intent(this@MainActivity, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_STOP))
                 },
+                onClearChat = { clearLiveChat() },
                 onSkipComment = { commentId ->
                     startService(
                         Intent(this@MainActivity, BotForegroundService::class.java)
@@ -341,6 +373,11 @@ class MainActivity : ComponentActivity() {
         startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_REQUEST_STATUS))
     }
 
+    override fun onDestroy() {
+        if (isFinishing) clearStoredLiveChatBlocking()
+        super.onDestroy()
+    }
+
     override fun onStop() {
         if (statusReceiverRegistered) {
             unregisterReceiver(statusReceiver)
@@ -358,6 +395,7 @@ private fun BotApp(
     externalMuted: Boolean,
     onStart: (String, ReaderSettings) -> Unit,
     onStop: () -> Unit,
+    onClearChat: () -> Unit,
     onSkipComment: (String) -> Unit,
     onSetMuted: (Boolean) -> Unit,
     onUpdateSettings: (ReaderSettings) -> Unit,
@@ -858,6 +896,7 @@ private fun BotApp(
                     LiveChatPanel(
                         liveComments = liveComments,
                         onSkipComment = onSkipComment,
+                        onClearChat = onClearChat,
                         modifier = Modifier
                     )
                     } else {
@@ -1311,6 +1350,7 @@ private fun BotApp(
 private fun LiveChatPanel(
     liveComments: SnapshotStateList<LiveCommentUi>,
     onSkipComment: (String) -> Unit,
+    onClearChat: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -1331,6 +1371,18 @@ private fun LiveChatPanel(
                     Text("CHAT EN VIVO", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
                     Spacer(Modifier.weight(1f))
                     Text("${liveComments.size} mensajes", color = Muted, style = MaterialTheme.typography.labelSmall)
+                    IconButton(
+                        onClick = onClearChat,
+                        enabled = liveComments.isNotEmpty(),
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.DeleteOutline,
+                            contentDescription = "Limpiar chat",
+                            tint = if (liveComments.isNotEmpty()) Muted else Muted.copy(alpha = .35f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
                 if (liveComments.isEmpty()) {
                     Text(
