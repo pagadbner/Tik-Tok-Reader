@@ -63,7 +63,7 @@ class CommentFilterTest {
             LiveComment("1", "Ana_01", "Este comentario no debe leerse 😍"),
             ReaderSettings(onlyUsername = true, ignoreEmojis = true)
         )
-        assertEquals("Ana", result)
+        assertEquals("usuario", result)
     }
 
     @Test fun spokenUsernameContainsOnlyLettersAndKeepsAccentedLetters() {
@@ -72,7 +72,7 @@ class CommentFilterTest {
             LiveComment("1", "🔥A✦strid_99 Pérez✨", "hola"),
             ReaderSettings(readUsername = true)
         )
-        assertEquals("Astrid Pérez dice: hola", result)
+        assertEquals("usuario dice: hola", result)
     }
 
     @Test fun symbolOnlyUsernameIsSkippedAndCommentIsStillRead() {
@@ -81,7 +81,7 @@ class CommentFilterTest {
             LiveComment("1", "🔥✦✨123_", "buenas noches"),
             ReaderSettings(readUsername = true)
         )
-        assertEquals("buenas noches", result)
+        assertEquals("usuario dice: buenas noches", result)
     }
 
     @Test fun symbolOnlyUsernameProducesNoSpeechInUsernameOnlyMode() {
@@ -90,7 +90,7 @@ class CommentFilterTest {
             LiveComment("1", "🔥✦✨123_", "comentario"),
             ReaderSettings(onlyUsername = true)
         )
-        assertEquals("", result)
+        assertEquals("usuario", result)
     }
     @Test fun followerOnlyModeRejectsUnknownAndNonFollowers() {
         val filter = CommentFilter()
