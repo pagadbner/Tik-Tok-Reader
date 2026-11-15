@@ -99,20 +99,22 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                     modifier = Modifier.fillMaxWidth().height(170.dp).clip(RoundedCornerShape(14.dp)),
                     factory = { context ->
                         WebView(context).apply {
+                            val searchBrowser = this
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             webChromeClient = WebChromeClient()
                             addJavascriptInterface(object {
                                 @JavascriptInterface fun onResults(json: String) {
-                                    val found = runCatching {
+                                    val parsed = runCatching {
                                         val array = JSONArray(json)
                                         (0 until array.length()).mapNotNull { i ->
                                             val item = array.getJSONObject(i)
                                             val id = item.optString("id")
-                                            if (id.length != 11) null else DjMusicTrack(id, item.optString("title", "YouTube"), item.optString("thumbnail"), requester ?: "Tú")
+                                            if (id.length != 11) null else Triple(id, item.optString("title", "YouTube"), item.optString("thumbnail"))
                                         }
                                     }.getOrDefault(emptyList())
-                                    webView?.post {
+                                    searchBrowser.post {
+                                        val found = parsed.map { DjMusicTrack(it.first, it.second, it.third, requester ?: "Tú") }
                                         results = found
                                         searching = false
                                         if (!manualSearch) {
@@ -155,12 +157,13 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                     modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(14.dp)),
                     factory = { context ->
                         WebView(context).apply {
+                            val playerBrowser = this
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             settings.mediaPlaybackRequiresUserGesture = false
                             webChromeClient = WebChromeClient()
                             addJavascriptInterface(object {
-                                @JavascriptInterface fun onPlayerEnded() { playerWebView?.post { DjMusicController.skip("La canción terminó.") } }
+                                @JavascriptInterface fun onPlayerEnded() { playerBrowser.post { DjMusicController.skip("La canción terminó.") } }
                             }, "TikLBotMusicPlayer")
                             playerWebView = this
                         }
