@@ -71,6 +71,11 @@ class BotForegroundService : Service() {
         const val EXTRA_FOLLOWER_ONLY = "follower_only_chat"
         const val EXTRA_READ_FOLLOWS = "read_follows"
         const val EXTRA_READ_GIFTS = "read_gifts"
+        const val EXTRA_READ_SHARES = "read_shares"
+        const val EXTRA_SHARE_FOLLOWER_ONLY = "share_follower_only"
+        const val EXTRA_READ_JOINS = "read_joins"
+        const val EXTRA_JOIN_FOLLOWER_ONLY = "join_follower_only"
+        const val EXTRA_READ_LIKES = "read_likes"
         const val EXTRA_RANDOM_VOICES = "random_voices"
         const val EXTRA_COMMANDS_ENABLED = "custom_commands_enabled"
         const val EXTRA_CUSTOM_COMMANDS = "custom_commands"
@@ -362,6 +367,11 @@ class BotForegroundService : Service() {
         followerOnlyChat = intent.getBooleanExtra(EXTRA_FOLLOWER_ONLY, false),
         readFollows = intent.getBooleanExtra(EXTRA_READ_FOLLOWS, true),
         readGifts = intent.getBooleanExtra(EXTRA_READ_GIFTS, true),
+        readShares = intent.getBooleanExtra(EXTRA_READ_SHARES, true),
+        shareFollowerOnly = intent.getBooleanExtra(EXTRA_SHARE_FOLLOWER_ONLY, false),
+        readJoins = intent.getBooleanExtra(EXTRA_READ_JOINS, true),
+        joinFollowerOnly = intent.getBooleanExtra(EXTRA_JOIN_FOLLOWER_ONLY, false),
+        readLikes = intent.getBooleanExtra(EXTRA_READ_LIKES, true),
         randomVoices = intent.getBooleanExtra(EXTRA_RANDOM_VOICES, false),
         customCommandsEnabled = intent.getBooleanExtra(EXTRA_COMMANDS_ENABLED, false),
         customCommands = ChatCommandParser.parseConfig(
