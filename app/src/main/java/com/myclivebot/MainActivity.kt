@@ -778,7 +778,7 @@ private fun BotApp(
                     }
 
                     Text(
-                        "TIKTOK LIVE READER  •  v0.13.1  •  BY ROXI",
+                        "TIKTOK LIVE READER  •  v0.13.2  •  BY ROXI",
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         color = Muted.copy(alpha = .7f),
                         style = MaterialTheme.typography.labelSmall,
