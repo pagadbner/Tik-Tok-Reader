@@ -215,8 +215,8 @@ class BotForegroundService : Service() {
                 if (provider == SelectableSpeechEngine.PROVIDER_TIKFINITY) {
                     val testSettings = (activeSettings ?: ReaderSettings()).copy(
                         speechProvider = provider,
-                        apiVoiceId = if (apiRandom) TikFinityVoiceCatalog.randomVoice() else apiVoiceId,
-                        apiRandomVoice = false,
+                        apiVoiceId = apiVoiceId,
+                        apiRandomVoice = apiRandom,
                         tikFinityChannelId = channelId,
                         volume = volume,
                         speed = speed
@@ -226,10 +226,11 @@ class BotForegroundService : Service() {
                         // Reuse the shared FIFO queue while a LIVE session is active.
                         piper?.update(testSettings)
                         activeSettings = testSettings
+                        pipeline?.updateSettings(testSettings)
                         speechQueue?.enqueue(testText, priority = true)
                     } else {
                         serviceScope.launch(Dispatchers.IO) {
-                            val testEngine = SelectableSpeechEngine(this@BotForegroundService, testSettings)
+                            val testEngine = SelectableSpeechEngine(this@BotForegroundService, testSettings) { error -> updateStatus("Error de TikFinity API: ${error.message ?: "no se pudo generar el audio"}") }
                             try {
                                 testEngine.speak(testText)
                             } catch (error: Exception) {
@@ -306,7 +307,7 @@ class BotForegroundService : Service() {
 
     private fun ensureSpeechQueue(capacity: Int, settings: ReaderSettings) {
         if (piper == null) {
-            piper = SelectableSpeechEngine(this, settings)
+            piper = SelectableSpeechEngine(this, settings) { error -> updateStatus("Error de TikFinity API: ${error.message ?: "no se pudo generar el audio"}") }
         } else {
             piper?.update(settings)
         }
