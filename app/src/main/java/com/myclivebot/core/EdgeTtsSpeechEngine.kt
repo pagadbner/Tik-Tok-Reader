@@ -88,7 +88,7 @@ class EdgeTtsSpeechEngine(
                     .build()
                 val audio = ByteArrayOutputStream()
                 var completed = false
-                lateinit var socket: WebSocket
+                var socket: WebSocket? = null
 
                 fun finish(error: Throwable? = null) {
                     if (completed) return
@@ -105,7 +105,7 @@ class EdgeTtsSpeechEngine(
                 }
 
                 continuation.invokeOnCancellation {
-                    if (::socket.isInitialized) socket.cancel()
+                    socket?.cancel()
                 }
 
                 socket = client.newWebSocket(request, object : WebSocketListener() {
