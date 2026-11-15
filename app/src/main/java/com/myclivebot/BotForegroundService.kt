@@ -14,6 +14,8 @@ import com.myclivebot.core.CommentPipeline
 import com.myclivebot.core.ChatCommandParser
 import com.myclivebot.core.SelectableSpeechEngine
 import com.myclivebot.core.TikFinityVoiceCatalog
+import com.myclivebot.core.EdgeTtsVoiceCatalog
+import com.myclivebot.core.TikTokTtsVoiceCatalog
 import com.myclivebot.core.LocalBridgeServer
 import com.myclivebot.core.LiveComment
 import com.myclivebot.core.PiperSpeechEngine
