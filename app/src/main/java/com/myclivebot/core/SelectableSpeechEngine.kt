@@ -2,6 +2,7 @@ package com.myclivebot.core
 
 import android.content.Context
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CancellationException
 
 /**
  * One stable SpeechEngine for SpeechQueueWorker. Provider changes never create
@@ -44,7 +45,7 @@ class SelectableSpeechEngine(context: Context, initial: ReaderSettings, private 
             try {
                 tikFinity.speak(text)
             } catch (error: Exception) {
-                onApiError(error)
+                if (error !is CancellationException) onApiError(error)
                 throw error
             }
         } else {
