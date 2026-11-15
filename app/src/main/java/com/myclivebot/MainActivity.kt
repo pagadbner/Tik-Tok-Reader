@@ -50,6 +50,7 @@ import com.myclivebot.core.ReaderSettings
 import com.myclivebot.core.TikFinityVoiceCatalog
 import com.myclivebot.core.EdgeTtsVoiceCatalog
 import com.myclivebot.core.TikTokTtsVoiceCatalog
+import com.myclivebot.core.TikTokProfileLookup
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -371,6 +372,49 @@ private fun BotApp(
     var recentUsernames by remember {
         mutableStateOf(prefs.getStringSet("recent_usernames", mutableSetOf<String>()).orEmpty().toList().take(8))
     }
+    var recentAvatarUrls by remember {
+        mutableStateOf(
+            prefs.getStringSet("recent_user_avatars", emptySet()).orEmpty().mapNotNull { entry ->
+                val parts = entry.split("\t", limit = 2)
+                if (parts.size == 2 && parts[0].isNotBlank() && parts[1].startsWith("https://")) parts[0] to parts[1] else null
+            }.toMap()
+        )
+    }
+    var profileAvatarUrl by remember { mutableStateOf<String?>(null) }
+    var profileLookupBusy by remember { mutableStateOf(false) }
+    val normalizedProfileUsername = username.trim().removePrefix("@").substringBefore("/").trim()
+    val cachedProfileAvatar = recentAvatarUrls[normalizedProfileUsername]
+    LaunchedEffect(normalizedProfileUsername) {
+        profileAvatarUrl = cachedProfileAvatar
+        if (normalizedProfileUsername.isBlank()) {
+            profileLookupBusy = false
+        } else {
+            profileLookupBusy = true
+            delay(450)
+            val fetchedAvatar = TikTokProfileLookup.fetchAvatarUrl(normalizedProfileUsername)
+            if (fetchedAvatar != null) {
+                profileAvatarUrl = fetchedAvatar
+                recentAvatarUrls = recentAvatarUrls + (normalizedProfileUsername to fetchedAvatar)
+                prefs.edit().putStringSet(
+                    "recent_user_avatars",
+                    recentAvatarUrls.map { (name, url) -> "$name\t$url" }.toSet()
+                ).apply()
+            }
+            profileLookupBusy = false
+        }
+    }
+
+    fun saveRecentProfile(cleanUsername: String, avatarUrl: String? = recentAvatarUrls[cleanUsername]) {
+        recentUsernames = (listOf(cleanUsername) + recentUsernames.filterNot { it.equals(cleanUsername, true) }).take(8)
+        prefs.edit().putStringSet("recent_usernames", recentUsernames.toSet()).apply()
+        if (!avatarUrl.isNullOrBlank()) {
+            recentAvatarUrls = recentAvatarUrls + (cleanUsername to avatarUrl)
+            prefs.edit().putStringSet(
+                "recent_user_avatars",
+                recentAvatarUrls.map { (name, url) -> "$name\t$url" }.toSet()
+            ).apply()
+        }
+    }
     var readUsername by remember { mutableStateOf(prefs.getBoolean("read_username", true)) }
     var onlyUsername by remember { mutableStateOf(prefs.getBoolean("only_username", false)) }
     var ignoreEmojis by remember { mutableStateOf(prefs.getBoolean("ignore_emojis", true)) }
@@ -687,8 +731,7 @@ private fun BotApp(
                                             clean.isBlank() -> status = "Escribe el usuario de TikTok"
                                             !selectedProviderReady -> status = "Descarga primero la voz seleccionada"
                                             else -> {
-                                                recentUsernames = (listOf(clean) + recentUsernames.filterNot { it.equals(clean, true) }).take(8)
-                                                prefs.edit().putStringSet("recent_usernames", recentUsernames.toSet()).apply()
+                                                saveRecentProfile(clean, profileAvatarUrl)
                                                 val settings = buildReaderSettings()
                                                 onStart(clean, settings)
                                             }
@@ -719,11 +762,92 @@ private fun BotApp(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(16.dp)
                             )
+                            if (normalizedProfileUsername.isNotBlank()) {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = Color.White.copy(alpha = .055f),
+                                    shape = RoundedCornerShape(16.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Violet.copy(alpha = .22f))
+                                ) {
+                                    Row(
+                                        Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Box(
+                                            Modifier.size(58.dp).clip(RoundedCornerShape(50)).background(Panel),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (profileAvatarUrl != null) {
+                                                AsyncImage(
+                                                    model = profileAvatarUrl,
+                                                    contentDescription = "Foto de perfil de @$normalizedProfileUsername",
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                                )
+                                            } else {
+                                                Icon(Icons.Default.AccountCircle, null, tint = Muted, modifier = Modifier.size(42.dp))
+                                            }
+                                        }
+                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Text("@$normalizedProfileUsername", fontWeight = FontWeight.Bold, color = Color.White)
+                                            Text(
+                                                when {
+                                                    profileLookupBusy -> "Cargando foto de perfil…"
+                                                    profileAvatarUrl != null -> "Perfil de TikTok encontrado"
+                                                    else -> "No se pudo cargar la foto; puedes guardar el usuario igualmente"
+                                                },
+                                                color = Muted,
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                        FilledTonalIconButton(
+                                            onClick = { saveRecentProfile(normalizedProfileUsername, profileAvatarUrl) },
+                                            enabled = !recentUsernames.any { it.equals(normalizedProfileUsername, true) }
+                                        ) {
+                                            Icon(Icons.Default.PersonAdd, contentDescription = "Agregar perfil")
+                                        }
+                                    }
+                                }
+                            }
                             if (recentUsernames.isNotEmpty()) {
-                                Text("USUARIOS RECIENTES", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
-                                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("PERFILES GUARDADOS", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     recentUsernames.forEach { recent ->
-                                        AssistChip(onClick = { username = recent }, label = { Text("@$recent") })
+                                        Surface(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            color = Color.White.copy(alpha = .055f),
+                                            shape = RoundedCornerShape(15.dp),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .07f))
+                                        ) {
+                                            Row(
+                                                Modifier.fillMaxWidth().padding(start = 10.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                AsyncImage(
+                                                    model = recentAvatarUrls[recent],
+                                                    contentDescription = "Foto de perfil de @$recent",
+                                                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(50)).background(Panel),
+                                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                                )
+                                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                    Text("@$recent", fontWeight = FontWeight.SemiBold)
+                                                    Text("Perfil guardado", color = Muted, style = MaterialTheme.typography.labelSmall)
+                                                }
+                                                TextButton(onClick = { username = recent }) { Text("USAR") }
+                                                IconButton(onClick = {
+                                                    recentUsernames = recentUsernames.filterNot { it.equals(recent, true) }
+                                                    recentAvatarUrls = recentAvatarUrls.filterKeys { !it.equals(recent, true) }
+                                                    prefs.edit()
+                                                        .putStringSet("recent_usernames", recentUsernames.toSet())
+                                                        .putStringSet("recent_user_avatars", recentAvatarUrls.map { (name, url) -> "$name\t$url" }.toSet())
+                                                        .apply()
+                                                }) {
+                                                    Icon(Icons.Default.Close, contentDescription = "Quitar perfil @$recent", tint = Muted)
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1148,7 +1272,7 @@ private fun BotApp(
                     }
 
                     Text(
-                        "TIK TOK READER  •  v0.13.5  •  BY ROXI",
+                        "TIK TOK READER  •  v0.13.6  •  BY ROXI",
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         color = Muted.copy(alpha = .7f),
                         style = MaterialTheme.typography.labelSmall,
