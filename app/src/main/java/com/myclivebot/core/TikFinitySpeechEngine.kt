@@ -8,6 +8,7 @@ import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
@@ -102,9 +103,20 @@ class TikFinitySpeechEngine(
                     throw IOException("La respuesta de TikFinity no es un archivo de audio.")
                 }
                 if (body.contentLength() > MAX_AUDIO_BYTES) throw IOException("El audio de TikFinity supera el límite permitido.")
-                val bytes = body.bytes()
+                val output = ByteArrayOutputStream()
+                body.byteStream().use { input ->
+                    val buffer = ByteArray(8 * 1024)
+                    var total = 0
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        total += count
+                        if (total > MAX_AUDIO_BYTES) throw IOException("El audio de TikFinity supera el límite permitido.")
+                        output.write(buffer, 0, count)
+                    }
+                }
+                val bytes = output.toByteArray()
                 if (bytes.isEmpty()) throw IOException("TikFinity devolvió un audio vacío.")
-                if (bytes.size > MAX_AUDIO_BYTES) throw IOException("El audio de TikFinity supera el límite permitido.")
                 if (bytes.size < 3 || bytes[0] != 0x49.toByte() && bytes[0] != 0xFF.toByte()) {
                     throw IOException("El contenido recibido no parece ser un MP3 válido.")
                 }
