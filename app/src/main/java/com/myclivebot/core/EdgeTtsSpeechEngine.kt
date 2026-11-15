@@ -172,10 +172,11 @@ class EdgeTtsSpeechEngine(
 
     private fun urlEncode(value: String): String = URLEncoder.encode(value, "UTF-8")
 
-    override suspend fun stop() { activeSocket?.cancel() }
+    override suspend fun stop() { activeSocket?.cancel(); ApiAudioPlayer.stop() }
 
     fun release() {
         activeSocket?.cancel()
+        ApiAudioPlayer.stop()
         client.dispatcher.executorService.shutdown()
         client.connectionPool.evictAll()
     }
