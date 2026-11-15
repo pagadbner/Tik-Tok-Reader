@@ -8,7 +8,7 @@ import kotlin.random.Random
  * One stable SpeechEngine for SpeechQueueWorker. Provider changes never create
  * a second queue and do not touch the TikTok LIVE connection.
  */
-class SelectableSpeechEngine(context: Context, initial: ReaderSettings) : SpeechEngine {
+class SelectableSpeechEngine(context: Context, initial: ReaderSettings, private val onApiError: (Throwable) -> Unit = {}) : SpeechEngine {
     private val appContext = context.applicationContext
     private val settings = AtomicReference(initial)
     private val piper = DynamicPiperSpeechEngine(appContext, initial)
@@ -42,7 +42,12 @@ class SelectableSpeechEngine(context: Context, initial: ReaderSettings) : Speech
         if (current.speechProvider == PROVIDER_TIKFINITY) {
             val voiceId = if (current.apiRandomVoice) TikFinityVoiceCatalog.randomVoice() else current.apiVoiceId
             tikFinity.update(voiceId, current.tikFinityChannelId, current.volume, current.speed)
-            tikFinity.speak(text)
+            try {
+                tikFinity.speak(text)
+            } catch (error: Exception) {
+                onApiError(error)
+                throw error
+            }
         } else {
             piper.speak(text)
         }
