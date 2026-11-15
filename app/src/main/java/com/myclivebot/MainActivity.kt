@@ -334,50 +334,65 @@ class MainActivity : ComponentActivity() {
         val preferences = getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
         readerStatus.value = preferences.getString("reader_status", readerStatus.value).orEmpty()
         voiceMutedFromService.value = preferences.getBoolean("voice_muted", false)
-        if (!statusReceiverRegistered) {
-            val filter = IntentFilter().apply {
-                addAction(BotForegroundService.ACTION_STATUS)
-                addAction(BotForegroundService.ACTION_COMMENT)
-                addAction(BotForegroundService.ACTION_COMMENT_SKIPPED)
-            }
-            if (Build.VERSION.SDK_INT >= 33) registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-            else {
-                @Suppress("DEPRECATION")
-                registerReceiver(statusReceiver, filter)
-            }
-            statusReceiverRegistered = true
-        }
-        val generationAtLoad = liveChatGeneration
+
         val shouldClearOldHistory = clearHistoryOnFirstStart
         clearHistoryOnFirstStart = false
         lifecycleScope.launch {
-            // Wait for any user-triggered clear before reading persisted chat.
+            // Complete pending/manual or cold-launch clears before registering
+            // the receiver and restoring history. This prevents old rows from
+            // racing with newly arriving LIVE comments.
             chatClearJob?.join()
+            if (shouldClearOldHistory) {
+                withContext(Dispatchers.IO) {
+                    val store = LiveChatHistoryStore(this@MainActivity)
+                    try {
+                        store.clear()
+                    } finally {
+                        store.close()
+                    }
+                }
+            }
+
+            if (!statusReceiverRegistered) {
+                val filter = IntentFilter().apply {
+                    addAction(BotForegroundService.ACTION_STATUS)
+                    addAction(BotForegroundService.ACTION_COMMENT)
+                    addAction(BotForegroundService.ACTION_COMMENT_SKIPPED)
+                }
+                if (Build.VERSION.SDK_INT >= 33) registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                else {
+                    @Suppress("DEPRECATION")
+                    registerReceiver(statusReceiver, filter)
+                }
+                statusReceiverRegistered = true
+            }
+
+            val generationAtLoad = liveChatGeneration
             val history = withContext(Dispatchers.IO) {
                 val store = LiveChatHistoryStore(this@MainActivity)
                 try {
-                    if (shouldClearOldHistory) store.clear()
                     store.getAll()
                 } finally {
                     store.close()
                 }
             }
-            // STOP or manual clear can happen while the database read is active.
-            if (generationAtLoad != liveChatGeneration) return@launch
-            history.forEach { comment ->
-                insertLiveComment(
-                    LiveCommentUi(
-                        id = comment.id,
-                        username = comment.displayName,
-                        message = comment.text,
-                        avatarUrl = comment.avatarUrl,
-                        replyToDisplayName = comment.replyToDisplayName,
-                        receivedAt = comment.receivedAt
+            // A manual clear/STOP may happen while the database read is active.
+            if (generationAtLoad == liveChatGeneration) {
+                history.forEach { comment ->
+                    insertLiveComment(
+                        LiveCommentUi(
+                            id = comment.id,
+                            username = comment.displayName,
+                            message = comment.text,
+                            avatarUrl = comment.avatarUrl,
+                            replyToDisplayName = comment.replyToDisplayName,
+                            receivedAt = comment.receivedAt
+                        )
                     )
-                )
+                }
             }
+            startService(Intent(this@MainActivity, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_REQUEST_STATUS))
         }
-        startService(Intent(this, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_REQUEST_STATUS))
     }
 
     override fun onDestroy() {
