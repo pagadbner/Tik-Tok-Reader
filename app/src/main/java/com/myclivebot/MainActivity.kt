@@ -20,8 +20,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -318,7 +316,8 @@ private fun BotApp(
     onSetMuted: (Boolean) -> Unit,
     onUpdateSettings: (ReaderSettings) -> Unit,
     onTestVoice: (String, Float, Float) -> Unit,
-    onDownloadVoice: (String, (String?) -> Unit) -> Unit
+    onDownloadVoice: (String, (Int, String) -> Unit, (String?) -> Unit) -> Unit,
+    onDeleteVoice: (String, (String?) -> Unit) -> Unit
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE) }
@@ -365,9 +364,10 @@ private fun BotApp(
     var downloading by remember { mutableStateOf(false) }
     var voiceError by remember { mutableStateOf("") }
     var voiceMenuExpanded by remember { mutableStateOf(false) }
-    var navigationMenuExpanded by remember { mutableStateOf(false) }
-    val navigationRequesters = List(6) { remember { BringIntoViewRequester() } }
-    val navigationScope = rememberCoroutineScope()
+    var downloadProgress by remember { mutableIntStateOf(0) }
+    var downloadStage by remember { mutableStateOf("") }
+    var showDeleteVoiceDialog by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
 
     fun buildReaderSettings(): ReaderSettings = ReaderSettings(
         readUsername = readUsername,
@@ -474,52 +474,35 @@ private fun BotApp(
                                 Text("PIPER OFFLINE · CONTROL EN VIVO", style = MaterialTheme.typography.labelSmall, color = Cyan, letterSpacing = .8.sp)
                             }
                         },
-                        actions = {
-                            Box {
-                                IconButton(onClick = { navigationMenuExpanded = true }) {
-                                    Icon(Icons.Default.MenuOpen, contentDescription = "Abrir navegación", tint = Cyan)
-                                }
-                                DropdownMenu(
-                                    expanded = navigationMenuExpanded,
-                                    onDismissRequest = { navigationMenuExpanded = false }
-                                ) {
-                                    val destinations = listOf("Comentarios del directo", "Conexión TikTok LIVE", "Lectura y moderación", "Automatizaciones del chat", "Catálogo de voces", "Controles de voz")
-                                    destinations.forEachIndexed { index, destination ->
-                                        DropdownMenuItem(
-                                            text = { Text(destination) },
-                                            leadingIcon = {
-                                                Icon(
-                                                    when (index) {
-                                                        0 -> Icons.Default.Forum
-                                                        1 -> Icons.Default.Link
-                                                        2 -> Icons.Default.Tune
-                                                        3 -> Icons.Default.AutoAwesome
-                                                        4 -> Icons.Default.RecordVoiceOver
-                                                        else -> Icons.Default.GraphicEq
-                                                    }, contentDescription = null, tint = Violet
-                                                )
-                                            },
-                                            onClick = {
-                                                navigationMenuExpanded = false
-                                                navigationScope.launch { navigationRequesters[index].bringIntoView() }
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        },
                         colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = Color(0x77111629),
                             titleContentColor = Color(0xFFF4F1FF),
                             actionIconContentColor = Cyan
                         )
                     )
+                },
+                bottomBar = {
+                    NavigationBar(containerColor = Color(0xCC111629), contentColor = Color(0xFFF4F1FF)) {
+                        NavigationBarItem(
+                            selected = !showSettings,
+                            onClick = { showSettings = false },
+                            icon = { Icon(Icons.Default.Home, contentDescription = null) },
+                            label = { Text("Home") }
+                        )
+                        NavigationBarItem(
+                            selected = showSettings,
+                            onClick = { showSettings = true },
+                            icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                            label = { Text("Settings") }
+                        )
+                    }
                 }
             ) { padding ->
                 Column(
                     Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
+                    if (!showSettings) {
                     GlassCard {
                         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -592,7 +575,8 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("02", "Lectura y moderación", "Personaliza qué contenido se convierte en voz", Modifier.bringIntoViewRequester(navigationRequesters[2]))
+                    } else {
+                    SectionHeader("02", "Lectura y moderación", "Personaliza qué contenido se convierte en voz")
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                             SettingSwitch("Leer nombre del usuario", readUsername) { readUsername = it }
@@ -622,7 +606,7 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("03", "Automatizaciones del chat", "Comandos locales, bienvenida y alertas avanzadas", Modifier.bringIntoViewRequester(navigationRequesters[3]))
+                    SectionHeader("03", "Automatizaciones del chat", "Comandos locales, bienvenida y alertas avanzadas")
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                             SettingSwitch("Activar comandos personalizados", customCommandsEnabled) { customCommandsEnabled = it }
@@ -669,34 +653,61 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("04", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local", Modifier.bringIntoViewRequester(navigationRequesters[4]))
+                    SectionHeader("04", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local")
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("SELECCIONA UNA VOZ", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
-                            Box {
-                                OutlinedButton(onClick = { voiceMenuExpanded = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(15.dp)) {
-                                    Icon(Icons.Default.RecordVoiceOver, null, tint = Violet)
-                                    Text("  ${selectedVoice.name}", modifier = Modifier.weight(1f))
-                                    Icon(Icons.Default.ExpandMore, null)
-                                }
-                                DropdownMenu(expanded = voiceMenuExpanded, onDismissRequest = { voiceMenuExpanded = false }) {
-                                    PiperVoiceCatalog.voices.forEach { voice ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Column {
-                                                    Text(voice.name, fontWeight = FontWeight.SemiBold)
-                                                    Text(voice.description, style = MaterialTheme.typography.bodySmall, color = Muted)
+                            OutlinedButton(
+                                onClick = { voiceMenuExpanded = true },
+                                modifier = Modifier.fillMaxWidth().height(54.dp),
+                                shape = RoundedCornerShape(15.dp)
+                            ) {
+                                Icon(Icons.Default.RecordVoiceOver, null, tint = Violet)
+                                Text("  ${selectedVoice.name}", modifier = Modifier.weight(1f))
+                                Icon(Icons.Default.ExpandMore, null)
+                            }
+                            if (voiceMenuExpanded) {
+                                AlertDialog(
+                                    onDismissRequest = { voiceMenuExpanded = false },
+                                    title = { Text("Seleccionar voz") },
+                                    text = {
+                                        Column(
+                                            Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
+                                            verticalArrangement = Arrangement.spacedBy(7.dp)
+                                        ) {
+                                            PiperVoiceCatalog.voices.forEach { voice ->
+                                                val installed = PiperSpeechEngine.isVoiceInstalled(context, voice.id)
+                                                Surface(
+                                                    onClick = {
+                                                        voiceId = voice.id
+                                                        voiceInstalled = installed
+                                                        voiceError = ""
+                                                        voiceMenuExpanded = false
+                                                    },
+                                                    color = if (voice.id == voiceId) Violet.copy(alpha = .20f) else Color.White.copy(alpha = .045f),
+                                                    shape = RoundedCornerShape(13.dp),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Row(
+                                                        Modifier.fillMaxWidth().padding(12.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                    ) {
+                                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                                            Text(voice.name, fontWeight = FontWeight.SemiBold)
+                                                            Text(voice.description, style = MaterialTheme.typography.bodySmall, color = Muted)
+                                                            Text(if (installed) "INSTALADA" else "NO INSTALADA", style = MaterialTheme.typography.labelSmall, color = if (installed) Cyan else Muted)
+                                                        }
+                                                        if (voice.id == voiceId) Icon(Icons.Default.CheckCircle, contentDescription = "Seleccionada", tint = Cyan)
+                                                    }
                                                 }
-                                            },
-                                            onClick = {
-                                                voiceId = voice.id
-                                                voiceInstalled = PiperSpeechEngine.isVoiceInstalled(context, voice.id)
-                                                voiceError = ""
-                                                voiceMenuExpanded = false
                                             }
-                                        )
+                                        }
+                                    },
+                                    confirmButton = {
+                                        TextButton(onClick = { voiceMenuExpanded = false }) { Text("CERRAR") }
                                     }
-                                }
+                                )
                             }
                             Text(selectedVoice.description, color = Muted, style = MaterialTheme.typography.bodySmall)
                             if (!selectedVoice.official) {
@@ -713,9 +724,15 @@ private fun BotApp(
                                         onClick = {
                                             downloading = true
                                             voiceError = ""
-                                            onDownloadVoice(voiceId) { error ->
+                                            downloadProgress = 0
+                                            downloadStage = "Preparando descarga"
+                                            onDownloadVoice(voiceId, { percent, stage ->
+                                                downloadProgress = percent.coerceIn(0, 100)
+                                                downloadStage = stage
+                                            }) { error ->
                                                 downloading = false
                                                 if (error == null) {
+                                                    downloadProgress = 100
                                                     voiceInstalled = PiperSpeechEngine.isVoiceInstalled(context, voiceId)
                                                     voiceError = if (voiceInstalled) "Voz instalada y validada." else "No se pudo validar el modelo."
                                                 } else voiceError = error
@@ -725,16 +742,67 @@ private fun BotApp(
                                     ) {
                                         if (downloading) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
                                         else Icon(Icons.Default.Download, null)
-                                        Text(if (downloading) " DESCARGANDO" else " DESCARGAR")
+                                        Text(if (downloading) " ${downloadProgress}%" else " DESCARGAR")
                                     }
                                 }
                             }
+                            if (downloading) {
+                                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text(downloadStage, color = Muted, style = MaterialTheme.typography.labelSmall)
+                                        Text("${downloadProgress}%", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    LinearProgressIndicator(
+                                        progress = { downloadProgress / 100f },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        color = Cyan,
+                                        trackColor = Color.White.copy(alpha = .10f)
+                                    )
+                                }
+                            }
+                            if (voiceInstalled) {
+                                Button(
+                                    onClick = { showDeleteVoiceDialog = true },
+                                    enabled = !downloading && !connected,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3263E), contentColor = Color.White),
+                                    shape = RoundedCornerShape(14.dp)
+                                ) {
+                                    Icon(Icons.Default.Delete, null)
+                                    Text("  ELIMINAR VOZ")
+                                }
+                                if (connected) Text("Detén el LIVE antes de eliminar modelos de voz.", color = Color(0xFFFFA6A6), style = MaterialTheme.typography.bodySmall)
+                            }
                             if (voiceError.isNotBlank()) Text(voiceError, color = if (voiceInstalled) Cyan else Color(0xFFFFA6A6), style = MaterialTheme.typography.bodySmall)
                             Text("El catálogo incluye voces oficiales de México, España y Argentina, además de voces comunitarias experimentales.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            if (showDeleteVoiceDialog) {
+                                AlertDialog(
+                                    onDismissRequest = { showDeleteVoiceDialog = false },
+                                    title = { Text("Eliminar voz") },
+                                    text = { Text("¿Quieres eliminar ${selectedVoice.name} de este dispositivo? Podrás descargarla nuevamente cuando quieras.") },
+                                    confirmButton = {
+                                        TextButton(
+                                            onClick = {
+                                                showDeleteVoiceDialog = false
+                                                onDeleteVoice(voiceId) { error ->
+                                                    if (error == null) {
+                                                        voiceInstalled = false
+                                                        voiceError = "Voz eliminada del dispositivo."
+                                                        randomVoices = false
+                                                    } else voiceError = error
+                                                }
+                                            }
+                                        ) { Text("ELIMINAR", color = Color(0xFFFF6B75)) }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { showDeleteVoiceDialog = false }) { Text("CANCELAR") }
+                                    }
+                                )
+                            }
                         }
                     }
 
-                    SectionHeader("05", "Controles de voz", "Ajusta la reproducción a tu gusto", Modifier.bringIntoViewRequester(navigationRequesters[5]))
+                    SectionHeader("05", "Controles de voz", "Ajusta la reproducción a tu gusto")
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -785,6 +853,7 @@ private fun BotApp(
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         letterSpacing = 1.sp
                     )
+                    }
                 }
             }
         }
