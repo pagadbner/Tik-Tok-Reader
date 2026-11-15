@@ -146,6 +146,13 @@ class LiveAutomationTest {
         assertEquals("Ana Pérez", ChatCommandParser.spokenUsername("Ana Pérez"))
         assertEquals("usuario", ChatCommandParser.spokenUsername("🔥Ana_99✨"))
         assertEquals("usuario", ChatCommandParser.spokenUsername("♡"))
+        assertEquals(
+            "usuario dice: hola",
+            CommentFilter().toSpeech(
+                LiveComment("id-1", "🔥Ana_99✨", "hola"),
+                ReaderSettings(readUsername = true)
+            )
+        )
     }
 
     @Test fun followAndGiftAlertsUseSharedSpeechQueueWithSafeNames() {
