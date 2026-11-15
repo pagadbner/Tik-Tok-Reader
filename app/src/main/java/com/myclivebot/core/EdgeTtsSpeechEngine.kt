@@ -77,7 +77,7 @@ class EdgeTtsSpeechEngine(
                 val requestId = UUID.randomUUID().toString().replace("-", "")
                 val connectionId = UUID.randomUUID().toString().replace("-", "")
                 val token = EdgeSecMsGec.generate()
-                val query = "TrustedClientToken=$TRUSTED_TOKEN" +
+                val query = "Ocp-Apim-Subscription-Key=$TRUSTED_TOKEN" +
                     "&Sec-MS-GEC=${urlEncode(token)}" +
                     "&Sec-MS-GEC-Version=${urlEncode(SEC_GEC_VERSION)}" +
                     "&ConnectionId=$connectionId"
@@ -183,7 +183,7 @@ class EdgeTtsSpeechEngine(
     companion object {
         private const val TRUSTED_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4"
         private const val SEC_GEC_VERSION = "2-155.0.4283.45"
-        private const val WEBSOCKET_URL = "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1"
+        private const val WEBSOCKET_URL = "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1"
         private const val ORIGIN = "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold"
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36 Edg/155.0.0.0"
         private const val EDGE_TIMEOUT_MS = 40_000L
