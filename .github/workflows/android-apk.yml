@@ -104,7 +104,7 @@ jobs:
           echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
 
       - name: Run unit tests and build debug APK (pull requests)
-        if: github.event_name == 'pull_request'
+        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
