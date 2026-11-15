@@ -34,10 +34,11 @@ class TikFinitySpeechEngine(
 ) : SpeechEngine {
     private val appContext = context.applicationContext
     private val client = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(35, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
         .writeTimeout(12, TimeUnit.SECONDS)
-        .callTimeout(45, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(false)
         .build()
     private val playbackLock = Mutex()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -164,10 +165,14 @@ class TikFinitySpeechEngine(
                             true
                         }
                         player.setOnPreparedListener { prepared ->
-                            runCatching {
-                                prepared.playbackParams = prepared.playbackParams.setSpeed(selectedSpeed)
+                            try {
+                                runCatching {
+                                    prepared.playbackParams = prepared.playbackParams.setSpeed(selectedSpeed)
+                                }
+                                prepared.start()
+                            } catch (error: Exception) {
+                                finish(error)
                             }
-                            prepared.start()
                         }
                         player.prepareAsync()
                     } catch (error: Exception) {
