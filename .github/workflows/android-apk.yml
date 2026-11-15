@@ -83,7 +83,7 @@ jobs:
           ./scripts/prepare-piper-assets.sh
 
       - name: Configure persistent Android release signing
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release')) || github.event_name == 'workflow_dispatch'
         shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -104,14 +104,14 @@ jobs:
           echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
 
       - name: Run unit tests and build debug APK (pull requests)
-        if: ${{ !(github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release'))) }}
         shell: bash
         run: |
           set -euo pipefail
           gradle testDebugUnitTest assembleDebug --no-daemon --stacktrace
 
       - name: Verify debug APK
-        if: ${{ !(github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release'))) }}
         shell: bash
         run: |
           set -euo pipefail
@@ -121,7 +121,7 @@ jobs:
           sha256sum "$APK" | tee "$APK.sha256"
 
       - name: Upload debug APK artifact
-        if: ${{ !(github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release'))) }}
         uses: actions/upload-artifact@v4
         with:
           name: TikLBot-debug-${{ github.sha }}
@@ -132,14 +132,14 @@ jobs:
           retention-days: 30
 
       - name: Run unit tests and build signed release APK (main)
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release')) || github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           set -euo pipefail
           gradle testDebugUnitTest assembleRelease --no-daemon --stacktrace
 
       - name: Verify APK signature matches the permanent keystore
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release')) || github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           set -euo pipefail
@@ -151,7 +151,7 @@ jobs:
           echo "APK signature matches the permanent TikLBot signing certificate."
 
       - name: Prepare verified release assets
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release')) || github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           set -euo pipefail
@@ -168,7 +168,7 @@ jobs:
           sha256sum release-assets/TikLBot-latest.apk
 
       - name: Upload signed release APK artifact
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release')) || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: TikLBot-release-${{ github.sha }}
