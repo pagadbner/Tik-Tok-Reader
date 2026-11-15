@@ -43,7 +43,7 @@ object ChatCommandParser {
         val normalized = java.text.Normalizer.normalize(input.trim(), java.text.Normalizer.Form.NFC)
         if (normalized.isBlank()) return "usuario"
 
-        // Remove emoji code points while preserving readable words, numbers and username punctuation.
+        // Strip emoji code points while preserving readable words, numbers and username punctuation.
         val readable = buildString {
             normalized.codePoints().forEach { codePoint ->
                 if (!isEmojiCodePoint(codePoint)) appendCodePoint(codePoint)
