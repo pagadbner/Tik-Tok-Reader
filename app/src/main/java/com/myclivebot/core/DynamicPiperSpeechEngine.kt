@@ -29,7 +29,11 @@ class DynamicPiperSpeechEngine(
     @Volatile private var muted: Boolean = false
 
     fun update(settings: ReaderSettings) {
-        config.set(toConfig(settings))
+        val next = toConfig(settings)
+        config.set(next)
+        engines.forEach { (voiceId, engine) ->
+            if (voiceId == next.voiceId) engine.updatePlaybackSettings(next.volume, next.speed)
+        }
     }
 
     fun setMuted(value: Boolean) {
@@ -71,14 +75,14 @@ class DynamicPiperSpeechEngine(
     }
 
     private fun engineFor(voiceId: String, current: Config): PiperSpeechEngine {
-        val key = "${voiceId}|${current.volume}|${current.speed}"
-        val selected = engines.getOrPut(key) {
+        val selected = engines.getOrPut(voiceId) {
             PiperSpeechEngine(appContext, voiceId, current.volume, current.speed)
         }
+        selected.updatePlaybackSettings(current.volume, current.speed)
         selected.setMuted(muted)
-        // Keep a small cache so slider adjustments do not retain unlimited native models.
+        // Retain at most two voice models, independent of slider movement.
         if (engines.size > 2) {
-            engines.keys.firstOrNull { it != key }?.let { staleKey ->
+            engines.keys.firstOrNull { it != voiceId }?.let { staleKey ->
                 engines.remove(staleKey)?.release()
             }
         }

@@ -25,13 +25,26 @@ import org.json.JSONObject
 class PiperSpeechEngine(
     context: Context,
     private val voiceId: String = PiperVoiceCatalog.DEFAULT_VOICE_ID,
-    private val volume: Float = 1.0f,
-    private val speed: Float = 1.0f
+    volume: Float = 1.0f,
+    speed: Float = 1.0f
 ) : SpeechEngine {
     private val appContext = context.applicationContext
     @Volatile private var engine: PiperEngine? = null
     @Volatile private var currentTrack: AudioTrack? = null
+    @Volatile private var volume: Float = volume.coerceIn(0f, 1f)
+    @Volatile private var speed: Float = speed.coerceIn(0.65f, 1.5f)
     @Volatile private var muted: Boolean = false
+    // Voice metadata is immutable for this engine instance; avoid reopening and parsing
+    // the JSON config for every short chat utterance.
+    private val audioSampleRate: Int by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        JSONObject(PiperVoiceCatalog.configFile(appContext, voiceId).readText())
+            .optJSONObject("audio")?.optInt("sample_rate", 22_050) ?: 22_050
+    }
+    private val minAudioBufferSize: Int by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        AudioTrack.getMinBufferSize(
+            audioSampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
+        ).coerceAtLeast(4096)
+    }
 
     companion object {
         const val VOICE_ID = "es_MX-ald-medium"
@@ -59,7 +72,11 @@ class PiperSpeechEngine(
 
         suspend fun downloadVoice(context: Context) = downloadVoice(context, VOICE_ID)
 
-        suspend fun downloadVoice(context: Context, id: String) = withContext(Dispatchers.IO) {
+        suspend fun downloadVoice(
+            context: Context,
+            id: String,
+            onProgress: (Int, String) -> Unit = { _, _ -> }
+        ) = withContext(Dispatchers.IO) {
             val voice = PiperVoiceCatalog.find(id)
             val model = PiperVoiceCatalog.modelFile(context, voice.id)
             val config = PiperVoiceCatalog.configFile(context, voice.id)
@@ -70,12 +87,17 @@ class PiperSpeechEngine(
                         voice.modelUrl ?: error("Falta URL del modelo"),
                         model,
                         voice.expectedSha256 ?: if (voice.id == VOICE_ID) ALD_SHA256 else null
-                    )
-                    downloadFile(voice.configUrl ?: error("Falta URL de configuración"), config)
+                    ) { percent -> onProgress(percent, "Descargando modelo") }
+                    downloadFile(voice.configUrl ?: error("Falta URL de configuración"), config) { percent ->
+                        onProgress(percent, "Descargando configuración")
+                    }
                 } else {
                     val archive = File(model.parentFile, "${voice.id}.tar.gz.part")
                     try {
-                        downloadFile(voice.archiveUrl ?: error("Falta URL del paquete"), archive)
+                        downloadFile(voice.archiveUrl ?: error("Falta URL del paquete"), archive) { percent ->
+                            onProgress(percent, "Descargando paquete de voz")
+                        }
+                        onProgress(100, "Instalando modelo")
                         extractVoiceArchive(archive, model, config)
                     } finally {
                         archive.delete()
@@ -85,9 +107,33 @@ class PiperSpeechEngine(
             check(isVoiceInstalled(context, voice.id)) {
                 "La voz ${voice.name} no superó la validación. El modelo o su configuración están incompletos."
             }
+            onProgress(100, "Voz instalada")
         }
 
-        private fun downloadFile(url: String, target: File, expectedSha256: String? = null) {
+        suspend fun deleteVoice(context: Context, id: String) = withContext(Dispatchers.IO) {
+            val voice = PiperVoiceCatalog.voices.firstOrNull { it.id == id }
+                ?: throw IllegalArgumentException("La voz seleccionada no existe en el catálogo.")
+            val model = PiperVoiceCatalog.modelFile(context, voice.id)
+            val config = PiperVoiceCatalog.configFile(context, voice.id)
+            val temporaryFiles = listOf(
+                File(model.parentFile, model.name + ".part"),
+                File(config.parentFile, config.name + ".part"),
+                File(model.parentFile, "${voice.id}.tar.gz.part")
+            )
+            (listOf(model, config) + temporaryFiles).forEach { file ->
+                if (file.exists() && !file.delete()) {
+                    throw IOException("No se pudo eliminar ${file.name}.")
+                }
+            }
+            check(!model.exists() && !config.exists()) { "La voz no se eliminó completamente." }
+        }
+
+        private fun downloadFile(
+            url: String,
+            target: File,
+            expectedSha256: String? = null,
+            onProgress: (Int) -> Unit = {}
+        ) {
             val temp = File(target.parentFile, target.name + ".part")
             val connection = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 25_000
@@ -98,8 +144,23 @@ class PiperSpeechEngine(
             try {
                 connection.connect()
                 check(connection.responseCode in 200..299) { "Descarga HTTP ${connection.responseCode}" }
+                val totalBytes = connection.contentLengthLong
+                var downloadedBytes = 0L
+                onProgress(0)
                 connection.inputStream.use { input ->
-                    temp.outputStream().buffered().use { output -> input.copyTo(output) }
+                    temp.outputStream().buffered().use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            output.write(buffer, 0, count)
+                            downloadedBytes += count
+                            if (totalBytes > 0L) {
+                                val percent = ((downloadedBytes * 100L) / totalBytes).toInt().coerceIn(0, 99)
+                                onProgress(percent)
+                            }
+                        }
+                    }
                 }
                 check(temp.length() > 100L) { "Archivo de voz vacío o inválido" }
                 if (expectedSha256 != null) check(sha256(temp) == expectedSha256) {
@@ -107,6 +168,7 @@ class PiperSpeechEngine(
                 }
                 if (target.exists()) target.delete()
                 check(temp.renameTo(target)) { "No se pudo guardar ${target.name}" }
+                onProgress(100)
             } finally {
                 connection.disconnect()
                 temp.delete()
@@ -212,11 +274,7 @@ class PiperSpeechEngine(
     override suspend fun speak(text: String) = withContext(Dispatchers.IO) {
         initialize()
         val piper = engine ?: error("Piper no está inicializado")
-        val config = JSONObject(PiperVoiceCatalog.configFile(appContext, voiceId).readText())
-        val sampleRate = config.optJSONObject("audio")?.optInt("sample_rate", 22_050) ?: 22_050
-        val minBuffer = AudioTrack.getMinBufferSize(
-            sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
-        ).coerceAtLeast(4096)
+        val sampleRate = audioSampleRate
         val track = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -231,7 +289,7 @@ class PiperSpeechEngine(
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                     .build()
             )
-            .setBufferSizeInBytes(minBuffer * 2)
+            .setBufferSizeInBytes(minAudioBufferSize * 2)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
         val totalFrames = AtomicLong(0L)
@@ -268,6 +326,12 @@ class PiperSpeechEngine(
             track.release()
             currentTrack = null
         }
+    }
+
+    fun updatePlaybackSettings(nextVolume: Float, nextSpeed: Float) {
+        volume = nextVolume.coerceIn(0f, 1f)
+        speed = nextSpeed.coerceIn(0.65f, 1.5f)
+        currentTrack?.let { track -> runCatching { track.setVolume(if (muted) 0f else volume) } }
     }
 
     fun setMuted(value: Boolean) {

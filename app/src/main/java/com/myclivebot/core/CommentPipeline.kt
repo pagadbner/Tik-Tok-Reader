@@ -20,6 +20,7 @@ class CommentPipeline(
 ) {
     private val settings = AtomicReference(initialSettings)
     private val welcomeTracker = WelcomeMessageTracker()
+    private val speakerTracker = CommentSpeakerTracker()
     private val commentsReceived = AtomicLong()
     private val commentsFiltered = AtomicLong()
     private val commentsQueued = AtomicLong()
@@ -46,14 +47,38 @@ class CommentPipeline(
             speechQueue.enqueue(welcomeSpeech)
         }
 
+        // A speaker is named once when they take the floor. Consecutive comments
+        // from that same person omit the name until another accepted speaker appears.
+        val announceSpeaker = speakerTracker.isNewSpeaker(comment)
+
         // Commands are local speech responses only; this app does not send chat messages.
         val commandResponse = if (current.customCommandsEnabled) {
-            ChatCommandParser.responseFor(comment.text, comment.displayName, current.customCommands)
+            ChatCommandParser.responseFor(comment.text, comment.displayName, current.customCommands, comment.isModerator)
         } else null
-        val speechComment = if (commandResponse != null) comment.copy(text = commandResponse) else comment
-        val speechSettings = if (commandResponse != null) current.copy(onlyUsername = false) else current
+        val replyTarget = comment.replyToDisplayName?.takeIf { it.isNotBlank() }
+        val speechComment = when {
+            commandResponse != null -> comment.copy(text = commandResponse, replyToDisplayName = null)
+            replyTarget != null -> {
+                val replyMention = Regex("(?i)@${Regex.escape(replyTarget)}(?![\\p{L}\\p{N}_])")
+                val cleanReplyText = comment.text.replace(replyMention, "")
+                    .replace(Regex("\\s+"), " ").trim()
+                comment.copy(
+                    text = if (cleanReplyText.isBlank()) {
+                        "${comment.displayName} le respondió a ${replyTarget}"
+                    } else {
+                        "${comment.displayName} le respondió a ${replyTarget}: ${cleanReplyText}"
+                    },
+                    replyToDisplayName = null
+                )
+            }
+            else -> comment
+        }
+        val speechSettings = current.copy(
+            onlyUsername = if (commandResponse != null || replyTarget != null) false else current.onlyUsername,
+            readUsername = current.readUsername && announceSpeaker && replyTarget == null
+        )
         val speech = filter.toSpeech(speechComment, speechSettings)
-        val queued = speechQueue.enqueue(speech)
+        val queued = speechQueue.enqueue(speech, itemId = comment.id)
         if (queued) commentsQueued.incrementAndGet()
         return queued
     }
@@ -81,4 +106,24 @@ class CommentPipeline(
         eventsQueued = eventsQueued.get(),
         speechQueueSize = speechQueue.queuedCount()
     )
+}
+
+
+/**
+ * Tracks the current voice turn in the LIVE chat. The same user keeps the floor
+ * until another accepted commenter speaks; returning after an interruption is
+ * treated as a new turn and their name is announced again.
+ */
+class CommentSpeakerTracker {
+    private var lastSpeakerKey: String? = null
+
+    @Synchronized
+    fun isNewSpeaker(comment: LiveComment): Boolean {
+        val key = comment.userId.trim().takeIf { it.isNotBlank() }
+            ?: comment.displayName.trim().lowercase()
+        if (key.isBlank()) return false
+        val changed = key != lastSpeakerKey
+        lastSpeakerKey = key
+        return changed
+    }
 }

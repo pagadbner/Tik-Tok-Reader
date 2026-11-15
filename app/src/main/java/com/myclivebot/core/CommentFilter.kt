@@ -29,10 +29,35 @@ data class ReaderSettings(
     val giftAlertTemplate: String = ""
 )
 
+/**
+ * Keep speech limited to Latin-script comments (including Spanish and English).
+ * Non-Latin writing systems such as Arabic, Cyrillic, Indic, CJK and others are
+ * ignored without relying on unreliable language guessing for short chat messages.
+ */
+object CommentLanguageFilter {
+    fun isSupported(text: String, languageCode: String? = null): Boolean {
+        val language = languageCode?.trim()
+            ?.substringBefore('-')
+            ?.substringBefore('_')
+            ?.lowercase()
+            ?.takeIf { it.isNotBlank() && it != "und" }
+        if (language != null && language !in setOf("es", "en")) return false
+
+        var supported = true
+        text.codePoints().forEach { codePoint ->
+            if (Character.isLetter(codePoint) &&
+                Character.UnicodeScript.of(codePoint) != Character.UnicodeScript.LATIN
+            ) supported = false
+        }
+        return supported
+    }
+}
+
 class CommentFilter {
     private val lastByUser = ConcurrentHashMap<String, Pair<String, Long>>()
 
     fun shouldRead(comment: LiveComment, settings: ReaderSettings): Boolean {
+        if (!CommentLanguageFilter.isSupported(comment.text, comment.contentLanguage)) return false
         if (settings.followerOnlyChat && comment.isFollower != true) return false
         val userKey = comment.userId.ifBlank { comment.displayName }.trim().lowercase()
         val ignored = settings.ignoredUsers.map { it.trim().removePrefix("@").lowercase() }

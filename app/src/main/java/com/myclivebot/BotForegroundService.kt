@@ -7,8 +7,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
-import android.os.Handler
-import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import com.myclivebot.core.CommentFilter
 import com.myclivebot.core.CommentPipeline
@@ -35,15 +34,19 @@ class BotForegroundService : Service() {
         const val ACTION_STOP = "com.myclivebot.STOP"
         const val ACTION_TEST_VOICE = "com.myclivebot.TEST_VOICE"
         const val ACTION_UPDATE_SETTINGS = "com.myclivebot.UPDATE_SETTINGS"
-        const val ACTION_SKIP_NEXT_COMMENT = "com.myclivebot.SKIP_NEXT_COMMENT"
+        const val ACTION_SKIP_COMMENT = "com.myclivebot.SKIP_COMMENT"
+        const val ACTION_COMMENT_SKIPPED = "com.myclivebot.COMMENT_SKIPPED"
         const val ACTION_SET_MUTE = "com.myclivebot.SET_MUTE"
-        const val ACTION_OVERLAY_CONFIG = "com.myclivebot.OVERLAY_CONFIG"
         const val EXTRA_MUTED = "voice_muted"
         const val ACTION_STATUS = "com.myclivebot.STATUS"
+        const val ACTION_REQUEST_STATUS = "com.myclivebot.REQUEST_STATUS"
         const val ACTION_COMMENT = "com.myclivebot.COMMENT"
         const val EXTRA_COMMENT_USERNAME = "comment_username"
         const val EXTRA_COMMENT_TEXT = "comment_text"
         const val EXTRA_COMMENT_TIME = "comment_time"
+        const val EXTRA_COMMENT_AVATAR = "comment_avatar"
+        const val EXTRA_COMMENT_ID = "comment_id"
+        const val EXTRA_REPLY_TO = "reply_to_username"
         const val EXTRA_STATUS = "reader_status"
         const val EXTRA_USERNAME = "username"
         const val EXTRA_READ_USERNAME = "read_username"
@@ -71,23 +74,25 @@ class BotForegroundService : Service() {
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val mainHandler = Handler(Looper.getMainLooper())
     private var piper: DynamicPiperSpeechEngine? = null
     private var speechQueue: SpeechQueueWorker? = null
     private var connector: TikTokLiveConnector? = null
     private var localBridge: LocalBridgeServer? = null
+    private lateinit var liveChatHistoryStore: LiveChatHistoryStore
+    private var liveWakeLock: PowerManager.WakeLock? = null
     private var activeVoiceId: String? = null
     private var activeVolume: Float? = null
     private var activeSpeed: Float? = null
     private var activeSettings: ReaderSettings? = null
     @Volatile private var voiceMuted: Boolean = false
     private var pipeline: CommentPipeline? = null
-    private var floatingOverlay: FloatingOverlayController? = null
     @Volatile private var lastKnownStatus: String = "Detenido"
+    @Volatile private var lastStatsPublishAt: Long = 0L
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        liveChatHistoryStore = LiveChatHistoryStore(this)
         startLocalBridge()
     }
 
@@ -112,9 +117,9 @@ class BotForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                floatingOverlay?.hide()
                 connector?.disconnect()
                 connector = null
+                releaseLiveWakeLock()
                 pipeline = null
                 activeSettings = null
                 updateStatus("Detenido")
@@ -149,13 +154,23 @@ class BotForegroundService : Service() {
                 startReader(username, settings)
             }
 
-            ACTION_OVERLAY_CONFIG -> {
-                if (activeSettings != null) refreshFloatingOverlay()
+
+            ACTION_REQUEST_STATUS -> {
+                val status = if (activeSettings != null) lastKnownStatus else "Detenido"
+                sendBroadcast(Intent(ACTION_STATUS).setPackage(packageName)
+                    .putExtra(EXTRA_STATUS, status)
+                    .putExtra(EXTRA_MUTED, voiceMuted))
+                if (activeSettings == null) stopSelf(startId)
             }
 
-            ACTION_SKIP_NEXT_COMMENT -> {
-                val skipped = speechQueue?.skipNextComment() == true
-                updateStatus(if (skipped) "Comentario pendiente omitido" else "No hay comentarios pendientes para omitir")
+            ACTION_SKIP_COMMENT -> {
+                val commentId = intent.getStringExtra(EXTRA_COMMENT_ID).orEmpty()
+                if (commentId.isNotBlank() && speechQueue?.skipComment(commentId) == true) {
+                    sendBroadcast(
+                        Intent(ACTION_COMMENT_SKIPPED).setPackage(packageName)
+                            .putExtra(EXTRA_COMMENT_ID, commentId)
+                    )
+                }
             }
 
             ACTION_SET_MUTE -> {
@@ -191,15 +206,21 @@ class BotForegroundService : Service() {
                 if (!PiperSpeechEngine.isVoiceInstalled(this, voiceId)) {
                     updateStatus("Descarga primero la voz seleccionada")
                 } else {
-                    serviceScope.launch(Dispatchers.IO) {
-                        val testEngine = PiperSpeechEngine(this@BotForegroundService, voiceId, volume, speed)
-                        try {
-                            testEngine.speak(PiperVoiceCatalog.find(voiceId).testPhrase)
-                        } finally {
-                            testEngine.release()
+                    val testText = PiperVoiceCatalog.find(voiceId).testPhrase
+                    val testSettings = activeSettings
+                    if (testSettings != null && testSettings.voiceId == voiceId) {
+                        // Reuse the already initialized speech engine and serialized queue.
+                        speechQueue?.enqueue(testText, priority = true)
+                    } else {
+                        serviceScope.launch(Dispatchers.IO) {
+                            val testEngine = PiperSpeechEngine(this@BotForegroundService, voiceId, volume, speed)
+                            try {
+                                testEngine.speak(testText)
+                            } finally {
+                                testEngine.release()
+                            }
                         }
                     }
-                    updateStatus("Reproduciendo prueba Piper")
                 }
             }
 
@@ -214,27 +235,34 @@ class BotForegroundService : Service() {
     private fun startReader(username: String, settings: ReaderSettings) {
         connector?.disconnect()
         connector = null
+        releaseLiveWakeLock()
         speechQueue?.close()
         speechQueue = null
         activeSettings = settings
+        liveChatHistoryStore.clear()
+        acquireLiveWakeLock()
         ensureSpeechQueue(settings.maxQueueSize, settings)
+        // Warm the selected native voice before the first LIVE comment arrives.
+        // This moves model initialization and asset preparation off the first utterance.
+        serviceScope.launch(Dispatchers.IO) {
+            runCatching { piper?.initialize() }
+        }
         val livePipeline = CommentPipeline(CommentFilter(), speechQueue!!, settings)
         pipeline = livePipeline
         val liveConnector = TikTokLiveConnector(
             onComment = { comment ->
-                livePipeline.onComment(comment)
                 publishLiveComment(comment)
-                publishLiveStats()
+                livePipeline.onComment(comment)
+                publishLiveStatsIfDue()
             },
             onStatus = ::updateStatus,
             onEvent = { event ->
                 livePipeline.onEvent(event)
-                publishLiveStats()
+                publishLiveStatsIfDue()
             },
             cookieFallback = { TikTokWebViewCookieProvider(this).acquireTtwid() }
         )
         connector = liveConnector
-        refreshFloatingOverlay()
         serviceScope.launch(Dispatchers.IO) {
             runCatching { liveConnector.connect(username) }
                 .onFailure { updateStatus("No se pudo conectar: ${it.message ?: "error desconocido"}") }
@@ -283,23 +311,51 @@ class BotForegroundService : Service() {
 
     private fun publishLiveComment(comment: LiveComment) {
         val timestamp = comment.receivedAt
+        runCatching { liveChatHistoryStore.add(comment) }
         sendBroadcast(
             Intent(ACTION_COMMENT)
                 .setPackage(packageName)
+                .putExtra(EXTRA_COMMENT_ID, comment.id)
                 .putExtra(EXTRA_COMMENT_USERNAME, comment.displayName)
                 .putExtra(EXTRA_COMMENT_TEXT, comment.text)
+                .putExtra(EXTRA_COMMENT_AVATAR, comment.avatarUrl.orEmpty())
+                .putExtra(EXTRA_REPLY_TO, comment.replyToDisplayName.orEmpty())
                 .putExtra(EXTRA_COMMENT_TIME, timestamp)
         )
         localBridge?.publish(
             "live_comment",
             JSONObject()
+                .put("id", comment.id)
                 .put("username", comment.displayName)
                 .put("comment", comment.text)
+                .put("reply_to", comment.replyToDisplayName.orEmpty())
                 .put("received_at", timestamp)
         )
     }
 
-    private fun publishLiveStats() {
+    private fun acquireLiveWakeLock() {
+        if (liveWakeLock?.isHeld == true) return
+        val powerManager = getSystemService(PowerManager::class.java)
+        liveWakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "TikLBot:LiveConnection"
+        ).apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
+    private fun releaseLiveWakeLock() {
+        liveWakeLock?.let { lock ->
+            if (lock.isHeld) lock.release()
+        }
+        liveWakeLock = null
+    }
+
+    private fun publishLiveStatsIfDue() {
+        val now = System.currentTimeMillis()
+        if (now - lastStatsPublishAt < 500L) return
+        lastStatsPublishAt = now
         val stats = pipeline?.stats() ?: return
         localBridge?.publish(
             "live_stats",
@@ -313,35 +369,19 @@ class BotForegroundService : Service() {
         )
     }
 
-    private fun refreshFloatingOverlay() {
-        val enabled = getSharedPreferences("tiklbot_preferences", MODE_PRIVATE)
-            .getBoolean("floating_overlay_enabled", false)
-        if (!enabled || activeSettings == null || !Settings.canDrawOverlays(this)) {
-            floatingOverlay?.hide()
-            return
-        }
-        val controller = floatingOverlay ?: FloatingOverlayController(
-            this,
-            onMuteToggle = {
-                voiceMuted = !voiceMuted
-                getSharedPreferences("tiklbot_preferences", MODE_PRIVATE).edit()
-                    .putBoolean("voice_muted", voiceMuted).apply()
-                piper?.setMuted(voiceMuted)
-                updateStatus(if (voiceMuted) "Voz silenciada" else "Voz activada")
-            },
-            onSkipNext = {
-                val skipped = speechQueue?.skipNextComment() == true
-                updateStatus(if (skipped) "Comentario pendiente omitido" else "No hay comentarios pendientes para omitir")
-            }
-        ).also { floatingOverlay = it }
-        controller.show(lastKnownStatus, voiceMuted)
-    }
-
     private fun updateStatus(status: String) {
+        val isConnectionState = status.contains("conect", ignoreCase = true) ||
+            status.contains("LIVE encontrado", ignoreCase = true) ||
+            status.contains("LIVE público", ignoreCase = true) ||
+            status.contains("TikTok cerró", ignoreCase = true) ||
+            status.contains("desconect", ignoreCase = true) ||
+            status.contains("no se pudo", ignoreCase = true) ||
+            status.contains("error", ignoreCase = true) ||
+            status == "Detenido"
+        if (activeSettings != null && !isConnectionState) return
         lastKnownStatus = status
         getSharedPreferences("tiklbot_preferences", MODE_PRIVATE).edit()
             .putString("reader_status", status).apply()
-        mainHandler.post { floatingOverlay?.update(status, voiceMuted) }
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(status))
         sendBroadcast(
             Intent(ACTION_STATUS).setPackage(packageName)
@@ -352,8 +392,6 @@ class BotForegroundService : Service() {
     }
 
     override fun onDestroy() {
-        floatingOverlay?.hide()
-        floatingOverlay = null
         connector?.disconnect()
         connector = null
         speechQueue?.close()
@@ -361,6 +399,8 @@ class BotForegroundService : Service() {
         pipeline = null
         activeSettings = null
         stopLocalBridge()
+        releaseLiveWakeLock()
+        liveChatHistoryStore.close()
         kotlinx.coroutines.runBlocking(Dispatchers.IO) {
             runCatching { piper?.stop() }
             runCatching { piper?.release() }

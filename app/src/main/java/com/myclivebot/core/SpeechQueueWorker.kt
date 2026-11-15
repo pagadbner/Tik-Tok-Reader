@@ -18,10 +18,13 @@ class SpeechQueueWorker(
     private val onSpoken: (String) -> Unit = {}
 ) {
     private val lock = Any()
-    private val normalQueue = ArrayDeque<String>()
-    private val priorityQueue = ArrayDeque<String>()
+    private data class QueuedSpeech(val text: String, val itemId: String?)
+    private val normalQueue = ArrayDeque<QueuedSpeech>()
+    private val priorityQueue = ArrayDeque<QueuedSpeech>()
     private val normalCapacity = capacity.coerceAtLeast(1)
     private val importantCapacity = priorityCapacity.coerceAtLeast(1)
+    private val priorityBurstLimit = 3
+    private var consecutivePriority = 0
     private val wake = Channel<Unit>(Channel.CONFLATED)
 
     init {
@@ -29,8 +32,19 @@ class SpeechQueueWorker(
             while (isActive) {
                 val next = synchronized(lock) {
                     when {
-                        priorityQueue.isNotEmpty() -> priorityQueue.removeFirst()
-                        normalQueue.isNotEmpty() -> normalQueue.removeFirst()
+                        normalQueue.isNotEmpty() &&
+                            (priorityQueue.isEmpty() || consecutivePriority >= priorityBurstLimit) -> {
+                            consecutivePriority = 0
+                            normalQueue.removeFirst()
+                        }
+                        priorityQueue.isNotEmpty() -> {
+                            consecutivePriority++
+                            priorityQueue.removeFirst()
+                        }
+                        normalQueue.isNotEmpty() -> {
+                            consecutivePriority = 0
+                            normalQueue.removeFirst()
+                        }
                         else -> null
                     }
                 }
@@ -39,8 +53,8 @@ class SpeechQueueWorker(
                     continue
                 }
                 try {
-                    engine.speak(next)
-                    onSpoken(next)
+                    engine.speak(next.text)
+                    onSpoken(next.text)
                 } catch (_: Exception) {
                     // A failed utterance must not kill the worker or block later comments.
                 }
@@ -49,21 +63,21 @@ class SpeechQueueWorker(
     }
 
     /** Returns false when the selected bounded lane is full. */
-    fun enqueue(text: String, priority: Boolean = false): Boolean {
+    fun enqueue(text: String, priority: Boolean = false, itemId: String? = null): Boolean {
         if (text.isBlank()) return false
         val accepted = synchronized(lock) {
             val queue = if (priority) priorityQueue else normalQueue
             val limit = if (priority) importantCapacity else normalCapacity
             if (priority) {
                 if (queue.size >= limit) false else {
-                    queue.addLast(text)
+                    queue.addLast(QueuedSpeech(text, itemId))
                     true
                 }
             } else {
                 // Prefer fresh LIVE chat over stale backlog: keep the utterance
                 // currently being spoken, evict the oldest pending comment.
                 if (queue.size >= limit) queue.removeFirst()
-                queue.addLast(text)
+                queue.addLast(QueuedSpeech(text, itemId))
                 true
             }
         }
@@ -71,12 +85,10 @@ class SpeechQueueWorker(
         return accepted
     }
 
-    /** Drops the next pending chat comment without interrupting the utterance in progress or priority alerts. */
-    fun skipNextComment(): Boolean = synchronized(lock) {
-        if (normalQueue.isEmpty()) false else {
-            normalQueue.removeFirst()
-            true
-        }
+    /** Removes one pending chat utterance by its originating LIVE comment ID. */
+    fun skipComment(itemId: String): Boolean = synchronized(lock) {
+        val queued = normalQueue.firstOrNull { it.itemId == itemId } ?: return@synchronized false
+        normalQueue.remove(queued)
     }
 
     /** Drops pending chat comments while preserving priority LIVE alerts. */

@@ -4,6 +4,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import org.junit.Test
 
 class LiveAutomationTest {
@@ -32,17 +36,72 @@ class LiveAutomationTest {
         val commands = ChatCommandParser.parseConfig(transferred)
 
         assertEquals(3, commands.size)
-        assertEquals("Mis redes están en mi perfil", ChatCommandParser.responseFor("!redes", "Ana", commands))
-        assertEquals("Únete a mi comunidad de Discord", ChatCommandParser.responseFor("!discord", "Ana", commands))
-        assertEquals("Encuentra mis videos en YouTube", ChatCommandParser.responseFor("!youtube", "Ana", commands))
+        assertEquals("Mis redes están en mi perfil", ChatCommandParser.responseFor("!redes", "Ana", commands, isModerator = true))
+        assertEquals("Únete a mi comunidad de Discord", ChatCommandParser.responseFor("!discord", "Ana", commands, isModerator = true))
+        assertEquals("Encuentra mis videos en YouTube", ChatCommandParser.responseFor("!youtube", "Ana", commands, isModerator = true))
     }
 
     @Test fun commandMatchesFirstTokenAndExpandsSafeUsername() {
         val commands = ChatCommandParser.parseConfig("!discord=Únete al Discord, {user}.")
-        val response = ChatCommandParser.responseFor("!DISCORD ahora", "🔥Ana_99 Pérez✨", commands)
+        val response = ChatCommandParser.responseFor("!DISCORD ahora", "🔥Ana_99 Pérez✨", commands, isModerator = true)
 
         assertEquals("Únete al Discord, Ana Pérez.", response)
-        assertNull(ChatCommandParser.responseFor("!discordextra", "Ana", commands))
+        assertNull(ChatCommandParser.responseFor("!discordextra", "Ana", commands, isModerator = true))
+    }
+
+
+    @Test fun customCommandsAreIgnoredForNonModerators() {
+        val commands = ChatCommandParser.parseConfig("!redes=Mis redes\n!discord=Mi Discord")
+        assertNull(ChatCommandParser.responseFor("!redes", "Viewer", commands, isModerator = false))
+        assertNull(ChatCommandParser.responseFor("!discord", "Viewer", commands, isModerator = false))
+        assertEquals("Mi Discord", ChatCommandParser.responseFor("!discord", "Mod", commands, isModerator = true))
+    }
+
+
+    @Test fun speakerIsAnnouncedOnceUntilAnotherUserTakesTheFloor() {
+        val tracker = CommentSpeakerTracker()
+        val ana = LiveComment("user-1", "Ana", "hola")
+        val luis = LiveComment("user-2", "Luis", "buenas")
+
+        assertTrue(tracker.isNewSpeaker(ana))
+        assertFalse(tracker.isNewSpeaker(ana.copy(text = "¿cómo están?")))
+        assertTrue(tracker.isNewSpeaker(luis))
+        assertTrue(tracker.isNewSpeaker(ana.copy(text = "volví")))
+        assertFalse(tracker.isNewSpeaker(ana.copy(text = "otra vez")))
+    }
+
+    @Test fun speakerTrackerFallsBackToDisplayNameWhenUserIdIsMissing() {
+        val tracker = CommentSpeakerTracker()
+        val first = LiveComment("", "Ana", "hola")
+        assertTrue(tracker.isNewSpeaker(first))
+        assertFalse(tracker.isNewSpeaker(first.copy(text = "otra frase")))
+    }
+
+    @Test fun replyCommentAnnouncesTargetWithoutRepeatingTheAtMention() {
+        val spoken = mutableListOf<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) { spoken += text }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(CommentFilter(), queue, ReaderSettings(readUsername = true))
+
+        try {
+            pipeline.onComment(
+                LiveComment(
+                    userId = "ana-id",
+                    displayName = "Ana",
+                    text = "@Karla gracias por el dato",
+                    replyToDisplayName = "Karla"
+                )
+            )
+            assertEquals(listOf("Ana le respondió a Karla: gracias por el dato"), spoken)
+        } finally {
+            queue.close()
+            scope.cancel()
+        }
     }
 
     @Test fun welcomeRunsOnlyOncePerUserInOneSession() {
