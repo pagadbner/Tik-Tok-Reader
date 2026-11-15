@@ -48,6 +48,8 @@ import com.myclivebot.core.PiperSpeechEngine
 import com.myclivebot.core.PiperVoiceCatalog
 import com.myclivebot.core.ReaderSettings
 import com.myclivebot.core.TikFinityVoiceCatalog
+import com.myclivebot.core.EdgeTtsVoiceCatalog
+import com.myclivebot.core.TikTokTtsVoiceCatalog
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -149,6 +151,8 @@ class MainActivity : ComponentActivity() {
                         .putExtra(BotForegroundService.EXTRA_API_VOICE_ID, settings.apiVoiceId)
                         .putExtra(BotForegroundService.EXTRA_API_RANDOM_VOICE, settings.apiRandomVoice)
                         .putExtra(BotForegroundService.EXTRA_TIKFINITY_CHANNEL_ID, settings.tikFinityChannelId)
+                        .putExtra(BotForegroundService.EXTRA_EDGE_VOICE_ID, settings.edgeVoiceId)
+                        .putExtra(BotForegroundService.EXTRA_TIKTOK_VOICE_ID, settings.tikTokVoiceId)
                         .putExtra(BotForegroundService.EXTRA_FOLLOWER_ONLY, settings.followerOnlyChat)
                         .putExtra(BotForegroundService.EXTRA_READ_FOLLOWS, settings.readFollows)
                         .putExtra(BotForegroundService.EXTRA_READ_GIFTS, settings.readGifts)
@@ -178,6 +182,8 @@ class MainActivity : ComponentActivity() {
                         .putExtra(BotForegroundService.EXTRA_API_VOICE_ID, settings.apiVoiceId)
                         .putExtra(BotForegroundService.EXTRA_API_RANDOM_VOICE, settings.apiRandomVoice)
                         .putExtra(BotForegroundService.EXTRA_TIKFINITY_CHANNEL_ID, settings.tikFinityChannelId)
+                        .putExtra(BotForegroundService.EXTRA_EDGE_VOICE_ID, settings.edgeVoiceId)
+                        .putExtra(BotForegroundService.EXTRA_TIKTOK_VOICE_ID, settings.tikTokVoiceId)
                         .putExtra(BotForegroundService.EXTRA_FOLLOWER_ONLY, settings.followerOnlyChat)
                         .putExtra(BotForegroundService.EXTRA_READ_FOLLOWS, settings.readFollows)
                         .putExtra(BotForegroundService.EXTRA_READ_GIFTS, settings.readGifts)
@@ -214,6 +220,8 @@ class MainActivity : ComponentActivity() {
                         .putExtra(BotForegroundService.EXTRA_API_VOICE_ID, settings.apiVoiceId)
                         .putExtra(BotForegroundService.EXTRA_API_RANDOM_VOICE, settings.apiRandomVoice)
                         .putExtra(BotForegroundService.EXTRA_TIKFINITY_CHANNEL_ID, settings.tikFinityChannelId)
+                        .putExtra(BotForegroundService.EXTRA_EDGE_VOICE_ID, settings.edgeVoiceId)
+                        .putExtra(BotForegroundService.EXTRA_TIKTOK_VOICE_ID, settings.tikTokVoiceId)
                         .putExtra(BotForegroundService.EXTRA_VOLUME, settings.volume)
                         .putExtra(BotForegroundService.EXTRA_SPEED, settings.speed)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
@@ -390,10 +398,12 @@ private fun BotApp(
     var apiVoiceId by remember { mutableStateOf(prefs.getString("api_voice_id", "es_mx_002") ?: "es_mx_002") }
     var apiRandomVoice by remember { mutableStateOf(prefs.getBoolean("api_random_voice", false)) }
     var tikFinityChannelId by remember { mutableStateOf(prefs.getString("tikfinity_channel_id", "0") ?: "0") }
+    var edgeVoiceId by remember { mutableStateOf(prefs.getString("edge_voice_id", EdgeTtsVoiceCatalog.DEFAULT_VOICE_ID) ?: EdgeTtsVoiceCatalog.DEFAULT_VOICE_ID) }
+    var tikTokVoiceId by remember { mutableStateOf(prefs.getString("tiktok_voice_id", TikTokTtsVoiceCatalog.DEFAULT_VOICE_ID) ?: TikTokTtsVoiceCatalog.DEFAULT_VOICE_ID) }
     var apiVoiceMenuExpanded by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Detenido") }
     var voiceInstalled by remember(voiceId) { mutableStateOf(PiperSpeechEngine.isVoiceInstalled(context, voiceId)) }
-    val selectedProviderReady = speechProvider == "tikfinity" || voiceInstalled
+    val selectedProviderReady = speechProvider != "piper" || voiceInstalled
     var downloading by remember { mutableStateOf(false) }
     var voiceError by remember { mutableStateOf("") }
     var voiceMenuExpanded by remember { mutableStateOf(false) }
@@ -425,6 +435,8 @@ private fun BotApp(
         apiVoiceId = apiVoiceId,
         apiRandomVoice = apiRandomVoice,
         tikFinityChannelId = tikFinityChannelId.trim().ifBlank { "0" },
+        edgeVoiceId = edgeVoiceId,
+        tikTokVoiceId = tikTokVoiceId,
         followerOnlyChat = followerOnlyChat,
         readFollows = readFollows,
         readGifts = readGifts,
@@ -491,7 +503,7 @@ private fun BotApp(
     LaunchedEffect(username) { prefs.edit().putString("last_username", username).apply() }
     LaunchedEffect(voiceMuted) { prefs.edit().putBoolean("voice_muted", voiceMuted).apply() }
     LaunchedEffect(externalMuted) { voiceMuted = externalMuted }
-    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId) {
+    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId, edgeVoiceId, tikTokVoiceId) {
         prefs.edit()
             .putBoolean("follower_only_chat", followerOnlyChat)
             .putBoolean("read_follows", readFollows)
@@ -501,10 +513,12 @@ private fun BotApp(
             .putString("api_voice_id", apiVoiceId)
             .putBoolean("api_random_voice", apiRandomVoice)
             .putString("tikfinity_channel_id", tikFinityChannelId)
+            .putString("edge_voice_id", edgeVoiceId)
+            .putString("tiktok_voice_id", tikTokVoiceId)
             .apply()
     }
 
-    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId) {
+    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId, edgeVoiceId, tikTokVoiceId) {
         prefs.edit()
             .putBoolean("read_username", readUsername)
             .putBoolean("only_username", onlyUsername)
@@ -516,6 +530,8 @@ private fun BotApp(
             .putFloat("volume", volume)
             .putFloat("speed", speed)
             .putString("voice_id", voiceId)
+            .putString("edge_voice_id", edgeVoiceId)
+            .putString("tiktok_voice_id", tikTokVoiceId)
             .apply()
     }
 
@@ -534,11 +550,18 @@ private fun BotApp(
     }
 
     val selectedVoice = PiperVoiceCatalog.find(voiceId)
+    val apiVoiceItems = when (speechProvider) {
+        "edge" -> EdgeTtsVoiceCatalog.voices.map { Triple(it.id, it.name, it.description) }
+        "tiktok" -> TikTokTtsVoiceCatalog.voices.map { Triple(it.id, it.name, it.description) }
+        else -> TikFinityVoiceCatalog.voices.map { Triple(it.id, it.name, it.description) }
+    }
+    val selectedApiVoiceId = when (speechProvider) { "edge" -> edgeVoiceId; "tiktok" -> tikTokVoiceId; else -> apiVoiceId }
+    val selectedApiVoiceName = apiVoiceItems.firstOrNull { it.first == selectedApiVoiceId }?.second ?: apiVoiceItems.first().second
     val connected = status.contains("Conectado", true) && !status.contains("no se pudo", true)
     LaunchedEffect(
         connected, readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat,
         readFollows, readGifts, randomVoices, maxQueue, blockedWords, ignoredUsers,
-        speed, voiceId, voiceInstalled, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId, customCommandsEnabled, customCommandsText,
+        speed, voiceId, voiceInstalled, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId, edgeVoiceId, tikTokVoiceId, customCommandsEnabled, customCommandsText,
         welcomeEnabled, welcomeTemplate, giftMinimumRepeat, giftAlertTemplate
     ) {
         if (connected && selectedProviderReady) {
@@ -570,7 +593,7 @@ private fun BotApp(
                         title = {
                             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                 Text("TIK TOK READER", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleSmall, letterSpacing = 1.1.sp)
-                                Text(if (speechProvider == "tikfinity") "TIKFINITY API · CONTROL EN VIVO" else "PIPER OFFLINE · CONTROL EN VIVO", style = MaterialTheme.typography.labelSmall, color = Cyan, letterSpacing = .8.sp)
+                                Text(when (speechProvider) { "tikfinity" -> "TIKFINITY API · CONTROL EN VIVO"; "edge" -> "EDGE-TTS · CONTROL EN VIVO"; "tiktok" -> "TIKTOK TTS · CONTROL EN VIVO"; else -> "PIPER OFFLINE · CONTROL EN VIVO" }, style = MaterialTheme.typography.labelSmall, color = Cyan, letterSpacing = .8.sp)
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
@@ -780,31 +803,24 @@ private fun BotApp(
                     SectionHeader("04", "Proveedor de voz", "Elige el motor que leerá los comentarios")
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(
-                                    onClick = { speechProvider = "piper" },
-                                    modifier = Modifier.weight(1f),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (speechProvider == "piper") Violet else Color.White.copy(alpha = .08f),
-                                        contentColor = Color.White
-                                    ),
-                                    shape = RoundedCornerShape(13.dp)
-                                ) { Text("Piper · Local") }
-                                Button(
-                                    onClick = { speechProvider = "tikfinity" },
-                                    modifier = Modifier.weight(1f),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (speechProvider == "tikfinity") Violet else Color.White.copy(alpha = .08f),
-                                        contentColor = Color.White
-                                    ),
-                                    shape = RoundedCornerShape(13.dp)
-                                ) { Text("Voces API") }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                listOf("piper" to "Piper", "tikfinity" to "TikFinity", "edge" to "Edge", "tiktok" to "TikTok").forEach { (provider, label) ->
+                                    Button(
+                                        onClick = { speechProvider = provider },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 3.dp, vertical = 8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = if (speechProvider == provider) Violet else Color.White.copy(alpha = .08f), contentColor = Color.White),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) { Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1) }
+                                }
                             }
                             Text(
-                                if (speechProvider == "piper") "Piper genera voz en el dispositivo y puede funcionar sin internet."
-                                else "TikFinity genera audio MP3 mediante su API. Requiere conexión a internet.",
-                                color = Muted,
-                                style = MaterialTheme.typography.bodySmall
+                                when (speechProvider) {
+                                    "piper" -> "Piper genera voz en el dispositivo y puede funcionar sin internet."
+                                    "tikfinity" -> "TikFinity genera audio MP3 mediante su API. Requiere conexión a internet."
+                                    "edge" -> "Edge-TTS utiliza las voces neuronales de Microsoft mediante WebSocket seguro."
+                                    else -> "TikTok TTS genera audio MP3 mediante el servicio de voces de TikTok."
+                                }, color = Muted, style = MaterialTheme.typography.bodySmall
                             )
                         }
                     }
@@ -958,7 +974,7 @@ private fun BotApp(
                     }
 
                     } else {
-                        SectionHeader("05", "Voces API", "TikFinity · generación de audio por internet")
+                        SectionHeader("05", "Voces API", when (speechProvider) { "tikfinity" -> "TikFinity · generación de audio por internet"; "edge" -> "Edge-TTS · voces neuronales de Microsoft"; else -> "TikTok TTS · voces de TikTok" })
                         GlassCard {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text("SELECCIONA UNA VOZ API", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
@@ -966,28 +982,28 @@ private fun BotApp(
                                     onClick = { apiVoiceMenuExpanded = true },
                                     modifier = Modifier.fillMaxWidth().height(54.dp),
                                     shape = RoundedCornerShape(15.dp),
-                                    enabled = !apiRandomVoice
+                                    enabled = speechProvider != "tikfinity" || !apiRandomVoice
                                 ) {
                                     Icon(Icons.Default.RecordVoiceOver, null, tint = Violet)
-                                    Text("  ${TikFinityVoiceCatalog.find(apiVoiceId).name}", modifier = Modifier.weight(1f))
+                                    Text("  $selectedApiVoiceName", modifier = Modifier.weight(1f))
                                     Icon(Icons.Default.ExpandMore, null)
                                 }
                                 if (apiVoiceMenuExpanded) {
                                     AlertDialog(
                                         onDismissRequest = { apiVoiceMenuExpanded = false },
-                                        title = { Text("Voces API de TikFinity") },
+                                        title = { Text("Voces API · ${when (speechProvider) { "tikfinity" -> "TikFinity"; "edge" -> "Edge-TTS"; else -> "TikTok TTS" }}") },
                                         text = {
                                             Column(
                                                 Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
                                                 verticalArrangement = Arrangement.spacedBy(7.dp)
                                             ) {
-                                                TikFinityVoiceCatalog.voices.forEach { voice ->
+                                                apiVoiceItems.forEach { voice ->
                                                     Surface(
                                                         onClick = {
-                                                            apiVoiceId = voice.id
+                                                            when (speechProvider) { "edge" -> edgeVoiceId = voice.first; "tiktok" -> tikTokVoiceId = voice.first; else -> apiVoiceId = voice.first }
                                                             apiVoiceMenuExpanded = false
                                                         },
-                                                        color = if (voice.id == apiVoiceId) Violet.copy(alpha = .20f) else Color.White.copy(alpha = .045f),
+                                                        color = if (voice.first == selectedApiVoiceId) Violet.copy(alpha = .20f) else Color.White.copy(alpha = .045f),
                                                         shape = RoundedCornerShape(13.dp),
                                                         modifier = Modifier.fillMaxWidth()
                                                     ) {
@@ -996,11 +1012,11 @@ private fun BotApp(
                                                             verticalAlignment = Alignment.CenterVertically
                                                         ) {
                                                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                                                Text(voice.name, fontWeight = FontWeight.SemiBold)
-                                                                Text(voice.description, style = MaterialTheme.typography.bodySmall, color = Muted)
-                                                                Text(voice.id, style = MaterialTheme.typography.labelSmall, color = Muted)
+                                                                Text(voice.second, fontWeight = FontWeight.SemiBold)
+                                                                Text(voice.third, style = MaterialTheme.typography.bodySmall, color = Muted)
+                                                                Text(voice.first, style = MaterialTheme.typography.labelSmall, color = Muted)
                                                             }
-                                                            if (voice.id == apiVoiceId) Icon(Icons.Default.CheckCircle, contentDescription = "Seleccionada", tint = Cyan)
+                                                            if (voice.first == selectedApiVoiceId) Icon(Icons.Default.CheckCircle, contentDescription = "Seleccionada", tint = Cyan)
                                                         }
                                                     }
                                                 }
@@ -1011,22 +1027,20 @@ private fun BotApp(
                                         }
                                     )
                                 }
-                                SettingSwitch("Usar voces aleatorias", apiRandomVoice) { apiRandomVoice = it }
-                                Text(
-                                    "Cada comentario utilizará una voz API aleatoria del catálogo. Desactívalo para mantener la voz seleccionada.",
-                                    color = Muted,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                                OutlinedTextField(
-                                    value = tikFinityChannelId,
-                                    onValueChange = { tikFinityChannelId = it.filter(Char::isDigit).take(24) },
-                                    label = { Text("Channel ID de TikFinity") },
-                                    supportingText = { Text("Valor predeterminado: 0") },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(15.dp)
-                                )
-                                Text("Esta opción requiere conexión a internet. Piper continúa instalado y conserva su catálogo y sus ajustes independientes.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                                if (speechProvider == "tikfinity") {
+                                    SettingSwitch("Usar voces aleatorias", apiRandomVoice) { apiRandomVoice = it }
+                                    Text("Cada comentario utilizará una voz TikFinity aleatoria del catálogo.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                                    OutlinedTextField(
+                                        value = tikFinityChannelId,
+                                        onValueChange = { tikFinityChannelId = it.filter(Char::isDigit).take(24) },
+                                        label = { Text("Channel ID de TikFinity") },
+                                        supportingText = { Text("Valor predeterminado: 0") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(15.dp)
+                                    )
+                                }
+                                Text("Cada proveedor conserva su propia voz seleccionada. Todos utilizan la misma cola FIFO; Piper mantiene sus modelos y ajustes locales independientes.", color = Muted, style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
