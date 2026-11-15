@@ -64,6 +64,8 @@ class BotForegroundService : Service() {
         const val EXTRA_API_VOICE_ID = "api_voice_id"
         const val EXTRA_API_RANDOM_VOICE = "api_random_voice"
         const val EXTRA_TIKFINITY_CHANNEL_ID = "tikfinity_channel_id"
+        const val EXTRA_EDGE_VOICE_ID = "edge_voice_id"
+        const val EXTRA_TIKTOK_VOICE_ID = "tiktok_voice_id"
         const val EXTRA_FOLLOWER_ONLY = "follower_only_chat"
         const val EXTRA_READ_FOLLOWS = "read_follows"
         const val EXTRA_READ_GIFTS = "read_gifts"
@@ -150,7 +152,7 @@ class BotForegroundService : Service() {
                     return START_NOT_STICKY
                 }
                 val settings = readSettings(intent)
-                if (settings.speechProvider != SelectableSpeechEngine.PROVIDER_TIKFINITY && !PiperSpeechEngine.isVoiceInstalled(this, settings.voiceId)) {
+                if (settings.speechProvider == SelectableSpeechEngine.PROVIDER_PIPER && !PiperSpeechEngine.isVoiceInstalled(this, settings.voiceId)) {
                     updateStatus("Descarga primero la voz seleccionada")
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf(startId)
@@ -190,7 +192,7 @@ class BotForegroundService : Service() {
                 val previous = activeSettings
                 if (previous != null) {
                     var next = readSettings(intent)
-                    if (next.speechProvider != SelectableSpeechEngine.PROVIDER_TIKFINITY && !PiperSpeechEngine.isVoiceInstalled(this, next.voiceId)) {
+                    if (next.speechProvider == SelectableSpeechEngine.PROVIDER_PIPER && !PiperSpeechEngine.isVoiceInstalled(this, next.voiceId)) {
                         next = next.copy(voiceId = previous.voiceId)
                     }
                     activeSettings = next
@@ -210,20 +212,28 @@ class BotForegroundService : Service() {
                 val apiVoiceId = intent.getStringExtra(EXTRA_API_VOICE_ID) ?: TikFinityVoiceCatalog.DEFAULT_VOICE_ID
                 val apiRandom = intent.getBooleanExtra(EXTRA_API_RANDOM_VOICE, false)
                 val channelId = intent.getStringExtra(EXTRA_TIKFINITY_CHANNEL_ID) ?: "0"
+                val edgeVoiceId = intent.getStringExtra(EXTRA_EDGE_VOICE_ID) ?: EdgeTtsVoiceCatalog.DEFAULT_VOICE_ID
+                val tikTokVoiceId = intent.getStringExtra(EXTRA_TIKTOK_VOICE_ID) ?: TikTokTtsVoiceCatalog.DEFAULT_VOICE_ID
                 val volume = intent.getFloatExtra(EXTRA_VOLUME, 1.0f).coerceIn(0f, 1f)
                 val speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f).coerceIn(0.65f, 1.5f)
-                if (provider == SelectableSpeechEngine.PROVIDER_TIKFINITY) {
+                if (provider != SelectableSpeechEngine.PROVIDER_PIPER) {
                     val testSettings = (activeSettings ?: ReaderSettings()).copy(
                         speechProvider = provider,
                         apiVoiceId = apiVoiceId,
                         apiRandomVoice = apiRandom,
                         tikFinityChannelId = channelId,
+                        edgeVoiceId = edgeVoiceId,
+                        tikTokVoiceId = tikTokVoiceId,
                         volume = volume,
                         speed = speed
                     )
-                    val testText = "Hola, esta es una prueba de voz de TikFinity."
+                    val testText = when (provider) {
+                        SelectableSpeechEngine.PROVIDER_EDGE -> "Hola, esta es una prueba de voz de Edge TTS."
+                        SelectableSpeechEngine.PROVIDER_TIKTOK -> "Hola, esta es una prueba de voz de TikTok TTS."
+                        else -> "Hola, esta es una prueba de voz de TikFinity."
+                    }
                     if (activeSettings != null) {
-                        // Every test during a LIVE session uses the same FIFO queue.
+                        // All provider tests are enqueued in the existing LIVE FIFO queue.
                         piper?.update(testSettings)
                         activeSettings = testSettings
                         pipeline?.updateSettings(testSettings)
@@ -345,6 +355,8 @@ class BotForegroundService : Service() {
         apiVoiceId = intent.getStringExtra(EXTRA_API_VOICE_ID) ?: TikFinityVoiceCatalog.DEFAULT_VOICE_ID,
         apiRandomVoice = intent.getBooleanExtra(EXTRA_API_RANDOM_VOICE, false),
         tikFinityChannelId = intent.getStringExtra(EXTRA_TIKFINITY_CHANNEL_ID) ?: "0",
+        edgeVoiceId = intent.getStringExtra(EXTRA_EDGE_VOICE_ID) ?: EdgeTtsVoiceCatalog.DEFAULT_VOICE_ID,
+        tikTokVoiceId = intent.getStringExtra(EXTRA_TIKTOK_VOICE_ID) ?: TikTokTtsVoiceCatalog.DEFAULT_VOICE_ID,
         followerOnlyChat = intent.getBooleanExtra(EXTRA_FOLLOWER_ONLY, false),
         readFollows = intent.getBooleanExtra(EXTRA_READ_FOLLOWS, true),
         readGifts = intent.getBooleanExtra(EXTRA_READ_GIFTS, true),
@@ -386,10 +398,15 @@ class BotForegroundService : Service() {
     private fun reportSpeechError(error: Throwable) {
         val message = (error.message ?: "falló la generación del audio")
             .replace("no se pudo", "falló", ignoreCase = true)
+        val providerName = when (activeSettings?.speechProvider) {
+            SelectableSpeechEngine.PROVIDER_EDGE -> "Edge-TTS"
+            SelectableSpeechEngine.PROVIDER_TIKTOK -> "TikTok TTS"
+            else -> "TikFinity API"
+        }
         val status = if (activeSettings != null && lastKnownStatus.contains("conect", ignoreCase = true)) {
-            "Conectado · Error de TikFinity API: $message"
+            "Conectado · Error de $providerName: $message"
         } else {
-            "Error de TikFinity API: $message"
+            "Error de $providerName: $message"
         }
         updateStatus(status)
     }
