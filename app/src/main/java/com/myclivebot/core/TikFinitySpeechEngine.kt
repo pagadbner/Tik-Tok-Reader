@@ -180,7 +180,7 @@ class TikFinitySpeechEngine(
 
     override suspend fun stop() {
         activeCall?.cancel()
-        withContext(Dispatchers.Main.immediate) {
+        val cancelPlayback = {
             val stop = stopPlayback
             if (stop != null) stop() else {
                 val player = activePlayer
@@ -191,6 +191,8 @@ class TikFinitySpeechEngine(
                 }
             }
         }
+        if (Looper.myLooper() == Looper.getMainLooper()) cancelPlayback()
+        else mainHandler.post(cancelPlayback)
     }
 
     companion object {
