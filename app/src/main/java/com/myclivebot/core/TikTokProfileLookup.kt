@@ -39,13 +39,18 @@ object TikTokProfileLookup {
     }
 
     internal fun extractAvatarUrl(html: String): String? {
-        val raw = Regex("""\"avatarLarger\"\\s*:\\s*\"([^\"]+)\"""")
+        val raw = Regex("\\"avatarLarger\\"\\\\s*:\\\\s*\\"([^\\"]+)\\"")
             .find(html)?.groupValues?.getOrNull(1) ?: return null
         val url = raw
+            .replace("\\\\u002F", "/")
             .replace("\\u002F", "/")
+            .replace("\\\\u0026", "&")
             .replace("\\u0026", "&")
+            .replace("\\\\u003D", "=")
             .replace("\\u003D", "=")
+            .replace("\\\\u003F", "?")
             .replace("\\u003F", "?")
+            .replace("\\\\/", "/")
             .replace("\\/", "/")
             .replace("\\", "")
         val parsed = runCatching { URI(url) }.getOrNull() ?: return null
