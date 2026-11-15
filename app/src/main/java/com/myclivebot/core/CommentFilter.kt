@@ -36,12 +36,13 @@ data class ReaderSettings(
  */
 object CommentLanguageFilter {
     fun isSupported(text: String): Boolean {
+        var supported = true
         text.codePoints().forEach { codePoint ->
             if (Character.isLetter(codePoint) &&
                 Character.UnicodeScript.of(codePoint) != Character.UnicodeScript.LATIN
-            ) return false
+            ) supported = false
         }
-        return true
+        return supported
     }
 }
 
