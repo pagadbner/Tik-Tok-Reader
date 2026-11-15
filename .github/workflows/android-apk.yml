@@ -111,7 +111,7 @@ jobs:
           gradle testDebugUnitTest assembleDebug --no-daemon --stacktrace
 
       - name: Verify debug APK
-        if: github.event_name == 'pull_request'
+        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
@@ -121,7 +121,7 @@ jobs:
           sha256sum "$APK" | tee "$APK.sha256"
 
       - name: Upload debug APK artifact
-        if: github.event_name == 'pull_request'
+        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: TikLBot-debug-${{ github.sha }}
@@ -137,6 +137,18 @@ jobs:
         run: |
           set -euo pipefail
           gradle testDebugUnitTest assembleRelease --no-daemon --stacktrace
+
+      - name: Verify APK signature matches the permanent keystore
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          KEY_CERT="$(keytool -list -v -keystore "$ANDROID_KEYSTORE_PATH" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | sed -n 's/.*SHA256: //p' | head -n 1 | tr -d ':')"
+          APK_CERT="$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK" | awk -F': ' '/Signer #1 certificate SHA-256 digest/ {print $2; exit}' | tr -d ':')"
+          test -n "$KEY_CERT" && test -n "$APK_CERT"
+          test "$KEY_CERT" = "$APK_CERT" || { echo "::error::APK certificate does not match the permanent signing key"; exit 1; }
+          echo "APK signature matches the permanent TikLBot signing certificate."
 
       - name: Prepare verified release assets
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
