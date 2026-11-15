@@ -99,4 +99,56 @@ object GiftAlertRules {
             .take(280)
             .takeIf { it.isNotBlank() }
     }
+
+/** Limits share announcements to two per user during one LIVE session. */
+class ShareAlertTracker {
+    private val announcementsByUser = HashMap<String, Int>()
+
+    @Synchronized
+    fun render(event: LiveEvent, settings: ReaderSettings): String? {
+        if (event.type != LiveEventType.SHARE || !settings.readShares) return null
+        if (settings.shareFollowerOnly && event.isFollower != true) return null
+        val key = event.userId.trim().ifBlank { event.displayName.trim() }.lowercase(Locale.ROOT)
+        if (key.isBlank()) return null
+        val sent = announcementsByUser[key] ?: 0
+        if (sent >= MAX_ANNOUNCEMENTS_PER_USER) return null
+        announcementsByUser[key] = sent + 1
+        val name = ChatCommandParser.spokenUsername(event.displayName)
+        return "$name ha compartido el live"
+    }
+
+    companion object {
+        const val MAX_ANNOUNCEMENTS_PER_USER = 2
+    }
+}
+
+/** Accumulates likes per user for the current LIVE and rate-limits thanks to once per 10 minutes. */
+class LikeAlertTracker {
+    private data class UserLikes(var total: Long = 0L, var lastAnnouncementAt: Long = Long.MIN_VALUE)
+    private val likesByUser = HashMap<String, UserLikes>()
+
+    @Synchronized
+    fun render(event: LiveEvent, settings: ReaderSettings): String? {
+        if (event.type != LiveEventType.LIKE || !settings.readLikes) return null
+        val key = event.userId.trim().ifBlank { event.displayName.trim() }.lowercase(Locale.ROOT)
+        if (key.isBlank()) return null
+        val increment = event.detail.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
+        val state = likesByUser.getOrPut(key) { UserLikes() }
+        state.total = (state.total + increment).coerceAtMost(Long.MAX_VALUE / 2)
+        val now = event.receivedAt
+        if (state.total < LIKES_THRESHOLD) return null
+        if (state.lastAnnouncementAt != Long.MIN_VALUE &&
+            now - state.lastAnnouncementAt < COOLDOWN_MS
+        ) return null
+        state.lastAnnouncementAt = now
+        val name = ChatCommandParser.spokenUsername(event.displayName)
+        return "Gracias por dar me gusta $name, tu apoyo es importante"
+    }
+
+    companion object {
+        const val LIKES_THRESHOLD = 1_000L
+        const val COOLDOWN_MS = 10 * 60 * 1_000L
+    }
+}
+
 }
