@@ -47,6 +47,7 @@ import com.myclivebot.core.ChatCommandParser
 import com.myclivebot.core.PiperSpeechEngine
 import com.myclivebot.core.PiperVoiceCatalog
 import com.myclivebot.core.ReaderSettings
+import com.myclivebot.core.TikFinityVoiceCatalog
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -774,7 +775,39 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("04", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local")
+                    SectionHeader("04", "Proveedor de voz", "Elige el motor que leerá los comentarios")
+                    GlassCard {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = { speechProvider = "piper" },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (speechProvider == "piper") Violet else Color.White.copy(alpha = .08f),
+                                        contentColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(13.dp)
+                                ) { Text("Piper · Local") }
+                                Button(
+                                    onClick = { speechProvider = "tikfinity" },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (speechProvider == "tikfinity") Violet else Color.White.copy(alpha = .08f),
+                                        contentColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(13.dp)
+                                ) { Text("Voces API") }
+                            }
+                            Text(
+                                if (speechProvider == "piper") "Piper genera voz en el dispositivo y puede funcionar sin internet."
+                                else "TikFinity genera audio MP3 mediante su API. Requiere conexión a internet.",
+                                color = Muted,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                    if (speechProvider == "piper") {
+                    SectionHeader("05", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local")
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("SELECCIONA UNA VOZ", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
@@ -922,7 +955,81 @@ private fun BotApp(
                         }
                     }
 
-                    SectionHeader("05", "Controles de voz", "Ajusta la reproducción a tu gusto")
+                    } else {
+                        SectionHeader("05", "Voces API", "TikFinity · generación de audio por internet")
+                        GlassCard {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("SELECCIONA UNA VOZ API", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                                OutlinedButton(
+                                    onClick = { apiVoiceMenuExpanded = true },
+                                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                                    shape = RoundedCornerShape(15.dp),
+                                    enabled = !apiRandomVoice
+                                ) {
+                                    Icon(Icons.Default.RecordVoiceOver, null, tint = Violet)
+                                    Text("  ${TikFinityVoiceCatalog.find(apiVoiceId).name}", modifier = Modifier.weight(1f))
+                                    Icon(Icons.Default.ExpandMore, null)
+                                }
+                                if (apiVoiceMenuExpanded) {
+                                    AlertDialog(
+                                        onDismissRequest = { apiVoiceMenuExpanded = false },
+                                        title = { Text("Voces API de TikFinity") },
+                                        text = {
+                                            Column(
+                                                Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                                                verticalArrangement = Arrangement.spacedBy(7.dp)
+                                            ) {
+                                                TikFinityVoiceCatalog.voices.forEach { voice ->
+                                                    Surface(
+                                                        onClick = {
+                                                            apiVoiceId = voice.id
+                                                            apiVoiceMenuExpanded = false
+                                                        },
+                                                        color = if (voice.id == apiVoiceId) Violet.copy(alpha = .20f) else Color.White.copy(alpha = .045f),
+                                                        shape = RoundedCornerShape(13.dp),
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    ) {
+                                                        Row(
+                                                            Modifier.fillMaxWidth().padding(12.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                                                Text(voice.name, fontWeight = FontWeight.SemiBold)
+                                                                Text(voice.description, style = MaterialTheme.typography.bodySmall, color = Muted)
+                                                                Text(voice.id, style = MaterialTheme.typography.labelSmall, color = Muted)
+                                                            }
+                                                            if (voice.id == apiVoiceId) Icon(Icons.Default.CheckCircle, contentDescription = "Seleccionada", tint = Cyan)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        confirmButton = {
+                                            TextButton(onClick = { apiVoiceMenuExpanded = false }) { Text("CERRAR") }
+                                        }
+                                    )
+                                }
+                                SettingSwitch("Usar voces aleatorias", apiRandomVoice) { apiRandomVoice = it }
+                                Text(
+                                    "Cada comentario utilizará una voz API aleatoria del catálogo. Desactívalo para mantener la voz seleccionada.",
+                                    color = Muted,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                OutlinedTextField(
+                                    value = tikFinityChannelId,
+                                    onValueChange = { tikFinityChannelId = it.filter(Char::isDigit).take(24) },
+                                    label = { Text("Channel ID de TikFinity") },
+                                    supportingText = { Text("Valor predeterminado: 0") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(15.dp)
+                                )
+                                Text("Esta opción requiere conexión a internet. Piper continúa instalado y conserva su catálogo y sus ajustes independientes.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+
+                    SectionHeader("06", "Controles de voz", "Ajusta la reproducción a tu gusto")
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -954,7 +1061,7 @@ private fun BotApp(
                                 Text(if (voiceMuted) "  ACTIVAR VOZ" else "  SILENCIAR VOZ")
                             }
                             OutlinedButton(
-                                onClick = { onTestVoice(voiceId, volume, speed) },
+                                onClick = { onTestVoice(buildReaderSettings()) },
                                 modifier = Modifier.fillMaxWidth().height(50.dp),
                                 enabled = selectedProviderReady && !downloading,
                                 shape = RoundedCornerShape(15.dp)
