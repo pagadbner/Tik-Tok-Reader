@@ -51,6 +51,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
+import java.io.File
 
 private val Night = Color(0xFF090B18)
 private val Panel = Color(0xCC1B2036)
@@ -381,6 +382,12 @@ private fun BotApp(
     var downloadStage by remember { mutableStateOf("") }
     var showDeleteVoiceDialog by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var appUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
+    var appUpdateStatus by remember { mutableStateOf("Buscando actualizaciones oficiales…") }
+    var appUpdateBusy by remember { mutableStateOf(false) }
+    var showAppUpdateDialog by remember { mutableStateOf(false) }
+    var downloadedUpdatePath by remember { mutableStateOf<String?>(null) }
+    val updateScope = rememberCoroutineScope()
     val homeScrollState = rememberScrollState()
     val settingsScrollState = rememberScrollState()
 
@@ -406,6 +413,56 @@ private fun BotApp(
         giftMinimumRepeatCount = giftMinimumRepeat.toIntOrNull()?.coerceIn(1, 999) ?: 1,
         giftAlertTemplate = giftAlertTemplate
     )
+
+    LaunchedEffect(Unit) {
+        try {
+            val latest = withContext(Dispatchers.IO) { AppUpdateManager.checkForUpdate(context) }
+            appUpdate = latest
+            appUpdateStatus = if (latest == null) "Tu aplicación está actualizada." else "Nueva versión ${latest.versionName} disponible."
+            if (latest != null) showAppUpdateDialog = true
+        } catch (error: Exception) {
+            appUpdateStatus = "No se pudo comprobar: ${error.message ?: "error de conexión"}"
+        }
+    }
+
+    fun startAppUpdate() {
+        val update = appUpdate ?: return
+        updateScope.launch {
+            appUpdateBusy = true
+            appUpdateStatus = "Descargando y verificando la actualización…"
+            try {
+                val cached = downloadedUpdatePath?.let(::File)?.takeIf { it.isFile && it.length() > 0L }
+                val apk = cached ?: withContext(Dispatchers.IO) {
+                    AppUpdateManager.downloadAndVerify(context, update)
+                }.also { downloadedUpdatePath = it.absolutePath }
+                val installerOpened = AppUpdateManager.installOrOpenPermissionSettings(context, apk)
+                appUpdateStatus = if (installerOpened) {
+                    "Instalador de Android abierto. Confirma la actualización para conservar tus datos."
+                } else {
+                    "Autoriza a TikLBot a instalar aplicaciones y vuelve aquí para pulsar INSTALAR ACTUALIZACIÓN."
+                }
+                if (installerOpened) showAppUpdateDialog = false
+            } catch (error: Exception) {
+                appUpdateStatus = "No se pudo actualizar: ${error.message ?: "error desconocido"}"
+            } finally {
+                appUpdateBusy = false
+            }
+        }
+    }
+
+    fun checkAppUpdateManually() {
+        updateScope.launch {
+            appUpdateStatus = "Comprobando GitHub Releases…"
+            try {
+                val latest = withContext(Dispatchers.IO) { AppUpdateManager.checkForUpdate(context) }
+                appUpdate = latest
+                appUpdateStatus = if (latest == null) "Tu aplicación está actualizada." else "Nueva versión ${latest.versionName} disponible."
+                if (latest != null) showAppUpdateDialog = true
+            } catch (error: Exception) {
+                appUpdateStatus = "No se pudo comprobar: ${error.message ?: "error de conexión"}"
+            }
+        }
+    }
 
     LaunchedEffect(externalStatus) { status = externalStatus }
     LaunchedEffect(username) { prefs.edit().putString("last_username", username).apply() }
@@ -590,6 +647,30 @@ private fun BotApp(
                         modifier = Modifier
                     )
                     } else {
+                    SectionHeader("06", "Actualizar aplicación", "Descarga la última versión oficial sin salir de TikLBot")
+                    GlassCard {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = Cyan)
+                                Spacer(Modifier.width(9.dp))
+                                Text("ACTUALIZACIONES", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                            }
+                            Text(appUpdate?.let { "Nueva versión ${it.versionName} (código ${it.versionCode})" } ?: "Versión instalada al día", fontWeight = FontWeight.SemiBold)
+                            Text(appUpdateStatus, color = Muted, style = MaterialTheme.typography.bodySmall)
+                            Button(
+                                onClick = { if (appUpdate != null) startAppUpdate() else checkAppUpdateManually() },
+                                enabled = !appUpdateBusy,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                if (appUpdateBusy) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                                else Icon(if (appUpdate == null) Icons.Default.Refresh else Icons.Default.SystemUpdate, contentDescription = null)
+                                Text(if (appUpdateBusy) "  PROCESANDO…" else if (appUpdate == null) "  COMPROBAR ACTUALIZACIONES" else if (downloadedUpdatePath == null) "  ACTUALIZAR DESDE LA APP" else "  INSTALAR ACTUALIZACIÓN")
+                            }
+                            Text("La descarga se verifica mediante SHA-256. Android mostrará su confirmación de instalación; los datos de la app se conservan si la firma coincide.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+
                     SectionHeader("02", "Lectura y moderación", "Personaliza qué contenido se convierte en voz")
                     GlassCard {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
@@ -870,6 +951,27 @@ private fun BotApp(
                 }
             }
         }
+            if (showAppUpdateDialog && appUpdate != null) {
+                AlertDialog(
+                    onDismissRequest = { showAppUpdateDialog = false },
+                    title = { Text("Nueva actualización disponible") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("TikLBot ${appUpdate!!.versionName} ya está publicado en GitHub Releases.")
+                            Text("Puedes descargarlo e iniciar la instalación desde aquí, sin abrir el navegador.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            if (appUpdateStatus.isNotBlank()) Text(appUpdateStatus, color = Muted, style = MaterialTheme.typography.bodySmall)
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { startAppUpdate() }, enabled = !appUpdateBusy) {
+                            Text(if (appUpdateBusy) "PROCESANDO…" else if (downloadedUpdatePath == null) "ACTUALIZAR" else "INSTALAR")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showAppUpdateDialog = false }) { Text("MÁS TARDE") }
+                    }
+                )
+            }
     }
 }
 
