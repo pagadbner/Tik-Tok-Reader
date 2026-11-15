@@ -16,6 +16,10 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
     null,
     1
 ) {
+    init {
+        setWriteAheadLoggingEnabled(true)
+    }
+
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
