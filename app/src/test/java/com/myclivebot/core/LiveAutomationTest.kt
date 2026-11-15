@@ -45,7 +45,7 @@ class LiveAutomationTest {
         val commands = ChatCommandParser.parseConfig("!discord=Únete al Discord, {user}.")
         val response = ChatCommandParser.responseFor("!DISCORD ahora", "🔥Ana_99 Pérez✨", commands, isModerator = true)
 
-        assertEquals("Únete al Discord, usuario.", response)
+        assertEquals("Únete al Discord, 🔥Ana_99 Pérez✨.", response)
         assertNull(ChatCommandParser.responseFor("!discordextra", "Ana", commands, isModerator = true))
     }
 
@@ -113,7 +113,7 @@ class LiveAutomationTest {
         val first = LiveComment("42", "Ana_01", "hola")
         val another = LiveComment("43", "Luis", "buenas")
 
-        assertEquals("¡Qué gusto verte, usuario!", tracker.messageFor(first, settings))
+        assertEquals("¡Qué gusto verte, Ana_01!", tracker.messageFor(first, settings))
         assertNull(tracker.messageFor(first.copy(text = "otra vez"), settings))
         assertEquals("¡Qué gusto verte, Luis!", tracker.messageFor(another, settings))
     }
@@ -139,15 +139,15 @@ class LiveAutomationTest {
 
         assertFalse(GiftAlertRules.shouldAnnounce(belowThreshold, settings))
         assertTrue(GiftAlertRules.shouldAnnounce(atThreshold, settings))
-        assertEquals("Gracias usuario por los 5 regalos", GiftAlertRules.render(atThreshold, settings))
+        assertEquals("Gracias Mia_22 por los 5 regalos", GiftAlertRules.render(atThreshold, settings))
     }
 
     @Test fun usernamesWithSymbolsUseGenericSpokenName() {
         assertEquals("Ana Pérez", ChatCommandParser.spokenUsername("Ana Pérez"))
-        assertEquals("usuario", ChatCommandParser.spokenUsername("🔥Ana_99✨"))
-        assertEquals("usuario", ChatCommandParser.spokenUsername("♡"))
+        assertEquals("🔥Ana_99✨", ChatCommandParser.spokenUsername("🔥Ana_99✨"))
+        assertEquals("usuario", ChatCommandParser.spokenUsername("♡🔥✨"))
         assertEquals(
-            "usuario dice: hola",
+            "🔥Ana_99✨ dice: hola",
             CommentFilter().toSpeech(
                 LiveComment("id-1", "🔥Ana_99✨", "hola"),
                 ReaderSettings(readUsername = true)
