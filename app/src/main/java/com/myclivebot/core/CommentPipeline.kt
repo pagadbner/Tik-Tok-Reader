@@ -99,7 +99,7 @@ class CommentPipeline(
             LiveEventType.JOIN -> if (current.readJoins &&
                 (!current.joinFollowerOnly || event.isFollower == true)
             ) {
-                "${ChatCommandParser.spokenUsername(event.displayName)} se ha unido al live"
+                "@${ChatCommandParser.spokenUsername(event.displayName).removePrefix("@")} se ha unido al live"
             } else ""
             LiveEventType.LIKE -> likeAlertTracker.render(event, current).orEmpty()
         }
