@@ -43,11 +43,25 @@ object ChatCommandParser {
         val normalized = java.text.Normalizer.normalize(input.trim(), java.text.Normalizer.Form.NFC)
         if (normalized.isBlank()) return "usuario"
 
-        // Keep the complete display name, including emojis and decorative symbols.
-        // Only names made entirely of symbols/whitespace (no letters or digits) use the fallback.
-        val hasWordCharacter = normalized.codePoints().anyMatch { Character.isLetterOrDigit(it) }
-        return if (hasWordCharacter) normalized else "usuario"
+        // Strip emoji code points while preserving readable words, numbers and username punctuation.
+        val readable = buildString {
+            normalized.codePoints().forEach { codePoint ->
+                if (!isEmojiCodePoint(codePoint)) appendCodePoint(codePoint)
+            }
+        }.trim()
+        val hasWordCharacter = readable.codePoints().anyMatch { Character.isLetterOrDigit(it) }
+        return if (hasWordCharacter) readable else "usuario"
     }
+    
+    private fun isEmojiCodePoint(codePoint: Int): Boolean =
+        codePoint in 0x1F000..0x1FAFF ||
+            (codePoint in 0x2600..0x27BF && codePoint != 0x2726) ||
+            codePoint in 0x2300..0x23FF ||
+            codePoint in 0xFE00..0xFE0F ||
+            codePoint in 0x1F1E6..0x1F1FF ||
+            codePoint in 0x1F3FB..0x1F3FF ||
+            codePoint == 0x200D ||
+            codePoint == 0x20E3
 }
 
 /**
@@ -126,30 +140,60 @@ class ShareAlertTracker {
 
 /** Accumulates likes per user for the current LIVE and rate-limits thanks to once per 10 minutes. */
 class LikeAlertTracker {
-    private data class UserLikes(var total: Long = 0L, var lastAnnouncementAt: Long = Long.MIN_VALUE)
+    private data class UserLikes(
+        var total: Long = 0L,
+        var lastAnnouncementAt: Long = Long.MIN_VALUE,
+        var previousAnnouncementAt: Long = Long.MIN_VALUE,
+        var pendingAnnouncementAt: Long? = null
+    )
     private val likesByUser = HashMap<String, UserLikes>()
 
     @Synchronized
     fun render(event: LiveEvent, settings: ReaderSettings): String? {
         if (event.type != LiveEventType.LIKE || !settings.readLikes) return null
-        val key = event.userId.trim().ifBlank { event.displayName.trim() }.lowercase(Locale.ROOT)
+        val key = userKey(event)
         if (key.isBlank()) return null
         val increment = event.detail.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
         val state = likesByUser.getOrPut(key) { UserLikes() }
         state.total = if (Long.MAX_VALUE - state.total < increment) Long.MAX_VALUE else state.total + increment
         val now = event.receivedAt
-        if (state.total < LIKES_THRESHOLD) return null
+        if (state.total < LIKES_THRESHOLD || state.pendingAnnouncementAt != null) return null
         if (state.lastAnnouncementAt != Long.MIN_VALUE &&
             now - state.lastAnnouncementAt < COOLDOWN_MS
         ) return null
+
+        // Reserve the alert until the priority queue confirms that it accepted it.
+        state.previousAnnouncementAt = state.lastAnnouncementAt
         state.lastAnnouncementAt = now
+        state.pendingAnnouncementAt = now
         val name = ChatCommandParser.spokenUsername(event.displayName)
         return "Gracias por dar me gusta @${name.removePrefix("@")}, tu apoyo es importante"
     }
+
+    @Synchronized
+    fun confirmQueued(event: LiveEvent) {
+        val state = likesByUser[userKey(event)] ?: return
+        if (state.pendingAnnouncementAt == event.receivedAt) {
+            state.pendingAnnouncementAt = null
+            state.previousAnnouncementAt = Long.MIN_VALUE
+        }
+    }
+
+    @Synchronized
+    fun rollbackIfNotQueued(event: LiveEvent) {
+        val state = likesByUser[userKey(event)] ?: return
+        if (state.pendingAnnouncementAt == event.receivedAt) {
+            state.lastAnnouncementAt = state.previousAnnouncementAt
+            state.previousAnnouncementAt = Long.MIN_VALUE
+            state.pendingAnnouncementAt = null
+        }
+    }
+
+    private fun userKey(event: LiveEvent): String =
+        event.userId.trim().ifBlank { event.displayName.trim() }.lowercase(Locale.ROOT)
 
     companion object {
         const val LIKES_THRESHOLD = 1_000L
         const val COOLDOWN_MS = 10 * 60 * 1_000L
     }
 }
-

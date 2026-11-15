@@ -45,7 +45,7 @@ class LiveAutomationTest {
         val commands = ChatCommandParser.parseConfig("!discord=Únete al Discord, {user}.")
         val response = ChatCommandParser.responseFor("!DISCORD ahora", "🔥Ana_99 Pérez✨", commands, isModerator = true)
 
-        assertEquals("Únete al Discord, 🔥Ana_99 Pérez✨.", response)
+        assertEquals("Únete al Discord, Ana_99 Pérez.", response)
         assertNull(ChatCommandParser.responseFor("!discordextra", "Ana", commands, isModerator = true))
     }
 
@@ -144,10 +144,10 @@ class LiveAutomationTest {
 
     @Test fun usernamesWithSymbolsUseGenericSpokenName() {
         assertEquals("Ana Pérez", ChatCommandParser.spokenUsername("Ana Pérez"))
-        assertEquals("🔥Ana_99✨", ChatCommandParser.spokenUsername("🔥Ana_99✨"))
+        assertEquals("Ana_99", ChatCommandParser.spokenUsername("🔥Ana_99✨"))
         assertEquals("usuario", ChatCommandParser.spokenUsername("♡🔥✨"))
         assertEquals(
-            "🔥Ana_99✨ dice: hola",
+            "Ana_99 dice: hola",
             CommentFilter().toSpeech(
                 LiveComment("id-1", "🔥Ana_99✨", "hola"),
                 ReaderSettings(readUsername = true)
@@ -170,7 +170,7 @@ class LiveAutomationTest {
             assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "🔥Ana_99✨")))
             assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.GIFT, "♡", "")))
             assertEquals(
-                listOf("🔥Ana_99✨ te ha seguido", "usuario te envió un regalo"),
+                listOf("Ana_99 te ha seguido", "usuario te envió un regalo"),
                 spoken
             )
         } finally {
@@ -210,16 +210,20 @@ class LiveAutomationTest {
         )
 
         assertNull(tracker.render(likes(999, start), settings))
+        val firstMilestone = likes(1, start + 1)
         assertEquals(
             "Gracias por dar me gusta @Astrid, tu apoyo es importante",
-            tracker.render(likes(1, start + 1), settings)
+            tracker.render(firstMilestone, settings)
         )
-        // The cooldown starts when the first thank-you is actually announced (start + 1).
+        tracker.confirmQueued(firstMilestone)
+        // The cooldown starts only after the queue accepts the first thank-you.
         assertNull(tracker.render(likes(50, start + 1 + LikeAlertTracker.COOLDOWN_MS - 1), settings))
+        val nextMilestone = likes(1, start + 1 + LikeAlertTracker.COOLDOWN_MS)
         assertEquals(
             "Gracias por dar me gusta @Astrid, tu apoyo es importante",
-            tracker.render(likes(1, start + 1 + LikeAlertTracker.COOLDOWN_MS), settings)
+            tracker.render(nextMilestone, settings)
         )
+        tracker.confirmQueued(nextMilestone)
     }
 
     @Test fun joinAlertsRespectFollowerOnlySettingAndUseSharedQueue() {
@@ -245,4 +249,51 @@ class LiveAutomationTest {
         }
     }
 
+
+    @Test fun rejectedLikeAlertDoesNotConsumeTheTenMinuteCooldown() {
+        val tracker = LikeAlertTracker()
+        val settings = ReaderSettings(readLikes = true)
+        val event = LiveEvent(LiveEventType.LIKE, "Astrid", "1000", receivedAt = 10_000L, userId = "user-1")
+
+        assertEquals(
+            "Gracias por dar me gusta @Astrid, tu apoyo es importante",
+            tracker.render(event, settings)
+        )
+        tracker.rollbackIfNotQueued(event)
+        val retry = event.copy(detail = "1", receivedAt = 10_001L)
+        assertEquals(
+            "Gracias por dar me gusta @Astrid, tu apoyo es importante",
+            tracker.render(retry, settings)
+        )
+        tracker.confirmQueued(retry)
+    }
+
+    @Test fun likeThanksWorkInFollowerOnlyAndEveryoneChatModes() {
+        listOf(false, true).forEach { followerOnly ->
+            val spoken = mutableListOf<String>()
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            val engine = object : SpeechEngine {
+                override suspend fun initialize() = Unit
+                override suspend fun speak(text: String) { spoken += text }
+                override suspend fun stop() = Unit
+            }
+            val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+            val pipeline = CommentPipeline(
+                CommentFilter(), queue,
+                ReaderSettings(readLikes = true, followerOnlyChat = followerOnly)
+            )
+            try {
+                assertTrue(pipeline.onEvent(
+                    LiveEvent(LiveEventType.LIKE, "🔥Ana_99✨", "1000", userId = "user-1", isFollower = null)
+                ))
+                assertEquals(
+                    listOf("Gracias por dar me gusta @Ana_99, tu apoyo es importante"),
+                    spoken
+                )
+            } finally {
+                queue.close()
+                scope.cancel()
+            }
+        }
+    }
 }

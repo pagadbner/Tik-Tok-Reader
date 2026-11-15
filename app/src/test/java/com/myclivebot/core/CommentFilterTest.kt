@@ -72,7 +72,7 @@ class CommentFilterTest {
             LiveComment("1", "🔥A✦strid_99 Pérez✨", "hola"),
             ReaderSettings(readUsername = true)
         )
-        assertEquals("🔥A✦strid_99 Pérez✨ dice: hola", result)
+        assertEquals("A✦strid_99 Pérez dice: hola", result)
     }
 
     @Test fun symbolOnlyUsernameIsSkippedAndCommentIsStillRead() {
