@@ -1,14 +1,15 @@
 package com.myclivebot
 
 import android.annotation.SuppressLint
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
@@ -39,182 +40,367 @@ private val DjCyan = Color(0xFF69DED2)
 fun DJMusicScreen(modifier: Modifier = Modifier) {
     val state by DjMusicController.state.collectAsState()
     var searchText by remember { mutableStateOf("") }
-    var webView by remember { mutableStateOf<WebView?>(null) }
-    var playerWebView by remember { mutableStateOf<WebView?>(null) }
-    var requester by remember { mutableStateOf<String?>(null) }
+    var searchView by remember { mutableStateOf<WebView?>(null) }
+    var playerView by remember { mutableStateOf<WebView?>(null) }
+    var requester by remember { mutableStateOf("Tú") }
     var searching by remember { mutableStateOf(false) }
-    var manualSearch by remember { mutableStateOf(false) }
-    var results by remember { mutableStateOf<List<DjMusicTrack>>(emptyList()) }
+    var result by remember { mutableStateOf<DjMusicTrack?>(null) }
+    var accessMenu by remember { mutableStateOf(false) }
 
-    fun search(query: String, who: String?, manual: Boolean) {
+    fun startSearch(rawQuery: String, requestedBy: String) {
+        val query = rawQuery.trim()
         if (query.isBlank()) return
-        requester = who
-        manualSearch = manual
+        requester = requestedBy
         searching = true
-        results = emptyList()
-        DjMusicController.setMessage("Buscando en YouTube: $query")
-        webView?.loadUrl("https://www.youtube.com/results?search_query=" + URLEncoder.encode(query, "UTF-8"))
-    }
-
-    LaunchedEffect(state.pendingSearches.size, webView, searching) {
-        if (webView != null && !searching && state.pendingSearches.isNotEmpty()) {
-            val request = DjMusicController.takeNextSearch()
-            if (request != null) search(request.first, request.second, false)
+        result = null
+        DjMusicController.setMessage("Buscando la primera coincidencia…")
+        val videoId = Regex("""(?:v=|youtu\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{11})""")
+            .find(query)?.groupValues?.get(1)
+        val target = if (videoId != null) {
+            "https://www.youtube.com/watch?v=$videoId"
+        } else {
+            "https://www.youtube.com/results?search_query=" + URLEncoder.encode(query, "UTF-8")
+        }
+        searchView?.loadUrl(target)
+        if (searchView == null) {
+            searching = false
+            DjMusicController.setMessage("El buscador todavía se está iniciando. Inténtalo de nuevo.")
         }
     }
 
-    Column(modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LaunchedEffect(state.pendingSearches.size, searchView, searching) {
+        if (searchView != null && !searching && state.pendingSearches.isNotEmpty()) {
+            val request = DjMusicController.takeNextSearch()
+            if (request != null) startSearch(request.first, request.second)
+        }
+    }
+
+    Column(
+        modifier = modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         Surface(color = DjPanel, shape = RoundedCornerShape(20.dp)) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.MusicNote, null, tint = DjCyan)
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
                         Text("DJ MUSIC", style = MaterialTheme.typography.titleMedium)
-                        Text("Peticiones del chat y reproductor interno", color = DjMuted, style = MaterialTheme.typography.bodySmall)
+                        Text("Buscador y reproductor de YouTube", color = DjMuted, style = MaterialTheme.typography.bodySmall)
                     }
-                    var expanded by remember { mutableStateOf(false) }
                     Box {
-                        TextButton(onClick = { expanded = true }) { Text(if (state.followersOnly) "Solo seguidores" else "Todos") }
-                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                            DropdownMenuItem(text = { Text("Todos") }, onClick = { DjMusicController.setFollowersOnly(false); expanded = false })
-                            DropdownMenuItem(text = { Text("Solo modo seguidores") }, onClick = { DjMusicController.setFollowersOnly(true); expanded = false })
+                        OutlinedButton(onClick = { accessMenu = true }) {
+                            Text(if (state.followersOnly) "Seguidores" else "Todos")
+                        }
+                        DropdownMenu(expanded = accessMenu, onDismissRequest = { accessMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Todos") },
+                                onClick = { DjMusicController.setFollowersOnly(false); accessMenu = false }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Solo modo seguidores") },
+                                onClick = { DjMusicController.setFollowersOnly(true); accessMenu = false }
+                            )
                         }
                     }
                 }
-                OutlinedTextField(value = searchText, onValueChange = { searchText = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Buscar canción o pegar URL de YouTube") }, placeholder = { Text("José José - Volcán") })
-                Button(onClick = {
-                    val id = Regex("(?:v=|youtu\\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{11})").find(searchText)?.groupValues?.get(1)
-                    if (id != null) DjMusicController.addTrack(DjMusicTrack(id, searchText, "https://i.ytimg.com/vi/$id/hqdefault.jpg"))
-                    else search(searchText.trim(), "Tú", true)
-                }, enabled = searchText.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.PlayArrow, null); Text("  BUSCAR / AGREGAR")
+
+                Surface(color = Color(0x332F9D98), shape = RoundedCornerShape(12.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("COMANDOS DEL LIVE", color = DjCyan, style = MaterialTheme.typography.labelMedium)
+                        Text("!play nombre de la canción  ·  busca y agrega la primera coincidencia", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                        Text("!skip  ·  siguiente canción (solo moderadores)", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+
+                OutlinedTextField(
+                    value = searchText,
+                    onValueChange = { searchText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Título de canción o URL de YouTube") },
+                    placeholder = { Text("José José - Volcán") }
+                )
+                Button(
+                    onClick = { startSearch(searchText, "Tú") },
+                    enabled = searchText.isNotBlank() && !searching,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.PlayArrow, null)
+                    Text(if (searching) "  BUSCANDO…" else "  BUSCAR Y AGREGAR PRIMER RESULTADO")
                 }
                 Text(state.message, color = DjMuted, style = MaterialTheme.typography.bodySmall)
             }
         }
+
         Surface(color = DjPanel, shape = RoundedCornerShape(20.dp)) {
-            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("REPRODUCTOR YOUTUBE", color = DjCyan, style = MaterialTheme.typography.labelSmall)
-                AndroidView(
-                    modifier = Modifier.size(1.dp).alpha(0f),
-                    factory = { context ->
-                        WebView(context).apply {
-                            val searchBrowser = this
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            webChromeClient = WebChromeClient()
-                            addJavascriptInterface(object {
-                                @JavascriptInterface fun onResults(json: String) {
-                                    val parsed = runCatching {
-                                        val array = JSONArray(json)
-                                        (0 until array.length()).mapNotNull { i ->
-                                            val item = array.getJSONObject(i)
-                                            val id = item.optString("id")
-                                            if (id.length != 11) null else Triple(id, item.optString("title", "YouTube"), item.optString("thumbnail"))
-                                        }
-                                    }.getOrDefault(emptyList())
-                                    searchBrowser.post {
-                                        val found = parsed.map { DjMusicTrack(it.first, it.second, it.third, requester ?: "Tú") }
-                                        results = found
-                                        searching = false
-                                        if (!manualSearch) {
-                                            val first = found.firstOrNull()
-                                            if (first != null) DjMusicController.addTrack(first)
-                                            else DjMusicController.setMessage("No se pudo identificar el primer resultado. Prueba un título más específico.")
-                                            requester = null
-                                        }
-                                    }
-                                }
-                            }, "TikLBotMusicSearch")
-                            webView = this
-                            webViewClient = object : WebViewClient() {
-                                override fun onPageFinished(view: WebView?, url: String?) {
-                                    super.onPageFinished(view, url)
-                                    if (url?.contains("youtube.com/results") == true) {
-                                        view?.evaluateJavascript("setTimeout(function(){var a=[...document.querySelectorAll('a#video-title,a[href*=\\\"watch?v=\\\"]')];var seen={};var r=[];a.forEach(function(e){var h=e.href||'';var m=h.match(/[?&]v=([^&]+)/);var id=m?m[1]:'';if(id.length!==11||seen[id])return;var p=e.closest('ytd-video-renderer,ytd-rich-item-renderer,ytm-rich-item-renderer,ytm-video-with-context-renderer')||e.parentElement;var im=p&&p.querySelector('img');var title=(e.innerText||e.getAttribute('aria-label')||e.title||(p&&p.innerText)||'').trim();if(!title)return;seen[id]=1;r.push({id:id,title:title,thumbnail:im?(im.currentSrc||im.src):''});});window.TikLBotMusicSearch.onResults(JSON.stringify(r.slice(0,8)));},1500);", null)
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    update = { view -> webView = view }
-                )
-                Text("RESULTADOS DE BÚSQUEDA", color = DjCyan, style = MaterialTheme.typography.labelSmall)
-                if (searching) LinearProgressIndicator(Modifier.fillMaxWidth())
-                results.forEach { track ->
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("RESULTADO SELECCIONADO", color = DjCyan, style = MaterialTheme.typography.labelMedium)
+                if (searching) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text("Buscando título, carátula y enlace del primer resultado…", color = DjMuted, style = MaterialTheme.typography.bodySmall)
+                }
+                val selected = result ?: state.currentTrack
+                if (selected != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        AsyncImage(model = track.thumbnailUrl, contentDescription = null, modifier = Modifier.size(76.dp, 48.dp).clip(RoundedCornerShape(8.dp)))
-                        Text(track.title, modifier = Modifier.weight(1f).padding(horizontal = 8.dp), maxLines = 2, style = MaterialTheme.typography.bodySmall)
-                        IconButton(onClick = { DjMusicController.addTrack(track); results = emptyList() }) { Icon(Icons.Default.PlayArrow, contentDescription = "Agregar") }
+                        AsyncImage(
+                            model = selected.thumbnailUrl.ifBlank { "https://i.ytimg.com/vi/${selected.videoId}/hqdefault.jpg" },
+                            contentDescription = "Carátula de ${selected.title}",
+                            modifier = Modifier.size(104.dp, 72.dp).clip(RoundedCornerShape(12.dp))
+                        )
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Text(selected.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
+                            Text("Primera coincidencia de YouTube", color = DjMuted, style = MaterialTheme.typography.bodySmall)
+                        }
                     }
+                } else if (!searching) {
+                    Text("Busca una canción o solicita !play en el LIVE.", color = DjMuted, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
+
         Surface(color = DjPanel, shape = RoundedCornerShape(20.dp)) {
-            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("REPRODUCTOR", color = DjCyan, style = MaterialTheme.typography.labelSmall)
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("EN REPRODUCCIÓN", color = DjCyan, style = MaterialTheme.typography.labelMedium)
+                val current = state.currentTrack
+                if (current == null) {
+                    Text("Todavía no hay una canción en reproducción.", color = DjMuted, style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AsyncImage(
+                            model = current.thumbnailUrl.ifBlank { "https://i.ytimg.com/vi/${current.videoId}/hqdefault.jpg" },
+                            contentDescription = "Carátula de ${current.title}",
+                            modifier = Modifier.size(88.dp).clip(RoundedCornerShape(14.dp))
+                        )
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Text(current.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
+                            Text("Solicitada por ${current.requestedBy}", color = DjMuted, style = MaterialTheme.typography.bodySmall)
+                        }
+                        IconButton(onClick = { DjMusicController.skip() }) {
+                            Icon(Icons.Default.SkipNext, contentDescription = "Siguiente canción", tint = DjCyan)
+                        }
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = {
+                        val nextMuted = !state.muted
+                        DjMusicController.setMuted(nextMuted)
+                        playerView?.evaluateJavascript("setMuted($nextMuted)", null)
+                    }) {
+                        Icon(
+                            if (state.muted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                            contentDescription = if (state.muted) "Activar sonido" else "Silenciar",
+                            tint = DjCyan
+                        )
+                    }
+                    Slider(
+                        value = state.volume.toFloat(),
+                        onValueChange = {
+                            DjMusicController.setVolume(it.toInt())
+                            playerView?.evaluateJavascript("setVolume(${it.toInt()})", null)
+                        },
+                        valueRange = 0f..100f,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text("${state.volume}%", color = DjMuted, style = MaterialTheme.typography.labelSmall)
+                }
+
+                Text("REPRODUCTOR OFICIAL DE YOUTUBE", color = DjMuted, style = MaterialTheme.typography.labelSmall)
                 AndroidView(
                     modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(14.dp)),
                     factory = { context ->
                         WebView(context).apply {
-                            val playerBrowser = this
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             settings.mediaPlaybackRequiresUserGesture = false
+                            settings.loadsImagesAutomatically = true
+                            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                             webChromeClient = WebChromeClient()
+                            webViewClient = WebViewClient()
                             addJavascriptInterface(object {
-                                @JavascriptInterface fun onPlayerEnded() { playerBrowser.post { DjMusicController.skip("La canción terminó.") } }
+                                @JavascriptInterface
+                                fun onPlayerEnded() {
+                                    post { DjMusicController.skip("La canción terminó.") }
+                                }
+                                @JavascriptInterface
+                                fun onPlayerError(code: Int) {
+                                    post { DjMusicController.setMessage("YouTube no pudo reproducir este video (error $code). Prueba otra coincidencia.") }
+                                }
                             }, "TikLBotMusicPlayer")
-                            playerWebView = this
+                            playerView = this
                         }
                     },
                     update = { view ->
-                        playerWebView = view
+                        playerView = view
                         val track = state.currentTrack
                         val tag = track?.videoId ?: "empty-player"
                         if (view.tag != tag) {
                             view.tag = tag
                             if (track == null) {
-                                view.loadDataWithBaseURL("https://www.youtube.com", "<html><body style='margin:0;background:#080b14'></body></html>", "text/html", "UTF-8", null)
+                                view.loadDataWithBaseURL(
+                                    "https://www.youtube.com/",
+                                    "<html><body style='margin:0;background:#111827;color:#b8bbd0;font-family:sans-serif;display:grid;place-items:center;height:100vh'>El reproductor aparecerá aquí</body></html>",
+                                    "text/html", "UTF-8", null
+                                )
                             } else {
-                                val muteJs = if (state.muted) "e.target.mute();" else "e.target.unMute();"
-                                val html = "<!doctype html><html><body style='margin:0;background:#000'><div id='player'></div><script src='https://www.youtube.com/iframe_api'></script><script>var player;function onYouTubeIframeAPIReady(){player=new YT.Player('player',{width:'100%',height:'220',videoId:'" + track.videoId + "',playerVars:{autoplay:1,playsinline:1,rel:0},events:{onReady:function(e){e.target.setVolume(" + state.volume + ");" + muteJs + "e.target.playVideo();},onStateChange:function(e){if(e.data===0)TikLBotMusicPlayer.onPlayerEnded();}}});}function setVolume(v){if(player)player.setVolume(v);}function setMuted(v){if(player){if(v)player.mute();else player.unMute();}}</script></body></html>"
-                                view.loadDataWithBaseURL("https://www.youtube.com", html, "text/html", "UTF-8", null)
+                                val html = """
+                                    <!doctype html>
+                                    <html>
+                                    <head>
+                                      <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+                                      <style>html,body,#player{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden}</style>
+                                    </head>
+                                    <body>
+                                      <div id="player"></div>
+                                      <script>
+                                        var player;
+                                        function onYouTubeIframeAPIReady() {
+                                          player = new YT.Player('player', {
+                                            width:'100%', height:'220',
+                                            videoId:'${track.videoId}',
+                                            host:'https://www.youtube.com',
+                                            playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'https://www.youtube.com'},
+                                            events:{
+                                              onReady:function(e){e.target.setVolume(${state.volume});if(${state.muted})e.target.mute();e.target.playVideo();},
+                                              onStateChange:function(e){if(e.data===0)TikLBotMusicPlayer.onPlayerEnded();},
+                                              onError:function(e){TikLBotMusicPlayer.onPlayerError(e.data);}
+                                            }
+                                          });
+                                        }
+                                        function setVolume(v){if(player && player.setVolume)player.setVolume(v);}
+                                        function setMuted(v){if(player){if(v)player.mute();else player.unMute();}}
+                                      </script>
+                                      <script src="https://www.youtube.com/iframe_api"></script>
+                                    </body>
+                                    </html>
+                                """.trimIndent()
+                                view.loadDataWithBaseURL("https://www.youtube.com/", html, "text/html", "UTF-8", null)
                             }
                         } else {
-                            view.evaluateJavascript("if(typeof setVolume==='function')setVolume(${state.volume});if(typeof setMuted==='function')setMuted(${state.muted});", null)
+                            view.evaluateJavascript(
+                                "if(typeof setVolume==='function')setVolume(${state.volume});if(typeof setMuted==='function')setMuted(${state.muted});",
+                                null
+                            )
                         }
                     }
                 )
             }
         }
+
         Surface(color = DjPanel, shape = RoundedCornerShape(20.dp)) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("EN REPRODUCCIÓN", color = DjCyan, style = MaterialTheme.typography.labelSmall)
-                val current = state.currentTrack
-                if (current == null) Text("No hay ninguna canción reproduciéndose.", color = DjMuted, style = MaterialTheme.typography.bodySmall)
-                else Row(verticalAlignment = Alignment.CenterVertically) {
-                    AsyncImage(model = current.thumbnailUrl, contentDescription = null, modifier = Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)))
-                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                        Text(current.title, maxLines = 2)
-                        Text("Solicitada por ${current.requestedBy}", color = DjMuted, style = MaterialTheme.typography.labelSmall)
-                    }
-                    IconButton(onClick = { DjMusicController.skip() }) { Icon(Icons.Default.SkipNext, contentDescription = "Siguiente") }
-                }
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { DjMusicController.setMuted(!state.muted); playerWebView?.evaluateJavascript("setMuted(${!state.muted})", null) }) { Icon(if (state.muted) Icons.Default.VolumeOff else Icons.Default.VolumeUp, contentDescription = "Silenciar") }
-                    Slider(value = state.volume.toFloat(), onValueChange = { DjMusicController.setVolume(it.toInt()); playerWebView?.evaluateJavascript("setVolume(${it.toInt()})", null) }, valueRange = 0f..100f, modifier = Modifier.weight(1f))
-                    Text("${state.volume}%", color = DjMuted, style = MaterialTheme.typography.labelSmall)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("COLA (${state.queue.size})", color = DjCyan, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                    Text("COLA DE REPRODUCCIÓN", color = DjCyan, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
+                    Text("${state.queue.size} canciones", color = DjMuted, style = MaterialTheme.typography.labelSmall)
                     TextButton(onClick = { DjMusicController.clearQueue() }, enabled = state.queue.isNotEmpty()) { Text("Vaciar") }
                 }
-                state.queue.forEachIndexed { i, track -> Text("${i + 1}. ${track.title}", color = DjMuted, maxLines = 1, style = MaterialTheme.typography.bodySmall) }
-                if (state.queue.isEmpty()) Text("La cola está vacía.", color = DjMuted, style = MaterialTheme.typography.bodySmall)
+                if (state.queue.isEmpty()) {
+                    Text("La cola está vacía.", color = DjMuted, style = MaterialTheme.typography.bodySmall)
+                } else {
+                    state.queue.forEachIndexed { index, track ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            AsyncImage(
+                                model = track.thumbnailUrl.ifBlank { "https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg" },
+                                contentDescription = null,
+                                modifier = Modifier.size(54.dp, 42.dp).clip(RoundedCornerShape(8.dp))
+                            )
+                            Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                                Text("${index + 1}. ${track.title}", maxLines = 2, style = MaterialTheme.typography.bodySmall)
+                                Text("Por ${track.requestedBy}", color = DjMuted, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
             }
         }
-        Text("Comandos LIVE: !play título de la canción · !skip (solo moderadores). La selección automática depende de la estructura visible de YouTube y puede dejar de funcionar si YouTube la modifica.", color = DjMuted, style = MaterialTheme.typography.bodySmall)
     }
+
+    AndroidView(
+        modifier = Modifier.size(2.dp).alpha(0.01f),
+        factory = { context ->
+            WebView(context).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.loadsImagesAutomatically = true
+                webChromeClient = WebChromeClient()
+                webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        if (view == null || url == null) return
+                        val script = """
+                            (function(){
+                              function send(items){
+                                var seen={}, out=[];
+                                items.forEach(function(x){
+                                  if(!x || !x.videoId || seen[x.videoId]) return;
+                                  seen[x.videoId]=1;
+                                  var thumbs=x.thumbnails||[];
+                                  thumbs.sort(function(a,b){return (b.width||0)-(a.width||0);});
+                                  out.push({id:x.videoId,title:x.title||'Video de YouTube',thumbnail:(thumbs[0]&&thumbs[0].url)||''});
+                                });
+                                if(out.length) TikLBotMusicSearch.onResults(JSON.stringify(out[0]));
+                              }
+                              if(location.pathname.indexOf('/watch')===0){
+                                var d=window.ytInitialPlayerResponse&&window.ytInitialPlayerResponse.videoDetails;
+                                if(d){send([{videoId:d.videoId,title:d.title,thumbnails:d.thumbnail&&d.thumbnail.thumbnails}]);return;}
+                              }
+                              var data=window.ytInitialData, found=[];
+                              function walk(o){
+                                if(!o||typeof o!=='object')return;
+                                if(o.videoRenderer&&o.videoRenderer.videoId){
+                                  var v=o.videoRenderer;
+                                  found.push({videoId:v.videoId,title:(v.title&&((v.title.runs||[]).map(function(r){return r.text}).join('')||v.title.simpleText))||'',thumbnails:(v.thumbnail&&v.thumbnail.thumbnails)||[]});
+                                }
+                                Object.keys(o).forEach(function(k){if(k!=='videoRenderer')walk(o[k]);});
+                              }
+                              walk(data);
+                              if(!found.length){
+                                document.querySelectorAll('a#video-title,a[href*="watch?v="]').forEach(function(a){
+                                  var m=(a.href||'').match(/[?&]v=([^&]+)/);if(!m)return;
+                                  var p=a.closest('ytd-video-renderer,ytd-rich-item-renderer,ytm-video-with-context-renderer')||a.parentElement;
+                                  var im=p&&p.querySelector('img');
+                                  found.push({videoId:m[1],title:(a.innerText||a.title||a.getAttribute('aria-label')||'').trim(),thumbnails:im?[{url:im.currentSrc||im.src,width:640}]:[]});
+                                });
+                              }
+                              send(found);
+                            })();
+                        """.trimIndent()
+                        val js = "setTimeout(function(){ $script }, 1800);"
+                        view.evaluateJavascript(js, null)
+                    }
+                }
+                addJavascriptInterface(object {
+                    @JavascriptInterface
+                    fun onResults(json: String) {
+                        val track = runCatching {
+                            val item = org.json.JSONObject(json)
+                            val id = item.optString("id")
+                            if (id.length != 11) null else DjMusicTrack(
+                                videoId = id,
+                                title = item.optString("title").ifBlank { "Video de YouTube" },
+                                thumbnailUrl = item.optString("thumbnail").ifBlank { "https://i.ytimg.com/vi/$id/hqdefault.jpg" },
+                                requestedBy = requester
+                            )
+                        }.getOrNull()
+                        post {
+                            searching = false
+                            if (track != null) {
+                                result = track
+                                DjMusicController.addTrack(track)
+                            } else {
+                                DjMusicController.setMessage("No se pudo leer el primer resultado. Prueba otro título o URL.")
+                            }
+                        }
+                    }
+                }, "TikLBotMusicSearch")
+                searchView = this
+            }
+        },
+        update = { searchView = it }
+    )
 }
