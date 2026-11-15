@@ -19,6 +19,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -96,7 +97,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
             Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("REPRODUCTOR YOUTUBE", color = DjCyan, style = MaterialTheme.typography.labelSmall)
                 AndroidView(
-                    modifier = Modifier.fillMaxWidth().height(170.dp).clip(RoundedCornerShape(14.dp)),
+                    modifier = Modifier.size(1.dp).alpha(0f),
                     factory = { context ->
                         WebView(context).apply {
                             val searchBrowser = this
@@ -139,7 +140,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                     },
                     update = { view -> webView = view }
                 )
-                Text("RESULTADOS DE YOUTUBE", color = DjCyan, style = MaterialTheme.typography.labelSmall)
+                Text("RESULTADOS DE BÚSQUEDA", color = DjCyan, style = MaterialTheme.typography.labelSmall)
                 if (searching) LinearProgressIndicator(Modifier.fillMaxWidth())
                 results.forEach { track ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
