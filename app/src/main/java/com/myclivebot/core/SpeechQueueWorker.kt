@@ -77,7 +77,7 @@ class SpeechQueueWorker(
                 // Prefer fresh LIVE chat over stale backlog: keep the utterance
                 // currently being spoken, evict the oldest pending comment.
                 if (queue.size >= limit) queue.removeFirst()
-                queue.addLast(text)
+                queue.addLast(QueuedSpeech(text, itemId))
                 true
             }
         }
