@@ -43,29 +43,10 @@ object ChatCommandParser {
         val normalized = java.text.Normalizer.normalize(input.trim(), java.text.Normalizer.Form.NFC)
         if (normalized.isBlank()) return "usuario"
 
-        val output = StringBuilder(normalized.length)
-        var pendingSpace = false
-        var hasLetter = false
-        var invalidCharacter = false
-        normalized.codePoints().forEach { codePoint ->
-            when {
-                Character.isLetterOrDigit(codePoint) -> {
-                    if (pendingSpace && output.isNotEmpty()) output.append(' ')
-                    output.appendCodePoint(codePoint)
-                    pendingSpace = false
-                    if (Character.isLetter(codePoint)) hasLetter = true
-                }
-                Character.getType(codePoint) == Character.NON_SPACING_MARK.toInt() ||
-                    Character.getType(codePoint) == Character.COMBINING_SPACING_MARK.toInt() ||
-                    Character.getType(codePoint) == Character.ENCLOSING_MARK.toInt() -> {
-                    if (output.isEmpty()) invalidCharacter = true
-                    else output.appendCodePoint(codePoint)
-                }
-                Character.isWhitespace(codePoint) -> pendingSpace = output.isNotEmpty()
-                else -> invalidCharacter = true
-            }
-        }
-        return if (invalidCharacter || !hasLetter) "usuario" else output.toString().trim().ifBlank { "usuario" }
+        // Keep the complete display name, including emojis and decorative symbols.
+        // Only names made entirely of symbols/whitespace (no letters or digits) use the fallback.
+        val hasWordCharacter = normalized.codePoints().anyMatch { Character.isLetterOrDigit(it) }
+        return if (hasWordCharacter) normalized else "usuario"
     }
 }
 
