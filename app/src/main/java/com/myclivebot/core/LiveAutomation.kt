@@ -100,6 +100,8 @@ object GiftAlertRules {
             .takeIf { it.isNotBlank() }
     }
 
+}
+
 /** Limits share announcements to two per user during one LIVE session. */
 class ShareAlertTracker {
     private val announcementsByUser = HashMap<String, Int>()
@@ -151,4 +153,3 @@ class LikeAlertTracker {
     }
 }
 
-}
