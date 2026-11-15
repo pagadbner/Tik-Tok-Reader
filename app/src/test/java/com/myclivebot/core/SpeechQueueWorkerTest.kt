@@ -26,9 +26,9 @@ class SpeechQueueWorkerTest {
 
         try {
             assertTrue(worker.enqueue("currently speaking"))
-            assertTrue(worker.enqueue("skip this"))
-            assertTrue(worker.enqueue("keep this"))
-            assertTrue(worker.skipNextComment())
+            assertTrue(worker.enqueue("skip this", itemId = "comment-2"))
+            assertTrue(worker.enqueue("keep this", itemId = "comment-3"))
+            assertTrue(worker.skipComment("comment-2"))
             assertEquals(1, worker.queuedCount())
             gate.complete(Unit)
             assertEquals(listOf("currently speaking", "keep this"), spoken)
