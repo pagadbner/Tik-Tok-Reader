@@ -236,9 +236,11 @@ internal object EdgeSecMsGec {
     )
 
     fun generate(nowSeconds: Long = System.currentTimeMillis() / 1000L): String {
-        val rounded = ((nowSeconds + WINDOWS_EPOCH_SECONDS) / 300L) * 300L
-        val ticks = rounded * 10_000_000L
-        val data = "${ticks}$TRUSTED_TOKEN".toByteArray(Charsets.US_ASCII)
+        // Match the upstream Edge client floating-point timestamp path exactly.
+        val epochSeconds = nowSeconds.toDouble() + WINDOWS_EPOCH_SECONDS.toDouble()
+        val roundedSeconds = epochSeconds - (epochSeconds % 300.0)
+        val ticks = String.format(Locale.US, "%.0f", roundedSeconds * 10_000_000.0)
+        val data = "$ticks$TRUSTED_TOKEN".toByteArray(Charsets.US_ASCII)
         val digest = customSha256(data)
         val keyA = (readLittleEndian(digest, 0) or 1L) and MASK
         val keyB = (readLittleEndian(digest, 4) or 1L) and MASK
