@@ -85,14 +85,6 @@ class SpeechQueueWorker(
         return accepted
     }
 
-    /** Drops the next pending chat comment without interrupting the utterance in progress or priority alerts. */
-    fun skipNextComment(): Boolean = synchronized(lock) {
-        if (normalQueue.isEmpty()) false else {
-            normalQueue.removeFirst()
-            true
-        }
-    }
-
     /** Removes one pending chat utterance by its originating LIVE comment ID. */
     fun skipComment(itemId: String): Boolean = synchronized(lock) {
         val queued = normalQueue.firstOrNull { it.itemId == itemId } ?: return@synchronized false
