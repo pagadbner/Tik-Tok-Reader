@@ -60,6 +60,7 @@ class SelectableSpeechEngine(context: Context, initial: ReaderSettings, private 
 
     fun release() {
         piper.release()
+        tikFinity.release()
     }
 
     companion object {
