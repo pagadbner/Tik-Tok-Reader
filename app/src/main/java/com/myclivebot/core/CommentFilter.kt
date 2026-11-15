@@ -79,10 +79,12 @@ class CommentFilter {
         val sourceToFilter = if (settings.onlyUsername) comment.displayName else comment.text
         val cleanText = sourceToFilter.trim().replace(Regex("\\s+"), " ")
         if (cleanText.isBlank() || cleanText.length > settings.maxCommentLength.coerceAtLeast(1)) return false
-        val normalized = cleanText.lowercase()
+        val normalized = cleanText.lowercase(java.util.Locale.ROOT)
         if (settings.blockedWords.any { word ->
-                val needle = word.trim().lowercase()
-                needle.isNotEmpty() && normalized.contains(needle)
+                val needle = word.trim().lowercase(java.util.Locale.ROOT)
+                needle.isNotEmpty() && Regex(
+                    "(?<![\\\\p{L}\\\\p{N}_])${Regex.escape(needle)}(?![\\\\p{L}\\\\p{N}_])"
+                ).containsMatchIn(normalized)
             }) return false
 
         val now = comment.receivedAt
