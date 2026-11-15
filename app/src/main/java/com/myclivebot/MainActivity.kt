@@ -251,7 +251,7 @@ class MainActivity : ComponentActivity() {
                             factory = { context ->
                                 ImageView(context).apply {
                                     setImageResource(R.mipmap.ic_launcher)
-                                    contentDescription = "TikTok Live Reader"
+                                    contentDescription = "Tik Tok Reader"
                                     scaleType = ImageView.ScaleType.FIT_CENTER
                                 }
                             },
@@ -569,7 +569,7 @@ private fun BotApp(
                     TopAppBar(
                         title = {
                             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                                Text("TIKTOK LIVE READER", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleSmall, letterSpacing = 1.1.sp)
+                                Text("TIK TOK READER", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleSmall, letterSpacing = 1.1.sp)
                                 Text("PIPER OFFLINE · CONTROL EN VIVO", style = MaterialTheme.typography.labelSmall, color = Cyan, letterSpacing = .8.sp)
                             }
                         },
@@ -1075,7 +1075,7 @@ private fun BotApp(
                     }
 
                     Text(
-                        "TIKTOK LIVE READER  •  v0.13.4  •  BY ROXI",
+                        "TIK TOK READER  •  v0.13.4  •  BY ROXI",
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         color = Muted.copy(alpha = .7f),
                         style = MaterialTheme.typography.labelSmall,
