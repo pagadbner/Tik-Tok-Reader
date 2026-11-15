@@ -182,6 +182,17 @@ class TikFinitySpeechEngine(
 
     override suspend fun stop() {
         activeCall?.cancel()
+        cancelPlaybackImmediately()
+    }
+
+    fun release() {
+        activeCall?.cancel()
+        cancelPlaybackImmediately()
+        client.dispatcher.executorService.shutdown()
+        client.connectionPool.evictAll()
+    }
+
+    private fun cancelPlaybackImmediately() {
         val cancelPlayback = {
             val stop = stopPlayback
             if (stop != null) stop() else {
