@@ -384,7 +384,8 @@ class BotForegroundService : Service() {
     }
 
     private fun reportSpeechError(error: Throwable) {
-        val message = error.message ?: "no se pudo generar el audio"
+        val message = (error.message ?: "falló la generación del audio")
+            .replace("no se pudo", "falló", ignoreCase = true)
         val status = if (activeSettings != null && lastKnownStatus.contains("conect", ignoreCase = true)) {
             "Conectado · Error de TikFinity API: $message"
         } else {
