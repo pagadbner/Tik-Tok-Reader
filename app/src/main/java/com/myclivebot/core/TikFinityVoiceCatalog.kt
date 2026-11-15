@@ -11,7 +11,8 @@ object TikFinityVoiceCatalog {
         TikFinityVoice("en_female_f08_salut_damour", "English · Salut d'amour", "Voz inglesa femenina"),
         TikFinityVoice("en_male_m03_lobby", "English · Lobby", "Voz inglesa masculina"),
         TikFinityVoice("en_female_f08_warmy_breeze", "English · Warmy Breeze", "Voz inglesa femenina"),
-        TikFinityVoice("en_male_m03_sunshine_soon", "English · Sunshine Soon", "Voz inglesa masculina")
+        TikFinityVoice("en_male_m03_sunshine_soon", "English · Sunshine Soon", "Voz inglesa masculina"),
+        TikFinityVoice("en_random_singing", "Random singing", "Voz de canto aleatoria")
     )
 
     fun find(id: String): TikFinityVoice = voices.firstOrNull { it.id == id } ?: voices.first()
