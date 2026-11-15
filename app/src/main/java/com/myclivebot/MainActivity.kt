@@ -55,7 +55,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
 import java.io.File
 
 private val Night = Color(0xFF090B18)
@@ -73,6 +72,8 @@ class MainActivity : ComponentActivity() {
     private val liveCommentIds = HashSet<String>()
     private val voiceMutedFromService = mutableStateOf(false)
     private var statusReceiverRegistered = false
+    private var liveChatGeneration = 0L
+    private var clearHistoryOnFirstStart = false
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -104,30 +105,22 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    private fun clearLiveChat() {
+    private fun clearLiveChat(clearPersistentHistory: Boolean = true) {
+        // Invalidate history reads already in flight so they cannot restore
+        // old messages after a user-initiated clear.
+        liveChatGeneration++
         liveComments.clear()
         liveCommentIds.clear()
-        lifecycleScope.launch(Dispatchers.IO) {
-            val store = LiveChatHistoryStore(this@MainActivity)
-            try {
-                store.clear()
-            } finally {
-                store.close()
+        if (clearPersistentHistory) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                val store = LiveChatHistoryStore(this@MainActivity)
+                try {
+                    store.clear()
+                } finally {
+                    store.close()
+                }
             }
         }
-    }
-
-    private fun clearStoredLiveChatBlocking() {
-        runBlocking(Dispatchers.IO) {
-            val store = LiveChatHistoryStore(this@MainActivity)
-            try {
-                store.clear()
-            } finally {
-                store.close()
-            }
-        }
-        liveComments.clear()
-        liveCommentIds.clear()
     }
 
     private fun insertLiveComment(comment: LiveCommentUi) {
@@ -147,9 +140,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
-        // A fresh app launch starts with an empty visual chat; the active LIVE
-        // service can continue publishing new messages after the screen opens.
-        if (savedInstanceState == null) clearStoredLiveChatBlocking()
+        // A cold launch clears old session history asynchronously in onStart.
+        // The foreground LIVE service itself is never stopped or modified.
+        clearHistoryOnFirstStart = savedInstanceState == null
         if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         setContent {
             var showBrandSplash by remember { mutableStateOf(true) }
@@ -239,7 +232,7 @@ class MainActivity : ComponentActivity() {
                 },
                 onStop = {
                     readerStatus.value = "Detenido"
-                    clearLiveChat()
+                    clearLiveChat(clearPersistentHistory = false)
                     startService(Intent(this@MainActivity, BotForegroundService::class.java).setAction(BotForegroundService.ACTION_STOP))
                 },
                 onClearChat = { clearLiveChat() },
@@ -348,15 +341,21 @@ class MainActivity : ComponentActivity() {
             }
             statusReceiverRegistered = true
         }
+        val generationAtLoad = liveChatGeneration
+        val shouldClearOldHistory = clearHistoryOnFirstStart
+        clearHistoryOnFirstStart = false
         lifecycleScope.launch {
             val history = withContext(Dispatchers.IO) {
                 val store = LiveChatHistoryStore(this@MainActivity)
                 try {
+                    if (shouldClearOldHistory) store.clear()
                     store.getAll()
                 } finally {
                     store.close()
                 }
             }
+            // STOP or manual clear can happen while the database read is active.
+            if (generationAtLoad != liveChatGeneration) return@launch
             history.forEach { comment ->
                 insertLiveComment(
                     LiveCommentUi(
@@ -374,7 +373,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        if (isFinishing) clearStoredLiveChatBlocking()
+        // Avoid synchronous database work during Activity destruction.
+        // Task removal and the next cold launch clear the stored session history.
         super.onDestroy()
     }
 
