@@ -12,6 +12,21 @@ class CommentFilterTest {
         assertFalse(filter.shouldRead(LiveComment("1", "Ana", "hay un SPOILER"), settings))
     }
 
+    @Test fun blockedWordsMatchWholeWordsNotSubstrings() {
+        val filter = CommentFilter()
+        val settings = ReaderSettings(blockedWords = setOf("art"))
+        assertTrue(filter.shouldRead(LiveComment("1", "Ana", "me gusta esta parte"), settings))
+        assertTrue(filter.shouldRead(LiveComment("2", "Luis", "eso es arte"), settings))
+        assertFalse(filter.shouldRead(LiveComment("3", "Mia", "¡ART!"), settings))
+    }
+
+    @Test fun blockedWordPhrasesRespectWordBoundaries() {
+        val filter = CommentFilter()
+        val settings = ReaderSettings(blockedWords = setOf("malas palabras"))
+        assertTrue(filter.shouldRead(LiveComment("1", "Ana", "no digo malas palabrasx"), settings))
+        assertFalse(filter.shouldRead(LiveComment("2", "Luis", "evita malas palabras, por favor"), settings))
+    }
+
     @Test fun blocksIgnoredUsers() {
         val filter = CommentFilter()
         val settings = ReaderSettings(ignoredUsers = setOf("troll"))

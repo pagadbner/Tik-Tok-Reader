@@ -6,6 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import org.junit.Test
@@ -194,10 +195,67 @@ class LiveAutomationTest {
         assertNull(tracker.render(share, followerOnly))
 
         val followerShare = share.copy(isFollower = true)
-        assertEquals("@Ana ha compartido el live", tracker.render(followerShare, followerOnly))
-        assertEquals("@Ana ha compartido el live", tracker.render(followerShare, followerOnly))
-        assertNull(tracker.render(followerShare, followerOnly))
+        val firstAnnouncement = tracker.render(followerShare, followerOnly)
+        assertEquals("@Ana ha compartido el live", firstAnnouncement)
+        tracker.confirmQueued(followerShare)
+        val secondAnnouncement = followerShare.copy(receivedAt = followerShare.receivedAt + 1)
+        assertEquals("@Ana ha compartido el live", tracker.render(secondAnnouncement, followerOnly))
+        tracker.confirmQueued(secondAnnouncement)
+        assertNull(tracker.render(secondAnnouncement.copy(receivedAt = secondAnnouncement.receivedAt + 1), followerOnly))
         assertNull(tracker.render(followerShare, ReaderSettings(readShares = false)))
+    }
+
+    @Test fun shareAlertRetriesWhenPrioritySpeechQueueWasFull() {
+        val spoken = mutableListOf<String>()
+        val releaseFirstSpeech = CompletableDeferred<Unit>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                if (text == "bloqueo") releaseFirstSpeech.await()
+                spoken += text
+            }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4, priorityCapacity = 1)
+        val pipeline = CommentPipeline(CommentFilter(), queue, ReaderSettings(readShares = true))
+        val share = LiveEvent(
+            LiveEventType.SHARE, "Ana", receivedAt = 30_000L, userId = "user-1"
+        )
+
+        try {
+            assertTrue(queue.enqueue("bloqueo", priority = true))
+            assertTrue(queue.enqueue("ocupado", priority = true))
+            assertFalse(pipeline.onEvent(share))
+
+            releaseFirstSpeech.complete(Unit)
+            assertTrue(pipeline.onEvent(share.copy(receivedAt = 30_001L)))
+            assertTrue(spoken.contains("@Ana ha compartido el live"))
+        } finally {
+            releaseFirstSpeech.complete(Unit)
+            queue.close()
+            scope.cancel()
+        }
+    }
+
+    @Test fun rejectedShareAlertDoesNotConsumePerUserAnnouncementLimit() {
+        val tracker = ShareAlertTracker()
+        val settings = ReaderSettings(readShares = true)
+        val first = LiveEvent(
+            LiveEventType.SHARE, "Ana", receivedAt = 20_000L, userId = "user-1"
+        )
+
+        assertEquals("@Ana ha compartido el live", tracker.render(first, settings))
+        tracker.rollbackIfNotQueued(first)
+
+        val retry = first.copy(receivedAt = 20_001L)
+        assertEquals("@Ana ha compartido el live", tracker.render(retry, settings))
+        tracker.confirmQueued(retry)
+
+        val second = retry.copy(receivedAt = 20_002L)
+        assertEquals("@Ana ha compartido el live", tracker.render(second, settings))
+        tracker.confirmQueued(second)
+        assertNull(tracker.render(second.copy(receivedAt = 20_003L), settings))
     }
 
     @Test fun likeAlertsAccumulatePerUserAndRepeatOnlyAfterTenMinutes() {

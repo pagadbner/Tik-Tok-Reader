@@ -107,9 +107,16 @@ class CommentPipeline(
         if (speech.isBlank()) return false
         // Alerts use the priority lane so they are not buried under chat backlog.
         val queued = speechQueue.enqueue(speech, priority = true)
-        if (event.type == LiveEventType.LIKE) {
-            if (queued) likeAlertTracker.confirmQueued(event)
-            else likeAlertTracker.rollbackIfNotQueued(event)
+        when (event.type) {
+            LiveEventType.LIKE -> {
+                if (queued) likeAlertTracker.confirmQueued(event)
+                else likeAlertTracker.rollbackIfNotQueued(event)
+            }
+            LiveEventType.SHARE -> {
+                if (queued) shareAlertTracker.confirmQueued(event)
+                else shareAlertTracker.rollbackIfNotQueued(event)
+            }
+            else -> Unit
         }
         if (queued) eventsQueued.incrementAndGet()
         return queued

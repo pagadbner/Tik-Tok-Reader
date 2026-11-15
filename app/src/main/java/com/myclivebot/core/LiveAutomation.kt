@@ -118,20 +118,43 @@ object GiftAlertRules {
 
 /** Limits share announcements to two per user during one LIVE session. */
 class ShareAlertTracker {
-    private val announcementsByUser = HashMap<String, Int>()
+    private data class UserShares(
+        var confirmedCount: Int = 0,
+        var pendingAt: Long? = null
+    )
+    private val sharesByUser = HashMap<String, UserShares>()
 
     @Synchronized
     fun render(event: LiveEvent, settings: ReaderSettings): String? {
         if (event.type != LiveEventType.SHARE || !settings.readShares) return null
         if (settings.shareFollowerOnly && event.isFollower != true) return null
-        val key = event.userId.trim().ifBlank { event.displayName.trim() }.lowercase(Locale.ROOT)
+        val key = userKey(event)
         if (key.isBlank()) return null
-        val sent = announcementsByUser[key] ?: 0
-        if (sent >= MAX_ANNOUNCEMENTS_PER_USER) return null
-        announcementsByUser[key] = sent + 1
+        val state = sharesByUser.getOrPut(key) { UserShares() }
+        if (state.confirmedCount >= MAX_ANNOUNCEMENTS_PER_USER || state.pendingAt != null) return null
+        // Reserve the slot; count it only after the priority speech queue accepts it.
+        state.pendingAt = event.receivedAt
         val name = ChatCommandParser.spokenUsername(event.displayName)
         return "@${name.removePrefix("@")} ha compartido el live"
     }
+
+    @Synchronized
+    fun confirmQueued(event: LiveEvent) {
+        val state = sharesByUser[userKey(event)] ?: return
+        if (state.pendingAt == event.receivedAt) {
+            state.pendingAt = null
+            state.confirmedCount++
+        }
+    }
+
+    @Synchronized
+    fun rollbackIfNotQueued(event: LiveEvent) {
+        val state = sharesByUser[userKey(event)] ?: return
+        if (state.pendingAt == event.receivedAt) state.pendingAt = null
+    }
+
+    private fun userKey(event: LiveEvent): String =
+        event.userId.trim().ifBlank { event.displayName.trim() }.lowercase(Locale.ROOT)
 
     companion object {
         const val MAX_ANNOUNCEMENTS_PER_USER = 2
