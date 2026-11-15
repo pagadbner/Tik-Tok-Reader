@@ -101,11 +101,14 @@ class CommentFilterTest {
     }
 
     @Test fun allowsLatinSpanishAndEnglishButRejectsOtherWritingSystems() {
-        assertTrue(CommentLanguageFilter.isSupported("¡Qué tal! How are you?"))
-        assertFalse(CommentLanguageFilter.isSupported("مرحبا كيف حالك"))
+        assertTrue(CommentLanguageFilter.isSupported("¡Qué tal!", "es-MX"))
+        assertTrue(CommentLanguageFilter.isSupported("How are you?", "en-US"))
+        assertFalse(CommentLanguageFilter.isSupported("Bonjour", "fr"))
+        assertFalse(CommentLanguageFilter.isSupported("مرحبا كيف حالك", "ar"))
+        assertFalse(CommentLanguageFilter.isSupported("Привет как дела", "ru"))
+        assertFalse(CommentLanguageFilter.isSupported("नमस्ते आप कैसे हैं", "hi"))
+        assertFalse(CommentLanguageFilter.isSupported("你好", "zh"))
         assertFalse(CommentLanguageFilter.isSupported("Привет как дела"))
-        assertFalse(CommentLanguageFilter.isSupported("नमस्ते आप कैसे हैं"))
-        assertFalse(CommentLanguageFilter.isSupported("你好"))
     }
 
     @Test fun usernameOnlyModeDoesNotFilterByCommentBody() {
