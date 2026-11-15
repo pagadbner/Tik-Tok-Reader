@@ -45,7 +45,7 @@ class LiveAutomationTest {
         val commands = ChatCommandParser.parseConfig("!discord=Únete al Discord, {user}.")
         val response = ChatCommandParser.responseFor("!DISCORD ahora", "🔥Ana_99 Pérez✨", commands, isModerator = true)
 
-        assertEquals("Únete al Discord, Ana Pérez.", response)
+        assertEquals("Únete al Discord, usuario.", response)
         assertNull(ChatCommandParser.responseFor("!discordextra", "Ana", commands, isModerator = true))
     }
 
@@ -113,7 +113,7 @@ class LiveAutomationTest {
         val first = LiveComment("42", "Ana_01", "hola")
         val another = LiveComment("43", "Luis", "buenas")
 
-        assertEquals("¡Qué gusto verte, Ana!", tracker.messageFor(first, settings))
+        assertEquals("¡Qué gusto verte, usuario!", tracker.messageFor(first, settings))
         assertNull(tracker.messageFor(first.copy(text = "otra vez"), settings))
         assertEquals("¡Qué gusto verte, Luis!", tracker.messageFor(another, settings))
     }
@@ -139,7 +139,37 @@ class LiveAutomationTest {
 
         assertFalse(GiftAlertRules.shouldAnnounce(belowThreshold, settings))
         assertTrue(GiftAlertRules.shouldAnnounce(atThreshold, settings))
-        assertEquals("Gracias Mia por los 5 regalos", GiftAlertRules.render(atThreshold, settings))
+        assertEquals("Gracias usuario por los 5 regalos", GiftAlertRules.render(atThreshold, settings))
+    }
+
+    @Test fun usernamesWithSymbolsUseGenericSpokenName() {
+        assertEquals("Ana Pérez", ChatCommandParser.spokenUsername("Ana Pérez"))
+        assertEquals("usuario", ChatCommandParser.spokenUsername("🔥Ana_99✨"))
+        assertEquals("usuario", ChatCommandParser.spokenUsername("♡"))
+    }
+
+    @Test fun followAndGiftAlertsUseSharedSpeechQueueWithSafeNames() {
+        val spoken = mutableListOf<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) { spoken += text }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(CommentFilter(), queue, ReaderSettings())
+
+        try {
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "🔥Ana_99✨")))
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.GIFT, "♡", "")))
+            assertEquals(
+                listOf("usuario te ha seguido", "usuario te envió un regalo"),
+                spoken
+            )
+        } finally {
+            queue.close()
+            scope.cancel()
+        }
     }
 
     @Test fun giftAlertsRespectExistingMasterSwitchAndIgnoreNonGiftEvents() {
