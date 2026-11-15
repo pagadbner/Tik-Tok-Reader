@@ -19,10 +19,14 @@ object DjMusicController {
     private val mutableState = MutableStateFlow(DjMusicState())
     val state: StateFlow<DjMusicState> = mutableState.asStateFlow()
 
+    @Synchronized
     fun setFollowersOnly(enabled: Boolean) { mutableState.value = mutableState.value.copy(followersOnly = enabled) }
+    @Synchronized
     fun setMuted(muted: Boolean) { mutableState.value = mutableState.value.copy(muted = muted) }
+    @Synchronized
     fun setVolume(volume: Int) { mutableState.value = mutableState.value.copy(volume = volume.coerceIn(0, 100)) }
 
+    @Synchronized
     fun handleLiveComment(comment: LiveComment) {
         val text = comment.text.trim()
         when {
@@ -39,6 +43,7 @@ object DjMusicController {
         }
     }
 
+    @Synchronized
     fun takeNextSearch(): Pair<String, String>? {
         val current = mutableState.value
         val next = current.pendingSearches.firstOrNull() ?: return null
@@ -46,12 +51,14 @@ object DjMusicController {
         return next
     }
 
+    @Synchronized
     fun addTrack(track: DjMusicTrack) {
         val current = mutableState.value
         mutableState.value = if (current.currentTrack == null) current.copy(currentTrack = track, message = "Reproduciendo: ${track.title}")
         else current.copy(queue = current.queue + track, message = "Agregada a la cola: ${track.title}")
     }
 
+    @Synchronized
     fun skip(message: String = "Canción saltada.") {
         val current = mutableState.value
         val next = current.queue.firstOrNull()
@@ -62,6 +69,8 @@ object DjMusicController {
         )
     }
 
+    @Synchronized
     fun clearQueue() { mutableState.value = mutableState.value.copy(queue = emptyList(), message = "Cola vaciada.") }
+    @Synchronized
     fun setMessage(message: String) { mutableState.value = mutableState.value.copy(message = message) }
 }
