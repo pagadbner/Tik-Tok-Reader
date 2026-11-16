@@ -30,7 +30,7 @@ internal fun parsePublishedVersionCode(releaseBody: String): Long? =
         .find(releaseBody)?.groupValues?.get(1)?.toLongOrNull()
 
 internal object AppUpdateManager {
-    private const val RELEASE_API = "https://api.github.com/repos/pagadbner/TikLBot/releases/latest"
+    private const val RELEASE_API = "https://api.github.com/repos/pagadbner/TikLBot/releases/tags/updater-test-v0.13.7"
     private const val RELEASE_ASSET_PREFIX = "https://github.com/pagadbner/TikLBot/releases/download/"
     private const val APK_ASSET_NAME = "TikLBot-latest.apk"
     private const val CHECKSUM_ASSET_NAME = "TikLBot-latest.apk.sha256"
@@ -62,7 +62,7 @@ internal object AppUpdateManager {
                 ?: error("GitHub devolvió una respuesta vacía"))
         }
 
-        if (release.optBoolean("draft", true) || release.optBoolean("prerelease", true)) return null
+        if (release.optBoolean("draft", true)) return null
 
         val body = release.optString("body")
         val code = parsePublishedVersionCode(body)
