@@ -621,7 +621,7 @@ private fun BotApp(
     DisposableEffect(updaterLifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && !appUpdateBusy) {
-                if (downloadedUpdatePath != null && (Build.VERSION.SDK_INT < 26 || packageManager.canRequestPackageInstalls())) {
+                if (downloadedUpdatePath != null && (Build.VERSION.SDK_INT < 26 || context.packageManager.canRequestPackageInstalls())) {
                     startAppUpdate()
                 } else {
                     checkAppUpdateManually()
