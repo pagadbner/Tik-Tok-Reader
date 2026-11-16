@@ -1559,7 +1559,6 @@ private fun LiveChatPanel(
         }
     }
     }
-}
 
 @Composable
 private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
