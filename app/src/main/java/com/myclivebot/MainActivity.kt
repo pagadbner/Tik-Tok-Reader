@@ -567,20 +567,6 @@ private fun BotApp(
         giftAlertTemplate = giftAlertTemplate
     )
 
-    LaunchedEffect(Unit) {
-        try {
-            val latest = withContext(Dispatchers.IO) { AppUpdateManager.checkForUpdate(context) }
-            appUpdate = latest
-            appUpdateStatus = if (latest == null) "Tu aplicación está actualizada." else "Nueva versión ${latest.versionName} disponible."
-            if (latest != null) showAppUpdateDialog = true
-        } catch (error: Exception) {
-            appUpdate = null
-            downloadedUpdatePath = null
-            showAppUpdateDialog = false
-            appUpdateStatus = "No se pudo consultar GitHub. Comprueba tu conexión e inténtalo de nuevo. Detalle: ${error.message ?: "error desconocido"}"
-        }
-    }
-
     fun startAppUpdate() {
         val update = appUpdate ?: return
         updateScope.launch {
@@ -629,6 +615,21 @@ private fun BotApp(
                 appUpdateBusy = false
             }
         }
+    }
+
+    val updaterLifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(updaterLifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && !appUpdateBusy) {
+                if (downloadedUpdatePath != null && (Build.VERSION.SDK_INT < 26 || context.packageManager.canRequestPackageInstalls())) {
+                    startAppUpdate()
+                } else {
+                    checkAppUpdateManually()
+                }
+            }
+        }
+        updaterLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { updaterLifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(externalStatus) { status = externalStatus }
