@@ -236,14 +236,39 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                 }
 
                 Text("CONTROLES DEL REPRODUCTOR", color = DjMuted, style = MaterialTheme.typography.labelSmall)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    FilledTonalButton(onClick = { playerView?.evaluateJavascript("playPause()", null) }, enabled = current != null && playerReady, modifier = Modifier.weight(1f)) {
-                        Icon(if (playerPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null)
-                        Spacer(Modifier.width(4.dp))
-                        Text(if (playerPlaying) "Pausar" else "Reproducir")
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilledTonalButton(
+                        onClick = { playerView?.evaluateJavascript("seekBy(-10)", null) },
+                        enabled = current != null && playerReady,
+                        modifier = Modifier.size(width = 72.dp, height = 48.dp),
+                        contentPadding = PaddingValues(0.dp),
+                        shape = RoundedCornerShape(24.dp)
+                    ) { Text("−10 s", style = MaterialTheme.typography.labelLarge) }
+
+                    FilledIconButton(
+                        onClick = { playerView?.evaluateJavascript("playPause()", null) },
+                        enabled = current != null && playerReady,
+                        modifier = Modifier.size(64.dp),
+                        shape = RoundedCornerShape(32.dp)
+                    ) {
+                        Icon(
+                            if (playerPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (playerPlaying) "Pausar" else "Reproducir",
+                            modifier = Modifier.size(34.dp)
+                        )
                     }
-                    OutlinedButton(onClick = { playerView?.evaluateJavascript("seekBy(-10)", null) }, enabled = current != null && playerReady, modifier = Modifier.weight(1f)) { Text("−10 s") }
-                    OutlinedButton(onClick = { playerView?.evaluateJavascript("seekBy(10)", null) }, enabled = current != null && playerReady, modifier = Modifier.weight(1f)) { Text("+10 s") }
+
+                    FilledTonalButton(
+                        onClick = { playerView?.evaluateJavascript("seekBy(10)", null) },
+                        enabled = current != null && playerReady,
+                        modifier = Modifier.size(width = 72.dp, height = 48.dp),
+                        contentPadding = PaddingValues(0.dp),
+                        shape = RoundedCornerShape(24.dp)
+                    ) { Text("+10 s", style = MaterialTheme.typography.labelLarge) }
                 }
                 Text("REPRODUCTOR OFICIAL DE YOUTUBE", color = DjMuted, style = MaterialTheme.typography.labelSmall)
                 AndroidView(
@@ -339,7 +364,8 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                         var desiredMuted=${state.muted};
                                         function onYouTubeIframeAPIReady() {
                                           player = new YT.Player('player', {
-                                            width:'100%', height:'220',
+                                            width:Math.max(document.documentElement.clientWidth, 320),
+                                            height:Math.max(document.documentElement.clientHeight, 180),
                                             videoId:'${track.videoId}',
                                             playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'https://com.myclivebot'},
                                             events:{
