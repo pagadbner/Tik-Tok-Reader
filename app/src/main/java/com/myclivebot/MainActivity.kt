@@ -436,15 +436,20 @@ private fun BotApp(
     }
     var profileAvatarUrl by remember { mutableStateOf<String?>(null) }
     var profileLookupBusy by remember { mutableStateOf(false) }
+    var profileIsLive by remember { mutableStateOf<Boolean?>(null) }
     val normalizedProfileUsername = username.trim().removePrefix("@").substringBefore("/").trim()
     val cachedProfileAvatar = recentAvatarUrls[normalizedProfileUsername]
     LaunchedEffect(normalizedProfileUsername) {
         profileAvatarUrl = cachedProfileAvatar
+        profileIsLive = null
         if (normalizedProfileUsername.isBlank()) {
             profileLookupBusy = false
         } else {
             profileLookupBusy = true
             delay(450)
+            launch {
+                profileIsLive = TikTokProfileLookup.fetchLiveStatus(normalizedProfileUsername)
+            }
             val fetchedAvatar = TikTokProfileLookup.fetchAvatarUrl(normalizedProfileUsername)
             if (fetchedAvatar != null) {
                 profileAvatarUrl = fetchedAvatar
@@ -862,7 +867,21 @@ private fun BotApp(
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
                                         Box(
-                                            Modifier.size(58.dp).clip(RoundedCornerShape(50)).background(LocalAppThemeColors.current.panel),
+                                            Modifier
+                                                .size(58.dp)
+                                                .shadow(
+                                                    elevation = if (profileIsLive == true) 14.dp else 0.dp,
+                                                    shape = RoundedCornerShape(50),
+                                                    ambientColor = Color(0xFFFF3030).copy(alpha = .9f),
+                                                    spotColor = Color(0xFFFF3030).copy(alpha = .9f)
+                                                )
+                                                .border(
+                                                    width = if (profileIsLive == true) 2.5.dp else 0.dp,
+                                                    color = if (profileIsLive == true) Color(0xFFFF3030) else Color.Transparent,
+                                                    shape = RoundedCornerShape(50)
+                                                )
+                                                .clip(RoundedCornerShape(50))
+                                                .background(LocalAppThemeColors.current.panel),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             if (profileAvatarUrl != null) {
@@ -889,7 +908,10 @@ private fun BotApp(
                                             )
                                         }
                                         FilledTonalIconButton(
-                                            onClick = { saveRecentProfile(normalizedProfileUsername, profileAvatarUrl) },
+                                            onClick = {
+                                                saveRecentProfile(normalizedProfileUsername, profileAvatarUrl)
+                                                username = ""
+                                            },
                                             enabled = !recentUsernames.any { it.equals(normalizedProfileUsername, true) }
                                         ) {
                                             Icon(Icons.Default.PersonAdd, contentDescription = "Agregar perfil")

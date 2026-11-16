@@ -24,4 +24,5 @@ class TikTokProfileLookupTest {
     fun returnsNullWhenProfileHtmlDoesNotContainAvatar() {
         assertNull(TikTokProfileLookup.extractAvatarUrl("<html>profile unavailable</html>"))
     }
+
 }
