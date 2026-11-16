@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.SkipNext
@@ -215,7 +216,13 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                     placeholder = { Text("José José - Volcán") }
                 )
                 Button(
-                    onClick = { DjMusicController.enqueueSearch(searchText, "Tú") },
+                    onClick = {
+                        val query = searchText.trim()
+                        if (query.isNotBlank()) {
+                            DjMusicController.enqueueSearch(query, "Tú")
+                            searchText = ""
+                        }
+                    },
                     enabled = searchText.isNotBlank() && !searching,
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -243,7 +250,11 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                         )
                         Column(Modifier.weight(1f).padding(start = 12.dp)) {
                             Text(selected.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
-                            Text("Primera coincidencia de YouTube", color = palette.muted, style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                selected.duration.ifBlank { "Duración no disponible" },
+                                color = palette.muted,
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                     }
                 } else if (!searching) {
@@ -341,6 +352,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                         WebView(context).apply {
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
+                            setBackgroundColor(android.graphics.Color.BLACK)
                             settings.mediaPlaybackRequiresUserGesture = false
                             settings.loadsImagesAutomatically = true
                             settings.javaScriptCanOpenWindowsAutomatically = false
@@ -431,7 +443,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                             width:Math.max(document.documentElement.clientWidth, 320),
                                             height:Math.max(document.documentElement.clientHeight, 180),
                                             videoId:'${track.videoId}',
-                                            playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'https://www.youtube-nocookie.com'},
+                                            playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'https://www.youtube.com'},
                                             events:{
                                               onReady:function(e){e.target.setVolume(desiredVolume);if(desiredMuted)e.target.mute();else e.target.unMute();TikLBotMusicPlayer.onPlayerReady();e.target.playVideo();},
                                               onStateChange:function(e){if(e.data===0)TikLBotMusicPlayer.onPlayerEnded();if(e.data===1)TikLBotMusicPlayer.onPlayerState(1);if(e.data===2||e.data===0||e.data===-1)TikLBotMusicPlayer.onPlayerState(0);},
@@ -449,7 +461,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                     </body>
                                     </html>
                                 """.trimIndent()
-                                view.loadDataWithBaseURL("https://www.youtube-nocookie.com/", html, "text/html", "UTF-8", null)
+                                view.loadDataWithBaseURL("https://www.youtube.com/", html, "text/html", "UTF-8", null)
                             }
                         } else {
                             view.evaluateJavascript(
@@ -481,7 +493,14 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                             )
                             Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
                                 Text("${index + 1}. ${track.title}", maxLines = 2, style = MaterialTheme.typography.bodySmall)
-                                Text("Por ${track.requestedBy}", color = palette.muted, style = MaterialTheme.typography.labelSmall)
+                                Text(
+                                    listOf(track.duration.ifBlank { "Duración desconocida" }, "Solicitada por ${track.requestedBy}").joinToString(" · "),
+                                    color = palette.muted,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                            IconButton(onClick = { DjMusicController.removeQueueTrack(index) }) {
+                                Icon(Icons.Default.DeleteOutline, contentDescription = "Eliminar ${track.title} de la cola", tint = palette.muted)
                             }
                         }
                     }
@@ -508,6 +527,11 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                         val script = """
                             (function(){
                               var requestId=$requestId, attempts=0;
+                              function formatSeconds(value){
+                                var total=parseInt(value,10);if(!isFinite(total)||total<0)return '';
+                                var h=Math.floor(total/3600),m=Math.floor((total%3600)/60),s=total%60;
+                                return h? h+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0') : m+':'+String(s).padStart(2,'0');
+                              }
                               function send(items){
                                 var x=items&&items[0];
                                 if(x&&x.videoId){
@@ -516,7 +540,8 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                   TikLBotMusicSearch.onResults(requestId,JSON.stringify({
                                     id:x.videoId,
                                     title:x.title||'Video de YouTube',
-                                    thumbnail:(thumbs[0]&&thumbs[0].url)||''
+                                    thumbnail:(thumbs[0]&&thumbs[0].url)||'',
+                                    duration:x.duration||formatSeconds(x.lengthSeconds)||''
                                   }));
                                   return true;
                                 }
@@ -525,14 +550,14 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                               function scan(){
                                 if(location.pathname.indexOf('/watch')===0){
                                   var d=window.ytInitialPlayerResponse&&window.ytInitialPlayerResponse.videoDetails;
-                                  if(d&&send([{videoId:d.videoId,title:d.title,thumbnails:d.thumbnail&&d.thumbnail.thumbnails}]))return true;
+                                  if(d&&send([{videoId:d.videoId,title:d.title,thumbnails:d.thumbnail&&d.thumbnail.thumbnails,lengthSeconds:d.lengthSeconds}]))return true;
                                 }
                                 var found=[],data=window.ytInitialData;
                                 function walk(o){
                                   if(!o||typeof o!=='object')return;
                                   if(o.videoRenderer&&o.videoRenderer.videoId){
                                     var v=o.videoRenderer;
-                                    found.push({videoId:v.videoId,title:(v.title&&((v.title.runs||[]).map(function(r){return r.text}).join('')||v.title.simpleText))||'',thumbnails:(v.thumbnail&&v.thumbnail.thumbnails)||[]});
+                                    found.push({videoId:v.videoId,title:(v.title&&((v.title.runs||[]).map(function(r){return r.text}).join('')||v.title.simpleText))||'',thumbnails:(v.thumbnail&&v.thumbnail.thumbnails)||[],duration:(v.lengthText&&(v.lengthText.simpleText||(v.lengthText.runs||[]).map(function(r){return r.text}).join('')))||''});
                                   }
                                   Object.keys(o).forEach(function(k){if(k!=='videoRenderer')walk(o[k]);});
                                 }
@@ -542,7 +567,9 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                     var m=(a.href||'').match(/[?&]v=([^&]+)/);if(!m)return;
                                     var p=a.closest('ytd-video-renderer,ytd-rich-item-renderer,ytm-video-with-context-renderer')||a.parentElement;
                                     var im=p&&p.querySelector('img');
-                                    found.push({videoId:m[1],title:(a.innerText||a.title||a.getAttribute('aria-label')||'').trim(),thumbnails:im?[{url:im.currentSrc||im.src,width:640}]:[]});
+                                    var card=a.closest('ytd-video-renderer,ytd-rich-item-renderer,ytm-video-with-context-renderer')||a.parentElement;
+                                    var durationNode=card&&card.querySelector('ytd-thumbnail-overlay-time-status-renderer, .ytd-thumbnail-overlay-time-status-renderer');
+                                    found.push({videoId:m[1],title:(a.innerText||a.title||a.getAttribute('aria-label')||'').trim(),thumbnails:im?[{url:im.currentSrc||im.src,width:640}]:[],duration:durationNode?(durationNode.innerText||'').trim():''});
                                   });
                                 }
                                 return send(found);
@@ -570,6 +597,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                 videoId = id,
                                 title = item.optString("title").ifBlank { "Video de YouTube" },
                                 thumbnailUrl = item.optString("thumbnail").ifBlank { "https://i.ytimg.com/vi/$id/hqdefault.jpg" },
+                                duration = item.optString("duration"),
                                 requestedBy = searchRequester.get()
                             )
                         }.getOrNull()
