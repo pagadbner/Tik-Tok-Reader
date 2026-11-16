@@ -64,11 +64,11 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import java.io.File
 
-private val Night = Color(0xFF090313)
-private val Panel = Color(0x99501A78)
-private val Violet = Color(0xFFE05BFF)
-private val Cyan = Color(0xFFF0B5FF)
-private val Muted = Color(0xFFD9C5E8)
+private val Night = Color(0xFF05070A)
+private val Panel = Color(0xB3121820)
+private val Violet = Color(0xFF63D8FF)
+private val Cyan = Color(0xFFA8E9FF)
+private val Muted = Color(0xFFB9C6D2)
 
 private data class LiveCommentUi(val id: String, val username: String, val message: String, val avatarUrl: String?, val replyToDisplayName: String?, val receivedAt: Long, val skipped: Boolean = false)
 private data class CustomCommandEntry(val title: String, val trigger: String, val response: String)
@@ -698,7 +698,7 @@ private fun BotApp(
         colorScheme = darkColorScheme(
             primary = Violet, secondary = Cyan, background = Night, surface = Panel,
             onBackground = Color(0xFFF4F1FF), onSurface = Color(0xFFF4F1FF),
-            surfaceVariant = Color(0xFF49245F), onSurfaceVariant = Muted
+            surfaceVariant = Color(0xFF1B2630), onSurfaceVariant = Muted
         )
     ) {
         Box(
@@ -706,7 +706,7 @@ private fun BotApp(
                 // Read animation state in the draw phase so the whole UI is not recomposed every frame.
                 drawRect(
                     Brush.linearGradient(
-                        colors = listOf(Color(0xFF090313), Color(0xFF31004F), Color(0xFF160626), Color(0xFF4A0870), Color(0xFF090313)),
+                        colors = listOf(Color(0xFF05070A), Color(0xFF081925), Color(0xFF0B1019), Color(0xFF09202B), Color(0xFF05070A)),
                         start = Offset(0f, gradientPhase * 1150f),
                         end = Offset(1250f, 1800f - gradientPhase * 1150f)
                     )
@@ -725,14 +725,14 @@ private fun BotApp(
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = Color(0x77501A78),
+                            containerColor = Color(0xB310151C),
                             titleContentColor = Color(0xFFF4F1FF),
                             actionIconContentColor = Cyan
                         )
                     )
                 },
                 bottomBar = {
-                    NavigationBar(containerColor = Color(0x99501A78), contentColor = Color(0xFFF4F1FF), tonalElevation = 0.dp) {
+                    NavigationBar(containerColor = Color(0xB310151C), contentColor = Color(0xFFF4F1FF), tonalElevation = 0.dp) {
                         NavigationBarItem(
                             selected = !showSettings && !showDjMusic,
                             onClick = { showSettings = false; showDjMusic = false },
@@ -1490,11 +1490,11 @@ private fun LiveChatPanel(
 private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().shadow(14.dp, RoundedCornerShape(22.dp))
-            .border(1.dp, Brush.linearGradient(listOf(Color(0xFFE05BFF).copy(alpha = .55f), Color(0xFF9D4DFF).copy(alpha = .38f), Color.White.copy(alpha = .16f))), RoundedCornerShape(22.dp))
+            .border(1.dp, Brush.linearGradient(listOf(Color(0xFF63D8FF).copy(alpha = .42f), Color(0xFF287FA8).copy(alpha = .30f), Color.White.copy(alpha = .12f))), RoundedCornerShape(22.dp))
             .animateContentSize(),
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
-            containerColor = Color(0x99501A78),
+            containerColor = Color(0xB3121820),
             contentColor = Color(0xFFF4F1FF)
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
