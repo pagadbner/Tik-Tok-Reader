@@ -45,13 +45,10 @@ import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
-private val DjPanel = Color(0xB3121820)
-private val DjMuted = Color(0xFFB9C6D2)
-private val DjCyan = Color(0xFFA8E9FF)
-
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun DJMusicScreen(modifier: Modifier = Modifier) {
+    val palette = LocalAppThemeColors.current
     val state by DjMusicController.state.collectAsState()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -172,17 +169,17 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
         modifier = modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Surface(color = DjPanel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, Color(0x9963D8FF))) {
+        Surface(color = palette.panel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, palette.glassBorder)) {
             Column(
                 Modifier.fillMaxWidth().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.MusicNote, null, tint = DjCyan)
+                    Icon(Icons.Default.MusicNote, null, tint = palette.secondary)
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
                         Text("DJ MUSIC", style = MaterialTheme.typography.titleMedium)
-                        Text("Buscador y reproductor de YouTube", color = DjMuted, style = MaterialTheme.typography.bodySmall)
+                        Text("Buscador y reproductor de YouTube", color = palette.muted, style = MaterialTheme.typography.bodySmall)
                     }
                     Box {
                         OutlinedButton(onClick = { accessMenu = true }) {
@@ -201,9 +198,9 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                     }
                 }
 
-                Surface(color = Color(0x44D56BFF), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, Color(0x88E05BFF))) {
+                Surface(color = palette.primary.copy(alpha = .10f), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, palette.glassBorder.copy(alpha = .85f))) {
                     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("COMANDOS DEL LIVE", color = DjCyan, style = MaterialTheme.typography.labelMedium)
+                        Text("COMANDOS DEL LIVE", color = palette.secondary, style = MaterialTheme.typography.labelMedium)
                         Text("!play nombre de la canción  ·  busca y agrega la primera coincidencia", color = Color.White, style = MaterialTheme.typography.bodySmall)
                         Text("!skip  ·  siguiente canción (solo moderadores)", color = Color.White, style = MaterialTheme.typography.bodySmall)
                     }
@@ -225,16 +222,16 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                     Icon(Icons.Default.PlayArrow, null)
                     Text(if (searching) "  BUSCANDO…" else "  BUSCAR Y AGREGAR PRIMER RESULTADO")
                 }
-                Text(state.message, color = DjMuted, style = MaterialTheme.typography.bodySmall)
+                Text(state.message, color = palette.muted, style = MaterialTheme.typography.bodySmall)
             }
         }
 
-        Surface(color = DjPanel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, Color(0x99E05BFF))) {
+        Surface(color = palette.panel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, palette.glassBorder)) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("RESULTADO SELECCIONADO", color = DjCyan, style = MaterialTheme.typography.labelMedium)
+                Text("RESULTADO SELECCIONADO", color = palette.secondary, style = MaterialTheme.typography.labelMedium)
                 if (searching) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
-                    Text("Buscando título, carátula y enlace del primer resultado…", color = DjMuted, style = MaterialTheme.typography.bodySmall)
+                    Text("Buscando título, carátula y enlace del primer resultado…", color = palette.muted, style = MaterialTheme.typography.bodySmall)
                 }
                 val selected = result ?: state.currentTrack
                 if (selected != null) {
@@ -246,21 +243,21 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                         )
                         Column(Modifier.weight(1f).padding(start = 12.dp)) {
                             Text(selected.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
-                            Text("Primera coincidencia de YouTube", color = DjMuted, style = MaterialTheme.typography.bodySmall)
+                            Text("Primera coincidencia de YouTube", color = palette.muted, style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 } else if (!searching) {
-                    Text("Busca una canción o solicita !play en el LIVE.", color = DjMuted, style = MaterialTheme.typography.bodySmall)
+                    Text("Busca una canción o solicita !play en el LIVE.", color = palette.muted, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
 
-        Surface(color = DjPanel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, Color(0x99E05BFF))) {
+        Surface(color = palette.panel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, Color(0x99E05BFF))) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("EN REPRODUCCIÓN", color = DjCyan, style = MaterialTheme.typography.labelMedium)
+                Text("EN REPRODUCCIÓN", color = palette.secondary, style = MaterialTheme.typography.labelMedium)
                 val current = state.currentTrack
                 if (current == null) {
-                    Text("Todavía no hay una canción en reproducción.", color = DjMuted, style = MaterialTheme.typography.bodySmall)
+                    Text("Todavía no hay una canción en reproducción.", color = palette.muted, style = MaterialTheme.typography.bodySmall)
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         AsyncImage(
@@ -270,10 +267,10 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                         )
                         Column(Modifier.weight(1f).padding(start = 12.dp)) {
                             Text(current.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
-                            Text("Solicitada por ${current.requestedBy}", color = DjMuted, style = MaterialTheme.typography.bodySmall)
+                            Text("Solicitada por ${current.requestedBy}", color = palette.muted, style = MaterialTheme.typography.bodySmall)
                         }
                         IconButton(onClick = { DjMusicController.skip() }) {
-                            Icon(Icons.Default.SkipNext, contentDescription = "Siguiente canción", tint = DjCyan)
+                            Icon(Icons.Default.SkipNext, contentDescription = "Siguiente canción", tint = palette.secondary)
                         }
                     }
                 }
@@ -287,7 +284,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                         Icon(
                             if (state.muted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
                             contentDescription = if (state.muted) "Activar sonido" else "Silenciar",
-                            tint = DjCyan
+                            tint = palette.secondary
                         )
                     }
                     Slider(
@@ -299,10 +296,10 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                         valueRange = 0f..100f,
                         modifier = Modifier.weight(1f)
                     )
-                    Text("${state.volume}%", color = DjMuted, style = MaterialTheme.typography.labelSmall)
+                    Text("${state.volume}%", color = palette.muted, style = MaterialTheme.typography.labelSmall)
                 }
 
-                Text("CONTROLES DEL REPRODUCTOR", color = DjMuted, style = MaterialTheme.typography.labelSmall)
+                Text("CONTROLES DEL REPRODUCTOR", color = palette.muted, style = MaterialTheme.typography.labelSmall)
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
@@ -337,7 +334,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                         shape = RoundedCornerShape(24.dp)
                     ) { Text("+10 s", style = MaterialTheme.typography.labelLarge) }
                 }
-                Text("REPRODUCTOR OFICIAL DE YOUTUBE", color = DjMuted, style = MaterialTheme.typography.labelSmall)
+                Text("REPRODUCTOR OFICIAL DE YOUTUBE", color = palette.muted, style = MaterialTheme.typography.labelSmall)
                 AndroidView(
                     modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(14.dp)),
                     factory = { context ->
@@ -465,15 +462,15 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        Surface(color = DjPanel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, Color(0x99E05BFF))) {
+        Surface(color = palette.panel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, Color(0x99E05BFF))) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("COLA DE REPRODUCCIÓN", color = DjCyan, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
-                    Text("${state.queue.size} canciones", color = DjMuted, style = MaterialTheme.typography.labelSmall)
+                    Text("COLA DE REPRODUCCIÓN", color = palette.secondary, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
+                    Text("${state.queue.size} canciones", color = palette.muted, style = MaterialTheme.typography.labelSmall)
                     TextButton(onClick = { DjMusicController.clearQueue() }, enabled = state.queue.isNotEmpty()) { Text("Vaciar") }
                 }
                 if (state.queue.isEmpty()) {
-                    Text("La cola está vacía.", color = DjMuted, style = MaterialTheme.typography.bodySmall)
+                    Text("La cola está vacía.", color = palette.muted, style = MaterialTheme.typography.bodySmall)
                 } else {
                     state.queue.forEachIndexed { index, track ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -484,7 +481,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                             )
                             Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
                                 Text("${index + 1}. ${track.title}", maxLines = 2, style = MaterialTheme.typography.bodySmall)
-                                Text("Por ${track.requestedBy}", color = DjMuted, style = MaterialTheme.typography.labelSmall)
+                                Text("Por ${track.requestedBy}", color = palette.muted, style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }
