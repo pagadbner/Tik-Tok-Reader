@@ -4,7 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-data class DjMusicTrack(val videoId: String, val title: String, val thumbnailUrl: String, val requestedBy: String = "Tú")
+data class DjMusicTrack(val videoId: String, val title: String, val thumbnailUrl: String, val duration: String = "", val requestedBy: String = "Tú")
 data class DjMusicState(
     val followersOnly: Boolean = false,
     val pendingSearches: List<Pair<String, String>> = emptyList(),
@@ -91,6 +91,17 @@ object DjMusicController {
             currentTrack = next,
             queue = if (next == null) emptyList() else current.queue.drop(1),
             message = if (next == null) "No hay más canciones en la cola." else "$message Reproduciendo: ${next.title}"
+        )
+    }
+
+    @Synchronized
+    fun removeQueueTrack(index: Int) {
+        val current = mutableState.value
+        if (index !in current.queue.indices) return
+        val removed = current.queue[index]
+        mutableState.value = current.copy(
+            queue = current.queue.filterIndexed { itemIndex, _ -> itemIndex != index },
+            message = "Eliminada de la cola: ${removed.title}"
         )
     }
 
