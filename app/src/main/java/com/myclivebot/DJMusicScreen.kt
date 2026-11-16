@@ -443,7 +443,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                             width:Math.max(document.documentElement.clientWidth, 320),
                                             height:Math.max(document.documentElement.clientHeight, 180),
                                             videoId:'${track.videoId}',
-                                            playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'https://www.youtube.com'},
+                                            playerVars:{autoplay:1,playsinline:1,controls:1,rel:0},
                                             events:{
                                               onReady:function(e){e.target.setVolume(desiredVolume);if(desiredMuted)e.target.mute();else e.target.unMute();TikLBotMusicPlayer.onPlayerReady();e.target.playVideo();},
                                               onStateChange:function(e){if(e.data===0)TikLBotMusicPlayer.onPlayerEnded();if(e.data===1)TikLBotMusicPlayer.onPlayerState(1);if(e.data===2||e.data===0||e.data===-1)TikLBotMusicPlayer.onPlayerState(0);},
@@ -532,14 +532,23 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                 var h=Math.floor(total/3600),m=Math.floor((total%3600)/60),s=total%60;
                                 return h? h+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0') : m+':'+String(s).padStart(2,'0');
                               }
+                              function cleanTitle(value){return String(value||'').replace(/\\s+/g,' ').trim();}
+                              function isDuration(value){return /^\\d{1,2}:\\d{2}(?::\\d{2})?$/.test(cleanTitle(value));}
+                              function rendererTitle(video){
+                                var t=video&&video.title;if(!t)return '';
+                                var value=(t.runs||[]).map(function(r){return r.text||'';}).join('');
+                                if(!value)value=t.simpleText||'';
+                                value=cleanTitle(value);return isDuration(value)?'':value;
+                              }
                               function send(items){
                                 var x=items&&items[0];
                                 if(x&&x.videoId){
+                                  var title=cleanTitle(x.title);
+                                  if(!title||isDuration(title))return false;
                                   var thumbs=x.thumbnails||[];
                                   thumbs.sort(function(a,b){return (b.width||0)-(a.width||0);});
                                   TikLBotMusicSearch.onResults(requestId,JSON.stringify({
-                                    id:x.videoId,
-                                    title:x.title||'Video de YouTube',
+                                    id:x.videoId,title:title,
                                     thumbnail:(thumbs[0]&&thumbs[0].url)||'',
                                     duration:x.duration||formatSeconds(x.lengthSeconds)||''
                                   }));
@@ -557,7 +566,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                   if(!o||typeof o!=='object')return;
                                   if(o.videoRenderer&&o.videoRenderer.videoId){
                                     var v=o.videoRenderer;
-                                    found.push({videoId:v.videoId,title:(v.title&&((v.title.runs||[]).map(function(r){return r.text}).join('')||v.title.simpleText))||'',thumbnails:(v.thumbnail&&v.thumbnail.thumbnails)||[],duration:(v.lengthText&&(v.lengthText.simpleText||(v.lengthText.runs||[]).map(function(r){return r.text}).join('')))||''});
+                                    found.push({videoId:v.videoId,title:rendererTitle(v),thumbnails:(v.thumbnail&&v.thumbnail.thumbnails)||[],duration:(v.lengthText&&(v.lengthText.simpleText||(v.lengthText.runs||[]).map(function(r){return r.text}).join('')))||''});
                                   }
                                   Object.keys(o).forEach(function(k){if(k!=='videoRenderer')walk(o[k]);});
                                 }
@@ -565,11 +574,14 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                 if(!found.length){
                                   document.querySelectorAll('a#video-title,a[href*="watch?v="]').forEach(function(a){
                                     var m=(a.href||'').match(/[?&]v=([^&]+)/);if(!m)return;
-                                    var p=a.closest('ytd-video-renderer,ytd-rich-item-renderer,ytm-video-with-context-renderer')||a.parentElement;
-                                    var im=p&&p.querySelector('img');
                                     var card=a.closest('ytd-video-renderer,ytd-rich-item-renderer,ytm-video-with-context-renderer')||a.parentElement;
+                                    var im=card&&card.querySelector('img');
+                                    var titleNode=card&&(card.querySelector('a#video-title')||card.querySelector('#video-title')||card.querySelector('h3'));
+                                    var title=cleanTitle(titleNode&&(titleNode.getAttribute('title')||titleNode.getAttribute('aria-label')||titleNode.textContent));
+                                    if(!title||isDuration(title))title=cleanTitle(a.getAttribute('title')||a.getAttribute('aria-label'));
+                                    if(!title||isDuration(title))return;
                                     var durationNode=card&&card.querySelector('ytd-thumbnail-overlay-time-status-renderer, .ytd-thumbnail-overlay-time-status-renderer');
-                                    found.push({videoId:m[1],title:(a.innerText||a.title||a.getAttribute('aria-label')||'').trim(),thumbnails:im?[{url:im.currentSrc||im.src,width:640}]:[],duration:durationNode?(durationNode.innerText||'').trim():''});
+                                    found.push({videoId:m[1],title:title,thumbnails:im?[{url:im.currentSrc||im.src,width:640}]:[],duration:durationNode?(durationNode.innerText||'').trim():''});
                                   });
                                 }
                                 return send(found);
