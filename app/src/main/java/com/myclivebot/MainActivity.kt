@@ -773,12 +773,18 @@ private fun BotApp(
                     }
                 }
             ) { padding ->
-                Column(
-                    Modifier.padding(padding).fillMaxSize().then(if (showDjMusic) Modifier else Modifier.verticalScroll(if (showSettings) settingsScrollState else homeScrollState)).padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
+                Box(Modifier.padding(padding).fillMaxSize()) {
+                    // Keep the DJ screen and both WebViews alive while other tabs are displayed.
+                    // The normal page is drawn above it whenever DJ Music is not selected.
+                    DJMusicScreen(
+                        Modifier.fillMaxSize().then(if (showDjMusic) Modifier else Modifier.alpha(0f))
+                    )
+                    Column(
+                        Modifier.fillMaxSize().then(if (showDjMusic) Modifier else Modifier.verticalScroll(if (showSettings) settingsScrollState else homeScrollState)).padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
                     if (showDjMusic) {
-                        DJMusicScreen(Modifier.fillMaxWidth())
+                        Spacer(Modifier.fillMaxSize())
                     } else if (!showSettings) {
                     GlassCard {
                         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -1467,6 +1473,7 @@ private fun LiveChatPanel(
                             }
                             }
                         }
+                    }
                     }
                 }
             }
