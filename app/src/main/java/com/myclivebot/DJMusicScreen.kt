@@ -54,6 +54,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
     var result by remember { mutableStateOf<DjMusicTrack?>(null) }
     var accessMenu by remember { mutableStateOf(false) }
     var playerPlaying by remember { mutableStateOf(false) }
+    var playerReady by remember { mutableStateOf(false) }
 
     fun startSearch(rawQuery: String, requestedBy: String) {
         val query = rawQuery.trim()
@@ -234,13 +235,13 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
 
                 Text("CONTROLES DEL REPRODUCTOR", color = DjMuted, style = MaterialTheme.typography.labelSmall)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    FilledTonalButton(onClick = { playerView?.evaluateJavascript("playPause()", null) }, enabled = current != null, modifier = Modifier.weight(1f)) {
+                    FilledTonalButton(onClick = { playerView?.evaluateJavascript("playPause()", null) }, enabled = current != null && playerReady, modifier = Modifier.weight(1f)) {
                         Icon(if (playerPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null)
                         Spacer(Modifier.width(4.dp))
                         Text(if (playerPlaying) "Pausar" else "Reproducir")
                     }
-                    OutlinedButton(onClick = { playerView?.evaluateJavascript("seekBy(-10)", null) }, enabled = current != null, modifier = Modifier.weight(1f)) { Text("−10 s") }
-                    OutlinedButton(onClick = { playerView?.evaluateJavascript("seekBy(10)", null) }, enabled = current != null, modifier = Modifier.weight(1f)) { Text("+10 s") }
+                    OutlinedButton(onClick = { playerView?.evaluateJavascript("seekBy(-10)", null) }, enabled = current != null && playerReady, modifier = Modifier.weight(1f)) { Text("−10 s") }
+                    OutlinedButton(onClick = { playerView?.evaluateJavascript("seekBy(10)", null) }, enabled = current != null && playerReady, modifier = Modifier.weight(1f)) { Text("+10 s") }
                 }
                 Text("REPRODUCTOR OFICIAL DE YOUTUBE", color = DjMuted, style = MaterialTheme.typography.labelSmall)
                 AndroidView(
@@ -251,10 +252,22 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                             settings.domStorageEnabled = true
                             settings.mediaPlaybackRequiresUserGesture = false
                             settings.loadsImagesAutomatically = true
+                            settings.javaScriptCanOpenWindowsAutomatically = false
                             settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                             webChromeClient = WebChromeClient()
-                            webViewClient = WebViewClient()
+                            webViewClient = object : WebViewClient() {
+                                override fun onReceivedError(view: WebView?, request: android.webkit.WebResourceRequest?, error: android.webkit.WebResourceError?) {
+                                    super.onReceivedError(view, request, error)
+                                    if (request?.isForMainFrame == true) {
+                                        post {
+                                            playerReady = false
+                                            playerPlaying = false
+                                            DjMusicController.setMessage("No se pudo cargar el reproductor de YouTube. Revisa tu conexión e inténtalo de nuevo.")
+                                        }
+                                    }
+                                }
+                            }
                             addJavascriptInterface(object {
                                 @JavascriptInterface
                                 fun onPlayerEnded() {
@@ -283,6 +296,10 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                     }
                                 }
                                 @JavascriptInterface
+                                fun onPlayerReady() {
+                                    post { playerReady = true }
+                                }
+                                @JavascriptInterface
                                 fun onPlayerState(value: Int) {
                                     post { playerPlaying = value == 1 }
                                 }
@@ -297,6 +314,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                         if (view.tag != tag) {
                             view.tag = tag
                             playerPlaying = false
+                            playerReady = false
                             if (track == null) {
                                 view.loadDataWithBaseURL(
                                     "https://www.youtube.com/",
@@ -315,6 +333,8 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                       <div id="player"></div>
                                       <script>
                                         var player;
+                                        var desiredVolume=${state.volume};
+                                        var desiredMuted=${state.muted};
                                         function onYouTubeIframeAPIReady() {
                                           player = new YT.Player('player', {
                                             width:'100%', height:'220',
@@ -322,15 +342,15 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                             host:'https://www.youtube.com',
                                             playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'https://com.myclivebot'},
                                             events:{
-                                              onReady:function(e){e.target.setVolume(${state.volume});if(${state.muted})e.target.mute();else e.target.unMute();e.target.playVideo();},
+                                              onReady:function(e){e.target.setVolume(desiredVolume);if(desiredMuted)e.target.mute();else e.target.unMute();TikLBotMusicPlayer.onPlayerReady();e.target.playVideo();},
                                               onStateChange:function(e){if(e.data===0)TikLBotMusicPlayer.onPlayerEnded();if(e.data===1)TikLBotMusicPlayer.onPlayerState(1);if(e.data===2||e.data===0||e.data===-1)TikLBotMusicPlayer.onPlayerState(0);},
                                               onError:function(e){TikLBotMusicPlayer.onPlayerError(e.data);},
                                               onAutoplayBlocked:function(){TikLBotMusicPlayer.onAutoplayBlocked();}
                                             }
                                           });
                                         }
-                                        function setVolume(v){if(player && player.setVolume)player.setVolume(v);}
-                                        function setMuted(v){if(player){if(v)player.mute();else player.unMute();}}
+                                        function setVolume(v){desiredVolume=Math.max(0,Math.min(100,v));if(player && player.setVolume)player.setVolume(desiredVolume);}
+                                        function setMuted(v){desiredMuted=!!v;if(player){if(desiredMuted)player.mute();else player.unMute();}}
                                         function playPause(){if(!player||!player.getPlayerState)return;if(player.getPlayerState()===1){player.pauseVideo();}else{player.unMute();player.playVideo();}}
                                         function seekBy(seconds){if(player&&player.getCurrentTime&&player.seekTo)player.seekTo(Math.max(0,player.getCurrentTime()+seconds),true);}
                                       </script>
