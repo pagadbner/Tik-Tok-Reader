@@ -95,8 +95,8 @@ class DjMusicPlaybackService : Service() {
         val session = mediaSession ?: return
         session.setMetadata(
             android.media.MediaMetadata.Builder()
-                .putString(android.media.MediaMetadata.METADATA_TITLE, trackTitle.ifBlank { "DJ Music activo" })
-                .putString(android.media.MediaMetadata.METADATA_ARTIST, "TikLBot · YouTube")
+                .putString(android.media.MediaMetadata.METADATA_KEY_TITLE, trackTitle.ifBlank { "DJ Music activo" })
+                .putString(android.media.MediaMetadata.METADATA_KEY_ARTIST, "TikLBot · YouTube")
                 .build()
         )
         val actions = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_SKIP_TO_NEXT
