@@ -272,7 +272,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                 }
                 Text("REPRODUCTOR OFICIAL DE YOUTUBE", color = DjMuted, style = MaterialTheme.typography.labelSmall)
                 AndroidView(
-                    modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(14.dp)),
+                    modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(14.dp)),
                     factory = { context ->
                         WebView(context).apply {
                             settings.javaScriptEnabled = true
