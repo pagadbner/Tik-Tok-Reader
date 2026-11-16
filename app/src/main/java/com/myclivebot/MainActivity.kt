@@ -953,7 +953,7 @@ private fun BotApp(
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                     item {
-                        SectionHeader("00", "Apariencia y temas", "Personaliza el estilo visual de toda la aplicación")
+                        SectionHeader("01", "Apariencia y temas", "Personaliza el estilo visual de toda la aplicación")
                     }
                     item {
                         GlassCard {
@@ -985,7 +985,7 @@ private fun BotApp(
                                                         if (isSelected) Icon(Icons.Default.CheckCircle, contentDescription = "Tema seleccionado", tint = theme.secondary, modifier = Modifier.size(17.dp))
                                                     }
                                                     Text(theme.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
-                                                    Text(theme.description, color = appTheme.muted, style = MaterialTheme.typography.labelSmall)
+                                                    Text(theme.description, color = appTheme.muted, style = MaterialTheme.typography.labelSmall, maxLines = 2)
                                                 }
                                             }
                                         }
@@ -997,7 +997,7 @@ private fun BotApp(
                         }
                     }
                     item {
-                        SectionHeader("07", "Actualizar aplicación", "Descarga la última versión oficial sin salir de TikLBot")
+                        SectionHeader("02", "Actualizar aplicación", "Descarga la última versión oficial sin salir de TikLBot")
                     }
                     item {
                         GlassCard {
@@ -1035,7 +1035,7 @@ private fun BotApp(
                         }
                     }
                     item {
-                        SectionHeader("02", "Lectura y moderación", "Personaliza qué contenido se convierte en voz")
+                        SectionHeader("03", "Lectura y moderación", "Personaliza qué contenido se convierte en voz")
                     }
                     item {
                         GlassCard {
@@ -1078,7 +1078,7 @@ private fun BotApp(
                         }
                     }
                     item {
-                        SectionHeader("03", "Automatizaciones del chat", "Comandos locales, bienvenida y alertas avanzadas")
+                        SectionHeader("04", "Automatizaciones del chat", "Comandos locales, bienvenida y alertas avanzadas")
                     }
                     item {
                         GlassCard {
@@ -1128,7 +1128,7 @@ private fun BotApp(
                         }
                     }
                     item {
-                        SectionHeader("04", "Proveedor de voz", "Elige el motor que leerá los comentarios")
+                        SectionHeader("05", "Proveedor de voz", "Elige el motor que leerá los comentarios")
                     }
                     item {
                         GlassCard {
@@ -1157,7 +1157,7 @@ private fun BotApp(
                     }
                     item {
                         if (speechProvider == "piper") {
-                        SectionHeader("05", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local")
+                        SectionHeader("06", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local")
                         GlassCard {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text("SELECCIONA UNA VOZ", color = LocalAppThemeColors.current.secondary, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
@@ -1306,7 +1306,7 @@ private fun BotApp(
                         }
     
                         } else {
-                            SectionHeader("05", "Voces API", when (speechProvider) { "tikfinity" -> "TikFinity · generación de audio por internet"; "edge" -> "Edge-TTS · voces neuronales de Microsoft"; else -> "TikTok TTS · voces de TikTok" })
+                            SectionHeader("06", "Voces API", when (speechProvider) { "tikfinity" -> "TikFinity · generación de audio por internet"; "edge" -> "Edge-TTS · voces neuronales de Microsoft"; else -> "TikTok TTS · voces de TikTok" })
                             GlassCard {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Text("SELECCIONA UNA VOZ API", color = LocalAppThemeColors.current.secondary, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
@@ -1378,7 +1378,7 @@ private fun BotApp(
                         }
                     }
                     item {
-                        SectionHeader("06", "Controles de voz", "Ajusta la reproducción a tu gusto")
+                        SectionHeader("07", "Controles de voz", "Ajusta la reproducción a tu gusto")
                     }
                     item {
                         GlassCard {
