@@ -5,17 +5,18 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.Context
 import android.content.Intent
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Build
 import android.os.IBinder
 
+/**
+ * Publishes media controls only while DJ Music has an active track.
+ * Background playback opt-in was removed; this service does not keep playback alive.
+ */
 class DjMusicPlaybackService : Service() {
     companion object {
-        const val ACTION_ENABLE_BACKGROUND = "com.myclivebot.dj.ENABLE_BACKGROUND"
-        const val ACTION_DISABLE_BACKGROUND = "com.myclivebot.dj.DISABLE_BACKGROUND"
         const val ACTION_UPDATE = "com.myclivebot.dj.UPDATE"
         const val ACTION_PLAY_PAUSE = "com.myclivebot.dj.PLAY_PAUSE"
         const val ACTION_NEXT = "com.myclivebot.dj.NEXT"
@@ -23,7 +24,6 @@ class DjMusicPlaybackService : Service() {
         const val EXTRA_TITLE = "dj_title"
         const val EXTRA_PLAYING = "dj_playing"
         const val EXTRA_CONTROL = "dj_control"
-        const val PREF_BACKGROUND = "dj_background_playback"
         private const val CHANNEL_ID = "dj_music_playback"
         private const val NOTIFICATION_ID = 4202
         private const val REQUEST_PLAY_PAUSE = 4203
@@ -33,12 +33,9 @@ class DjMusicPlaybackService : Service() {
     private var mediaSession: MediaSession? = null
     private var trackTitle = ""
     private var playing = false
-    private var backgroundEnabled = false
-    private val prefs by lazy { getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE) }
 
     override fun onCreate() {
         super.onCreate()
-        backgroundEnabled = prefs.getBoolean(PREF_BACKGROUND, false)
         createNotificationChannel()
         mediaSession = MediaSession(this, "TikLBot DJ Music").apply {
             setCallback(object : MediaSession.Callback() {
@@ -52,25 +49,10 @@ class DjMusicPlaybackService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_ENABLE_BACKGROUND -> {
-                backgroundEnabled = true
-                prefs.edit().putBoolean(PREF_BACKGROUND, true).apply()
-                showForegroundNotification()
-            }
-            ACTION_DISABLE_BACKGROUND -> {
-                backgroundEnabled = false
-                prefs.edit().putBoolean(PREF_BACKGROUND, false).apply()
-                if (trackTitle.isBlank()) {
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf(startId)
-                } else {
-                    showForegroundNotification()
-                }
-            }
             ACTION_UPDATE -> {
                 trackTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty()
                 playing = intent.getBooleanExtra(EXTRA_PLAYING, false)
-                if (trackTitle.isNotBlank() || backgroundEnabled) {
+                if (trackTitle.isNotBlank()) {
                     showForegroundNotification()
                 } else {
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -80,7 +62,7 @@ class DjMusicPlaybackService : Service() {
             ACTION_PLAY_PAUSE -> dispatchControl("play_pause")
             ACTION_NEXT -> dispatchControl("next")
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     private fun dispatchControl(control: String) {
@@ -95,7 +77,7 @@ class DjMusicPlaybackService : Service() {
         val session = mediaSession ?: return
         session.setMetadata(
             android.media.MediaMetadata.Builder()
-                .putString(android.media.MediaMetadata.METADATA_KEY_TITLE, trackTitle.ifBlank { "DJ Music activo" })
+                .putString(android.media.MediaMetadata.METADATA_KEY_TITLE, trackTitle)
                 .putString(android.media.MediaMetadata.METADATA_KEY_ARTIST, "TikLBot · YouTube")
                 .build()
         )
@@ -129,11 +111,11 @@ class DjMusicPlaybackService : Service() {
         } else Notification.Builder(this)
 
         val notification = builder
-            .setContentTitle(trackTitle.ifBlank { "DJ Music" })
-            .setContentText(if (trackTitle.isBlank()) "Reproducción en segundo plano activada" else "TikLBot · YouTube")
+            .setContentTitle(trackTitle)
+            .setContentText("TikLBot · YouTube")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(openApp)
-            .setOngoing(trackTitle.isNotBlank() || backgroundEnabled)
+            .setOngoing(true)
             .addAction(Notification.Action.Builder(playPauseIcon, playPauseLabel, playPauseIntent).build())
             .addAction(Notification.Action.Builder(android.R.drawable.ic_media_next, "Siguiente", nextIntent).build())
             .setStyle(Notification.MediaStyle().setMediaSession(session.sessionToken).setShowActionsInCompactView(0, 1))
