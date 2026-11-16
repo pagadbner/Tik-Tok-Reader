@@ -26,7 +26,7 @@ internal fun isNewerAppVersion(installedVersionCode: Long, publishedVersionCode:
     publishedVersionCode > installedVersionCode
 
 internal fun parsePublishedVersionCode(releaseBody: String): Long? =
-    Regex("(?im)^\\\\s*VersionCode\\\\s*[:=]\\\\s*(\\\\d+)\\\\s*$")
+    Regex("(?im)^\\s*VersionCode\\s*[:=]\\s*(\\d+)\\s*$")
         .find(releaseBody)?.groupValues?.get(1)?.toLongOrNull()
 
 internal object AppUpdateManager {
