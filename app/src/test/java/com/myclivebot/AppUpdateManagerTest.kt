@@ -35,7 +35,7 @@ class AppUpdateManagerTest {
 
     @Test
     fun parsesPublishedVersionCodeFromReleaseNotes() {
-        assertEquals(23L, parsePublishedVersionCode("VersionName: 0.13.6\\nVersionCode: 23\\n"))
+        assertEquals(23L, parsePublishedVersionCode("VersionName: 0.13.6\nVersionCode: 23\n"))
     }
 
     @Test
