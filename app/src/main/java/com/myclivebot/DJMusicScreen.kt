@@ -426,7 +426,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                 )
                             } else {
                                 val muteJs = if (state.muted) "e.target.mute();" else "e.target.unMute();" 
-                                val html = "<!doctype html><html><body style='margin:0;background:#000'><div id='player'></div><script src='https://www.youtube.com/iframe_api'></script><script>var player;function onYouTubeIframeAPIReady(){player=new YT.Player('player',{width:'100%',height:'220',videoId:'" + track.videoId + "',playerVars:{autoplay:1,playsinline:1,rel:0},events:{onReady:function(e){e.target.setVolume(" + state.volume + ");" + muteJs + "e.target.playVideo();},onStateChange:function(e){if(e.data===0)TikLBotMusicPlayer.onPlayerEnded();}}});}function setVolume(v){if(player)player.setVolume(v);}function setMuted(v){if(player){if(v)player.mute();else player.unMute();}}function playPause(){if(player){if(player.getPlayerState()===1)player.pauseVideo();else{player.unMute();player.playVideo();}}}function seekBy(s){if(player)player.seekTo(Math.max(0,player.getCurrentTime()+s),true);}</script></body></html>"
+                                val html = "<!doctype html><html><body style='margin:0;background:#000'><div id='player'></div><script src='https://www.youtube.com/iframe_api'></script><script>var player;function onYouTubeIframeAPIReady(){player=new YT.Player('player',{width:'100%',height:'220',videoId:'" + track.videoId + "',playerVars:{autoplay:1,playsinline:1,rel:0},events:{onReady:function(e){e.target.setVolume(" + state.volume + ");" + muteJs + "TikLBotMusicPlayer.onPlayerReady();e.target.playVideo();},onStateChange:function(e){if(e.data===0)TikLBotMusicPlayer.onPlayerEnded();TikLBotMusicPlayer.onPlayerState(e.data);},onError:function(e){TikLBotMusicPlayer.onPlayerError(e.data);},onAutoplayBlocked:function(){TikLBotMusicPlayer.onAutoplayBlocked();}}});}function setVolume(v){if(player)player.setVolume(v);}function setMuted(v){if(player){if(v)player.mute();else player.unMute();}}function playPause(){if(player){if(player.getPlayerState()===1)player.pauseVideo();else{player.unMute();player.playVideo();}}}function seekBy(s){if(player)player.seekTo(Math.max(0,player.getCurrentTime()+s),true);}</script></body></html>"
                                 view.loadDataWithBaseURL("https://www.youtube.com", html, "text/html", "UTF-8", null)
                             }
                         } else {
@@ -506,6 +506,13 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                 if(!value)value=t.simpleText||'';
                                 value=cleanTitle(value);return isDuration(value)?'':value;
                               }
+                              function rendererDuration(video){
+                                var value=video&&video.lengthText&&(video.lengthText.simpleText||(video.lengthText.runs||[]).map(function(r){return r.text||'';}).join(''));
+                                if(!value&&video&&video.thumbnailOverlays){
+                                  video.thumbnailOverlays.forEach(function(o){var t=o.thumbnailOverlayTimeStatusRenderer&&o.thumbnailOverlayTimeStatusRenderer.text;if(!value&&t)value=t.simpleText||(t.runs||[]).map(function(r){return r.text||'';}).join('');});
+                                }
+                                return cleanTitle(value);
+                              }
                               function send(items){
                                 var x=(items||[]).find(function(item){return item&&item.videoId&&cleanTitle(item.title)&&!isDuration(item.title);});
                                 if(x&&x.videoId){
@@ -531,7 +538,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                   if(!o||typeof o!=='object')return;
                                   if(o.videoRenderer&&o.videoRenderer.videoId){
                                     var v=o.videoRenderer;
-                                    found.push({videoId:v.videoId,title:rendererTitle(v),thumbnails:(v.thumbnail&&v.thumbnail.thumbnails)||[],duration:(v.lengthText&&(v.lengthText.simpleText||(v.lengthText.runs||[]).map(function(r){return r.text}).join('')))||''});
+                                    found.push({videoId:v.videoId,title:rendererTitle(v),thumbnails:(v.thumbnail&&v.thumbnail.thumbnails)||[],duration:rendererDuration(v)});
                                   }
                                   Object.keys(o).forEach(function(k){if(k!=='videoRenderer')walk(o[k]);});
                                 }
