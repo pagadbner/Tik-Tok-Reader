@@ -1,6 +1,11 @@
 package com.myclivebot
 
 import android.annotation.SuppressLint
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -18,6 +23,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +49,49 @@ private val DjCyan = Color(0xFF69DED2)
 @Composable
 fun DJMusicScreen(modifier: Modifier = Modifier) {
     val state by DjMusicController.state.collectAsState()
+    val context = LocalContext.current
+    var backgroundEnabled by remember {
+        mutableStateOf(context.getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
+            .getBoolean(DjMusicPlaybackService.PREF_BACKGROUND, false))
+    }
+
+    fun sendPlaybackServiceAction(action: String, title: String = "", playing: Boolean = false) {
+        val intent = Intent(context, DjMusicPlaybackService::class.java)
+            .setAction(action)
+            .putExtra(DjMusicPlaybackService.EXTRA_TITLE, title)
+            .putExtra(DjMusicPlaybackService.EXTRA_PLAYING, playing)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+        else context.startService(intent)
+    }
+
+    DisposableEffect(context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.getStringExtra(DjMusicPlaybackService.EXTRA_CONTROL)) {
+                    "play_pause" -> playerView?.evaluateJavascript("playPause()", null)
+                    "next" -> DjMusicController.skip("Siguiente canción desde la notificación.")
+                }
+            }
+        }
+        val filter = IntentFilter(DjMusicPlaybackService.ACTION_CONTROL)
+        if (Build.VERSION.SDK_INT >= 33) context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        else {
+            @Suppress("DEPRECATION")
+            context.registerReceiver(receiver, filter)
+        }
+        onDispose { runCatching { context.unregisterReceiver(receiver) } }
+    }
+
+    LaunchedEffect(state.currentTrack?.videoId, playerPlaying, backgroundEnabled) {
+        val track = state.currentTrack
+        if (track != null || backgroundEnabled) {
+            sendPlaybackServiceAction(
+                DjMusicPlaybackService.ACTION_UPDATE,
+                track?.title.orEmpty(),
+                playerPlaying
+            )
+        }
+    }
     var searchText by remember { mutableStateOf("") }
     var searchView by remember { mutableStateOf<WebView?>(null) }
     var playerView by remember { mutableStateOf<WebView?>(null) }
