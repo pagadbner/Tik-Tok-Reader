@@ -12,6 +12,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -24,9 +25,6 @@ import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,20 +42,15 @@ import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
-private val DjPanel = Color(0xCC1B2036)
-private val DjMuted = Color(0xFFB8BBD0)
-private val DjCyan = Color(0xFF69DED2)
+private val DjPanel = Color(0x663A3944)
+private val DjMuted = Color(0xFFB8B5C2)
+private val DjCyan = Color(0xFFE4DFFF)
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun DJMusicScreen(modifier: Modifier = Modifier) {
     val state by DjMusicController.state.collectAsState()
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var backgroundEnabled by remember {
-        mutableStateOf(context.getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
-            .getBoolean(DjMusicPlaybackService.PREF_BACKGROUND, false))
-    }
     var playbackServiceActive by remember { mutableStateOf(false) }
 
     var searchText by remember { mutableStateOf("") }
@@ -101,26 +94,15 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
         onDispose { runCatching { context.unregisterReceiver(receiver) } }
     }
 
-    DisposableEffect(lifecycleOwner, backgroundEnabled) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP && !backgroundEnabled) {
-                playerView?.evaluateJavascript("if(player)player.pauseVideo()", null)
-                playerPlaying = false
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    LaunchedEffect(state.currentTrack?.videoId, playerPlaying, backgroundEnabled) {
+    LaunchedEffect(state.currentTrack?.videoId, playerPlaying) {
         val track = state.currentTrack
-        if (track != null || backgroundEnabled || playbackServiceActive) {
+        if (track != null || playbackServiceActive) {
             sendPlaybackServiceAction(
                 DjMusicPlaybackService.ACTION_UPDATE,
                 track?.title.orEmpty(),
                 playerPlaying
             )
-            playbackServiceActive = track != null || backgroundEnabled
+            playbackServiceActive = track != null
         }
     }
 
@@ -173,7 +155,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
         modifier = modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Surface(color = DjPanel, shape = RoundedCornerShape(20.dp)) {
+        Surface(color = DjPanel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, Color.White.copy(alpha = 0.16f))) {
             Column(
                 Modifier.fillMaxWidth().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -493,36 +475,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        Surface(color = DjPanel, shape = RoundedCornerShape(20.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("REPRODUCCIÓN EN SEGUNDO PLANO", color = DjCyan, style = MaterialTheme.typography.labelMedium)
-                    Text(
-                        "Mantener DJ Music activo al salir de la aplicación. Android y YouTube aún pueden limitar la reproducción en segundo plano.",
-                        color = DjMuted,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                Switch(
-                    checked = backgroundEnabled,
-                    onCheckedChange = { enabled ->
-                        backgroundEnabled = enabled
-                        playbackServiceActive = enabled || state.currentTrack != null
-                        context.getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
-                            .edit().putBoolean(DjMusicPlaybackService.PREF_BACKGROUND, enabled).apply()
-                        sendPlaybackServiceAction(
-                            if (enabled) DjMusicPlaybackService.ACTION_ENABLE_BACKGROUND
-                            else DjMusicPlaybackService.ACTION_DISABLE_BACKGROUND,
-                            state.currentTrack?.title.orEmpty(),
-                            playerPlaying
-                        )
-                    }
-                )
-            }
-        }
+
     }
 
     AndroidView(
