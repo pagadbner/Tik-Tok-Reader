@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
@@ -47,6 +48,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
     var searching by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<DjMusicTrack?>(null) }
     var accessMenu by remember { mutableStateOf(false) }
+    var playerPlaying by remember { mutableStateOf(false) }
 
     fun startSearch(rawQuery: String, requestedBy: String) {
         val query = rawQuery.trim()
@@ -220,6 +222,16 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                     Text("${state.volume}%", color = DjMuted, style = MaterialTheme.typography.labelSmall)
                 }
 
+                Text("CONTROLES DEL REPRODUCTOR", color = DjMuted, style = MaterialTheme.typography.labelSmall)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FilledTonalButton(onClick = { playerView?.evaluateJavascript("playPause()", null); playerPlaying = !playerPlaying }, enabled = current != null, modifier = Modifier.weight(1f)) {
+                        Icon(if (playerPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (playerPlaying) "Pausar" else "Reproducir")
+                    }
+                    OutlinedButton(onClick = { playerView?.evaluateJavascript("seekBy(-10)", null) }, enabled = current != null, modifier = Modifier.weight(1f)) { Text("−10 s") }
+                    OutlinedButton(onClick = { playerView?.evaluateJavascript("seekBy(10)", null) }, enabled = current != null, modifier = Modifier.weight(1f)) { Text("+10 s") }
+                }
                 Text("REPRODUCTOR OFICIAL DE YOUTUBE", color = DjMuted, style = MaterialTheme.typography.labelSmall)
                 AndroidView(
                     modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(14.dp)),
@@ -242,6 +254,10 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                 fun onPlayerError(code: Int) {
                                     post { DjMusicController.setMessage("YouTube no pudo reproducir este video (error $code). Prueba otra coincidencia.") }
                                 }
+                                @JavascriptInterface
+                                fun onPlayerState(value: Int) {
+                                    post { playerPlaying = value == 1 }
+                                }
                             }, "TikLBotMusicPlayer")
                             playerView = this
                         }
@@ -252,6 +268,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                         val tag = track?.videoId ?: "empty-player"
                         if (view.tag != tag) {
                             view.tag = tag
+                            playerPlaying = false
                             if (track == null) {
                                 view.loadDataWithBaseURL(
                                     "https://www.youtube.com/",
@@ -275,16 +292,18 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                             width:'100%', height:'220',
                                             videoId:'${track.videoId}',
                                             host:'https://www.youtube.com',
-                                            playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'https://www.youtube.com'},
+                                            playerVars:{autoplay:0,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'https://www.youtube.com'},
                                             events:{
-                                              onReady:function(e){e.target.setVolume(${state.volume});if(${state.muted})e.target.mute();e.target.playVideo();},
-                                              onStateChange:function(e){if(e.data===0)TikLBotMusicPlayer.onPlayerEnded();},
+                                              onReady:function(e){e.target.setVolume(${state.volume});if(${state.muted})e.target.mute();},
+                                              onStateChange:function(e){if(e.data===0)TikLBotMusicPlayer.onPlayerEnded();if(e.data===1)TikLBotMusicPlayer.onPlayerState(1);if(e.data===2||e.data===0)TikLBotMusicPlayer.onPlayerState(0);},
                                               onError:function(e){TikLBotMusicPlayer.onPlayerError(e.data);}
                                             }
                                           });
                                         }
                                         function setVolume(v){if(player && player.setVolume)player.setVolume(v);}
                                         function setMuted(v){if(player){if(v)player.mute();else player.unMute();}}
+                                        function playPause(){if(!player||!player.getPlayerState)return;if(player.getPlayerState()===1)player.pauseVideo();else{player.unMute();player.playVideo();}}
+                                        function seekBy(seconds){if(player&&player.getCurrentTime&&player.seekTo)player.seekTo(Math.max(0,player.getCurrentTime()+seconds),true);}
                                       </script>
                                       <script src="https://www.youtube.com/iframe_api"></script>
                                     </body>
