@@ -12,8 +12,8 @@ android {
         applicationId = "com.myclivebot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 23
-        versionName = "0.13.6"
+        versionCode = providers.gradleProperty("appVersionCode").orNull?.toInt() ?: 23
+        versionName = providers.gradleProperty("appVersionName").orNull ?: "0.13.6"
     }
 
     signingConfigs {
