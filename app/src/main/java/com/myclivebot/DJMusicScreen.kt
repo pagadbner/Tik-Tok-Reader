@@ -347,7 +347,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                 }
                 Text("REPRODUCTOR OFICIAL DE YOUTUBE", color = palette.muted, style = MaterialTheme.typography.labelSmall)
                 AndroidView(
-                    modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(14.dp)),
+                    modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(14.dp)),
                     factory = { context ->
                         WebView(context).apply {
                             settings.javaScriptEnabled = true
@@ -420,14 +420,14 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                             playerReady = false
                             if (track == null) {
                                 view.loadDataWithBaseURL(
-                                    "https://www.youtube.com/",
+                                    "https://com.myclivebot/",
                                     "<html><body style='margin:0;background:#111827;color:#b8bbd0;font-family:sans-serif;display:grid;place-items:center;height:100vh'>El reproductor aparecerá aquí</body></html>",
                                     "text/html", "UTF-8", null
                                 )
                             } else {
                                 val muteJs = if (state.muted) "e.target.mute();" else "e.target.unMute();" 
-                                val html = "<!doctype html><html><body style='margin:0;background:#000'><div id='player'></div><script src='https://www.youtube.com/iframe_api'></script><script>var player;function onYouTubeIframeAPIReady(){player=new YT.Player('player',{width:'100%',height:'220',videoId:'" + track.videoId + "',playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'https://www.youtube.com'},events:{onReady:function(e){e.target.setVolume(" + state.volume + ");" + muteJs + "TikLBotMusicPlayer.onPlayerReady();e.target.playVideo();},onStateChange:function(e){if(e.data===0)TikLBotMusicPlayer.onPlayerEnded();TikLBotMusicPlayer.onPlayerState(e.data);},onError:function(e){TikLBotMusicPlayer.onPlayerError(e.data);},onAutoplayBlocked:function(){TikLBotMusicPlayer.onAutoplayBlocked();}}});}function setVolume(v){if(player)player.setVolume(v);}function setMuted(v){if(player){if(v)player.mute();else player.unMute();}}function playPause(){if(player){if(player.getPlayerState()===1)player.pauseVideo();else{player.unMute();player.playVideo();}}}function seekBy(s){if(player)player.seekTo(Math.max(0,player.getCurrentTime()+s),true);}</script></body></html>"
-                                view.loadDataWithBaseURL("https://www.youtube.com", html, "text/html", "UTF-8", null)
+                                val html = "<!doctype html><html><head><meta name='referrer' content='strict-origin-when-cross-origin'></head><body style='margin:0;background:#000'><div id='player'></div><script src='https://www.youtube.com/iframe_api'></script><script>var player;function onYouTubeIframeAPIReady(){player=new YT.Player('player',{width:'100%',height:'220',videoId:'" + track.videoId + "',playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'https://com.myclivebot'},events:{onReady:function(e){e.target.setVolume(" + state.volume + ");" + muteJs + "TikLBotMusicPlayer.onPlayerReady();e.target.playVideo();},onStateChange:function(e){if(e.data===0)TikLBotMusicPlayer.onPlayerEnded();TikLBotMusicPlayer.onPlayerState(e.data);},onError:function(e){TikLBotMusicPlayer.onPlayerError(e.data);},onAutoplayBlocked:function(){TikLBotMusicPlayer.onAutoplayBlocked();}}});}function setVolume(v){if(player)player.setVolume(v);}function setMuted(v){if(player){if(v)player.mute();else player.unMute();}}function playPause(){if(player){if(player.getPlayerState()===1)player.pauseVideo();else{player.unMute();player.playVideo();}}}function seekBy(s){if(player)player.seekTo(Math.max(0,player.getCurrentTime()+s),true);}</script></body></html>"
+                                view.loadDataWithBaseURL("https://com.myclivebot/", html, "text/html", "UTF-8", null)
                             }
                         } else {
                             view.evaluateJavascript(
