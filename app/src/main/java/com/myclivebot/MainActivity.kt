@@ -5,15 +5,21 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.widget.ImageView
 import android.os.Build
 import android.os.Bundle
+import android.widget.ImageView
 import androidx.activity.ComponentActivity
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -35,15 +41,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.*
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import com.myclivebot.core.ChatCommandParser
+import com.myclivebot.core.DjMusicController
 import com.myclivebot.core.PiperSpeechEngine
 import com.myclivebot.core.PiperVoiceCatalog
 import com.myclivebot.core.ReaderSettings
@@ -57,12 +65,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import java.io.File
-
-private val Night = Color(0xFF090B18)
-private val Panel = Color(0xCC1B2036)
-private val Violet = Color(0xFF9B86FF)
-private val Cyan = Color(0xFF69DED2)
-private val Muted = Color(0xFFB8BBD0)
 
 private data class LiveCommentUi(val id: String, val username: String, val message: String, val avatarUrl: String?, val replyToDisplayName: String?, val receivedAt: Long, val skipped: Boolean = false)
 private data class CustomCommandEntry(val title: String, val trigger: String, val response: String)
@@ -291,40 +293,29 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             )
-            if (showBrandSplash) {
-                Box(
-                    modifier = Modifier.fillMaxSize().background(Night),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        AndroidView(
-                            factory = { context ->
-                                ImageView(context).apply {
-                                    setImageResource(R.mipmap.ic_launcher)
-                                    contentDescription = "Tik Tok Reader"
-                                    scaleType = ImageView.ScaleType.FIT_CENTER
-                                }
-                            },
-                            modifier = Modifier.size(92.dp)
-                        )
-                        Spacer(Modifier.height(18.dp))
-                        Text(
-                            "TikTok Live Reader",
-                            color = Color.White,
-                            fontSize = 23.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "LECTOR INTELIGENTE DE DIRECTOS",
-                            color = Cyan,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 1.5.sp
-                        )
+                if (showBrandSplash) {
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(Color(0xFF07090D)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            AndroidView(
+                                factory = { context ->
+                                    ImageView(context).apply {
+                                        setImageResource(R.mipmap.ic_launcher)
+                                        contentDescription = "Tik Tok Reader"
+                                        scaleType = ImageView.ScaleType.FIT_CENTER
+                                    }
+                                },
+                                modifier = Modifier.size(92.dp)
+                            )
+                            Spacer(Modifier.height(18.dp))
+                            Text("TikTok Live Reader", color = Color(0xFFE3E7EC), fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(6.dp))
+                            Text("LECTOR INTELIGENTE DE DIRECTOS", color = Color(0xFF9AA3AE), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp)
+                        }
                     }
                 }
-            }
             }
         }
     }
@@ -428,6 +419,8 @@ private fun BotApp(
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE) }
+    var selectedThemeId by remember { mutableStateOf(prefs.getString("appearance_theme", "obsidian") ?: "obsidian") }
+    val appTheme = AppThemePresets.byId(selectedThemeId)
 
     var username by remember { mutableStateOf(prefs.getString("last_username", "").orEmpty()) }
     var recentUsernames by remember {
@@ -531,6 +524,7 @@ private fun BotApp(
     var downloadStage by remember { mutableStateOf("") }
     var showDeleteVoiceDialog by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showDjMusic by remember { mutableStateOf(false) }
     var appUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
     var appUpdateStatus by remember { mutableStateOf("Buscando actualizaciones oficiales…") }
     var appUpdateBusy by remember { mutableStateOf(false) }
@@ -538,7 +532,6 @@ private fun BotApp(
     var downloadedUpdatePath by remember { mutableStateOf<String?>(null) }
     val updateScope = rememberCoroutineScope()
     val homeScrollState = rememberScrollState()
-    val settingsScrollState = rememberScrollState()
 
     fun buildReaderSettings(): ReaderSettings = ReaderSettings(
         readUsername = readUsername,
@@ -719,71 +712,103 @@ private fun BotApp(
         if (connected && selectedProviderReady) onUpdateSettings(buildReaderSettings())
     }
     val pulse by animateFloatAsState(if (connected) 1f else 0.72f, label = "statusPulse")
+    val gradientTransition = rememberInfiniteTransition(label = "neonGlassBackground")
+    val gradientPhase by gradientTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(durationMillis = 18000, easing = LinearEasing), repeatMode = RepeatMode.Reverse),
+        label = "neonGradientPhase"
+    )
 
+    CompositionLocalProvider(LocalAppThemeColors provides appTheme) {
     MaterialTheme(
         colorScheme = darkColorScheme(
-            primary = Violet, secondary = Cyan, background = Night, surface = Panel,
-            onBackground = Color(0xFFF4F1FF), onSurface = Color(0xFFF4F1FF),
-            surfaceVariant = Color(0xFF292D45), onSurfaceVariant = Muted
+            primary = appTheme.primary, secondary = appTheme.secondary,
+            background = appTheme.background, surface = appTheme.panel,
+            onBackground = Color(0xFFF0F1F3), onSurface = Color(0xFFF0F1F3),
+            surfaceVariant = appTheme.surfaceVariant, onSurfaceVariant = appTheme.muted
         )
     ) {
-        Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF17152D), Night, Color(0xFF101D2C))))) {
-            Box(Modifier.align(Alignment.TopEnd).padding(top = 50.dp, end = 8.dp).size(190.dp).blur(75.dp).background(Violet.copy(alpha = .22f), RoundedCornerShape(100)))
-            Box(Modifier.align(Alignment.BottomStart).padding(bottom = 100.dp, start = 0.dp).size(170.dp).blur(75.dp).background(Cyan.copy(alpha = .13f), RoundedCornerShape(100)))
+        Box(
+            Modifier.fillMaxSize().drawBehind {
+                // Read animation state in the draw phase so the whole UI is not recomposed every frame.
+                drawRect(
+                    Brush.linearGradient(
+                        colors = appTheme.gradient,
+                        start = Offset(0f, gradientPhase * 1150f),
+                        end = Offset(1250f, 1800f - gradientPhase * 1150f)
+                    )
+                )
+            }
+        ) {
             Scaffold(
                 containerColor = Color.Transparent,
-                contentColor = Color(0xFFF4F1FF),
+                contentColor = Color(0xFFF0F1F3),
                 topBar = {
                     TopAppBar(
                         title = {
                             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                 Text("TIK TOK READER", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleSmall, letterSpacing = 1.1.sp)
-                                Text(when (speechProvider) { "tikfinity" -> "TIKFINITY API · CONTROL EN VIVO"; "edge" -> "EDGE-TTS · CONTROL EN VIVO"; "tiktok" -> "TIKTOK TTS · CONTROL EN VIVO"; else -> "PIPER OFFLINE · CONTROL EN VIVO" }, style = MaterialTheme.typography.labelSmall, color = Cyan, letterSpacing = .8.sp)
+                                Text(when (speechProvider) { "tikfinity" -> "TIKFINITY API · CONTROL EN VIVO"; "edge" -> "EDGE-TTS · CONTROL EN VIVO"; "tiktok" -> "TIKTOK TTS · CONTROL EN VIVO"; else -> "PIPER OFFLINE · CONTROL EN VIVO" }, style = MaterialTheme.typography.labelSmall, color = LocalAppThemeColors.current.secondary, letterSpacing = .8.sp)
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = Color(0x77111629),
-                            titleContentColor = Color(0xFFF4F1FF),
-                            actionIconContentColor = Cyan
+                            containerColor = appTheme.panel.copy(alpha = .94f),
+                            titleContentColor = Color(0xFFF0F1F3),
+                            actionIconContentColor = appTheme.secondary
                         )
                     )
                 },
                 bottomBar = {
-                    NavigationBar(containerColor = Color(0xCC111629), contentColor = Color(0xFFF4F1FF)) {
+                    NavigationBar(containerColor = appTheme.panel.copy(alpha = .94f), contentColor = Color(0xFFF0F1F3), tonalElevation = 0.dp) {
                         NavigationBarItem(
-                            selected = !showSettings,
-                            onClick = { showSettings = false },
+                            selected = !showSettings && !showDjMusic,
+                            onClick = { showSettings = false; showDjMusic = false },
                             icon = { Icon(Icons.Default.Home, contentDescription = null) },
                             label = { Text("Home") }
                         )
                         NavigationBarItem(
                             selected = showSettings,
-                            onClick = { showSettings = true },
+                            onClick = { showSettings = true; showDjMusic = false },
                             icon = { Icon(Icons.Default.Settings, contentDescription = null) },
                             label = { Text("Settings") }
+                        )
+                        NavigationBarItem(
+                            selected = showDjMusic,
+                            onClick = { showSettings = false; showDjMusic = true },
+                            icon = { Icon(Icons.Default.MusicNote, contentDescription = null) },
+                            label = { Text("DJ Music") }
                         )
                     }
                 }
             ) { padding ->
-                Column(
-                    Modifier.padding(padding).fillMaxSize().verticalScroll(if (showSettings) settingsScrollState else homeScrollState).padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    if (!showSettings) {
+                Box(Modifier.padding(padding).fillMaxSize()) {
+                    // Keep the DJ screen and both WebViews alive while other tabs are displayed.
+                    // The normal page is drawn above it whenever DJ Music is not selected.
+                    DJMusicScreen(
+                        Modifier.fillMaxSize().then(if (showDjMusic) Modifier else Modifier.alpha(0f))
+                    )
+                    Column(
+                        Modifier.fillMaxSize().then(if (showDjMusic || showSettings) Modifier else Modifier.verticalScroll(homeScrollState)).padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                    if (showDjMusic) {
+                        Spacer(Modifier.fillMaxSize())
+                    } else if (!showSettings) {
                     GlassCard {
                         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(Violet.copy(alpha = .18f)).border(1.dp, Violet.copy(alpha = .5f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.GraphicEq, null, tint = Violet)
+                                Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(LocalAppThemeColors.current.primary.copy(alpha = .18f)).border(1.dp, LocalAppThemeColors.current.primary.copy(alpha = .5f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.GraphicEq, null, tint = LocalAppThemeColors.current.primary)
                                 }
                                 Column(Modifier.weight(1f)) {
-                                    Text("CENTRO DE CONTROL", style = MaterialTheme.typography.labelSmall, color = Cyan, letterSpacing = 1.4.sp)
+                                    Text("CENTRO DE CONTROL", style = MaterialTheme.typography.labelSmall, color = LocalAppThemeColors.current.secondary, letterSpacing = 1.4.sp)
                                     Text("Estado del lector", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                 }
-                                Box(Modifier.size(11.dp).graphicsLayer { scaleX = pulse; scaleY = pulse }.clip(RoundedCornerShape(50)).background(if (connected) Cyan else Violet))
+                                Box(Modifier.size(11.dp).graphicsLayer { scaleX = pulse; scaleY = pulse }.clip(RoundedCornerShape(50)).background(if (connected) LocalAppThemeColors.current.secondary else LocalAppThemeColors.current.primary))
                             }
                             Text(status, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                            Text("Lee el chat público del LIVE y convierte los comentarios en voz en tu dispositivo.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            Text("Lee el chat público del LIVE y convierte los comentarios en voz en tu dispositivo.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Button(
                                     onClick = {
@@ -818,7 +843,7 @@ private fun BotApp(
                                 onValueChange = { username = it },
                                 label = { Text("Usuario de TikTok") },
                                 placeholder = { Text("@ejemplo_usuario") },
-                                leadingIcon = { Icon(Icons.Default.AlternateEmail, null, tint = Violet) },
+                                leadingIcon = { Icon(Icons.Default.AlternateEmail, null, tint = LocalAppThemeColors.current.primary) },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(16.dp)
@@ -828,7 +853,7 @@ private fun BotApp(
                                     modifier = Modifier.fillMaxWidth(),
                                     color = Color.White.copy(alpha = .055f),
                                     shape = RoundedCornerShape(16.dp),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Violet.copy(alpha = .22f))
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, LocalAppThemeColors.current.primary.copy(alpha = .22f))
                                 ) {
                                     Row(
                                         Modifier.padding(12.dp),
@@ -836,7 +861,7 @@ private fun BotApp(
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
                                         Box(
-                                            Modifier.size(58.dp).clip(RoundedCornerShape(50)).background(Panel),
+                                            Modifier.size(58.dp).clip(RoundedCornerShape(50)).background(LocalAppThemeColors.current.panel),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             if (profileAvatarUrl != null) {
@@ -847,7 +872,7 @@ private fun BotApp(
                                                     contentScale = androidx.compose.ui.layout.ContentScale.Crop
                                                 )
                                             } else {
-                                                Icon(Icons.Default.AccountCircle, null, tint = Muted, modifier = Modifier.size(42.dp))
+                                                Icon(Icons.Default.AccountCircle, null, tint = LocalAppThemeColors.current.muted, modifier = Modifier.size(42.dp))
                                             }
                                         }
                                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -858,7 +883,7 @@ private fun BotApp(
                                                     profileAvatarUrl != null -> "Perfil de TikTok encontrado"
                                                     else -> "No se pudo cargar la foto; puedes guardar el usuario igualmente"
                                                 },
-                                                color = Muted,
+                                                color = LocalAppThemeColors.current.muted,
                                                 style = MaterialTheme.typography.bodySmall
                                             )
                                         }
@@ -872,7 +897,7 @@ private fun BotApp(
                                 }
                             }
                             if (recentUsernames.isNotEmpty()) {
-                                Text("PERFILES GUARDADOS", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                                Text("PERFILES GUARDADOS", color = LocalAppThemeColors.current.secondary, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     recentUsernames.forEach { recent ->
                                         Surface(
@@ -889,12 +914,12 @@ private fun BotApp(
                                                 AsyncImage(
                                                     model = recentAvatarUrls[recent],
                                                     contentDescription = "Foto de perfil de @$recent",
-                                                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(50)).background(Panel),
+                                                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(50)).background(LocalAppThemeColors.current.panel),
                                                     contentScale = androidx.compose.ui.layout.ContentScale.Crop
                                                 )
                                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                                     Text("@$recent", fontWeight = FontWeight.SemiBold)
-                                                    Text("Perfil guardado", color = Muted, style = MaterialTheme.typography.labelSmall)
+                                                    Text("Perfil guardado", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.labelSmall)
                                                 }
                                                 TextButton(onClick = { username = recent }) { Text("USAR") }
                                                 IconButton(onClick = {
@@ -905,14 +930,14 @@ private fun BotApp(
                                                         .putStringSet("recent_user_avatars", recentAvatarUrls.map { (name, url) -> "$name\t$url" }.toSet())
                                                         .apply()
                                                 }) {
-                                                    Icon(Icons.Default.Close, contentDescription = "Quitar perfil @$recent", tint = Muted)
+                                                    Icon(Icons.Default.Close, contentDescription = "Quitar perfil @$recent", tint = LocalAppThemeColors.current.muted)
                                                 }
                                             }
                                         }
                                     }
                                 }
                             }
-                            Text("El creador debe tener un LIVE activo. No se solicita contraseña ni cookies.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            Text("El creador debe tener un LIVE activo. No se solicita contraseña ni cookies.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                         }
                     }
 
@@ -923,424 +948,492 @@ private fun BotApp(
                         modifier = Modifier
                     )
                     } else {
-                    SectionHeader("06", "Actualizar aplicación", "Descarga la última versión oficial sin salir de TikLBot")
-                    GlassCard {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = Cyan)
-                                Spacer(Modifier.width(9.dp))
-                                Text("ACTUALIZACIONES", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                    item {
+                        SectionHeader("01", "Apariencia y temas", "Personaliza el estilo visual de toda la aplicación")
+                    }
+                    item {
+                        GlassCard {
+                            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("TEMAS DISPONIBLES", color = appTheme.secondary, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                                AppThemePresets.all.chunked(2).forEach { themeRow ->
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        themeRow.forEach { theme ->
+                                            val isSelected = selectedThemeId == theme.id
+                                            Surface(
+                                                onClick = {
+                                                    selectedThemeId = theme.id
+                                                    prefs.edit().putString("appearance_theme", theme.id).apply()
+                                                },
+                                                modifier = Modifier.weight(1f).heightIn(min = 112.dp),
+                                                color = if (isSelected) theme.primary.copy(alpha = .13f) else Color.White.copy(alpha = .035f),
+                                                shape = RoundedCornerShape(16.dp),
+                                                border = androidx.compose.foundation.BorderStroke(
+                                                    if (isSelected) 1.5.dp else 1.dp,
+                                                    if (isSelected) theme.primary.copy(alpha = .72f) else theme.glassBorder.copy(alpha = .55f)
+                                                )
+                                            ) {
+                                                Column(Modifier.fillMaxWidth().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                        listOf(theme.background, theme.panel, theme.primary, theme.secondary).forEach { swatch ->
+                                                            Box(Modifier.size(13.dp).clip(RoundedCornerShape(50)).background(swatch))
+                                                        }
+                                                        Spacer(Modifier.weight(1f))
+                                                        if (isSelected) Icon(Icons.Default.CheckCircle, contentDescription = "Tema seleccionado", tint = theme.secondary, modifier = Modifier.size(17.dp))
+                                                    }
+                                                    Text(theme.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                                                    Text(theme.description, color = appTheme.muted, style = MaterialTheme.typography.labelSmall, maxLines = 2)
+                                                }
+                                            }
+                                        }
+                                        if (themeRow.size == 1) Spacer(Modifier.weight(1f))
+                                    }
+                                }
+                                Text("La selección se guarda automáticamente y se aplica en Home, Settings y DJ Music.", color = appTheme.muted, style = MaterialTheme.typography.bodySmall)
                             }
-                            Text(appUpdate?.let { "Nueva versión ${it.versionName} (código ${it.versionCode})" } ?: if (appUpdateStatus.startsWith("No se pudo consultar")) "No se pudo comprobar la versión" else "Estado de actualización", fontWeight = FontWeight.SemiBold)
-                            Text(appUpdateStatus, color = Muted, style = MaterialTheme.typography.bodySmall)
-                            Button(
-                                onClick = { checkAppUpdateManually() },
-                                enabled = !appUpdateBusy,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(14.dp)
-                            ) {
-                                if (appUpdateBusy) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
-                                else Icon(Icons.Default.Refresh, contentDescription = null)
-                                Text(if (appUpdateBusy) "  COMPROBANDO…" else "  COMPROBAR ACTUALIZACIONES")
-                            }
-                            if (appUpdate != null) {
+                        }
+                    }
+                    item {
+                        SectionHeader("02", "Actualizar aplicación", "Descarga la última versión oficial sin salir de TikLBot")
+                    }
+                    item {
+                        GlassCard {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = LocalAppThemeColors.current.secondary)
+                                    Spacer(Modifier.width(9.dp))
+                                    Text("ACTUALIZACIONES", color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                                }
+                                Text(appUpdate?.let { "Nueva versión ${it.versionName} (código ${it.versionCode})" } ?: if (appUpdateStatus.startsWith("No se pudo consultar")) "No se pudo comprobar la versión" else "Estado de actualización", fontWeight = FontWeight.SemiBold)
+                                Text(appUpdateStatus, color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                                 Button(
-                                    onClick = { startAppUpdate() },
+                                    onClick = { checkAppUpdateManually() },
                                     enabled = !appUpdateBusy,
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(14.dp)
                                 ) {
-                                    Icon(Icons.Default.SystemUpdate, contentDescription = null)
-                                    Text(if (downloadedUpdatePath == null) "  ACTUALIZAR DESDE LA APP" else "  INSTALAR ACTUALIZACIÓN")
+                                    if (appUpdateBusy) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                                    else Icon(Icons.Default.Refresh, contentDescription = null)
+                                    Text(if (appUpdateBusy) "  COMPROBANDO…" else "  COMPROBAR ACTUALIZACIONES")
                                 }
-                            }
-                            Text("La descarga se verifica mediante SHA-256. Android mostrará su confirmación de instalación; los datos de la app se conservan si la firma coincide.", color = Muted, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-
-                    SectionHeader("02", "Lectura y moderación", "Personaliza qué contenido se convierte en voz")
-                    GlassCard {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                            SettingSwitch("Leer nombre del usuario", readUsername) { readUsername = it }
-                            SettingSwitch("Leer solo el nombre (omitir comentarios)", onlyUsername) { onlyUsername = it }
-                            SettingSwitch("Ignorar emojis", ignoreEmojis) { ignoreEmojis = it }
-                            SettingSwitch("Ignorar símbolos y signos", ignoreSymbols) { ignoreSymbols = it }
-                            SettingSwitch("Leer solo comentarios de seguidores", followerOnlyChat) { followerOnlyChat = it }
-                            SettingSwitch("Avisar cuando alguien te siga", readFollows) { readFollows = it }
-                            SettingSwitch("Avisar cuando recibas regalos", readGifts) { readGifts = it }
-                            HorizontalDivider(color = Color.White.copy(alpha = .09f))
-                            Text("ALERTAS DE ACTIVIDAD", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
-                            SettingSwitch("Avisar cuando compartan el LIVE (máx. 2 por usuario)", readShares) { readShares = it }
-                            if (readShares) SettingSwitch("Compartidos: solo seguidores", shareFollowerOnly) { shareFollowerOnly = it }
-                            SettingSwitch("Avisar cuando alguien se una al LIVE", readJoins) { readJoins = it }
-                            if (readJoins) SettingSwitch("Usuarios que se unen: solo seguidores", joinFollowerOnly) { joinFollowerOnly = it }
-                            SettingSwitch("Agradecer al usuario cada 1,000 me gusta", readLikes) { readLikes = it }
-                            Text("Los compartidos se anuncian hasta 2 veces por usuario en cada LIVE. Los me gusta se acumulan por usuario y la alerta puede repetirse después de 10 minutos.", color = Muted, style = MaterialTheme.typography.bodySmall)
-                            if (speechProvider == "piper") {
-                                SettingSwitch("Cambiar de voz Piper aleatoriamente", randomVoices) { randomVoices = it }
-                                Text("El modo aleatorio alterna entre las voces Piper descargadas. Si solo tienes una instalada, utilizará esa.", color = Muted, style = MaterialTheme.typography.bodySmall)
-                            }
-                            Text("El filtro de seguidores depende del estado que TikTok incluya en cada comentario; si no llega ese dato, el comentario se descarta por seguridad.", color = Muted, style = MaterialTheme.typography.bodySmall)
-                            HorizontalDivider(color = Color.White.copy(alpha = .09f))
-                            EditableStringList(
-                                title = "Palabras bloqueadas",
-                                placeholder = "Añadir palabra",
-                                items = splitList(blockedWords),
-                                onItemsChange = { blockedWords = it.joinToString("\n") }
-                            )
-                            EditableStringList(
-                                title = "Usuarios que el bot no leerá",
-                                placeholder = "@usuario",
-                                items = splitList(ignoredUsers),
-                                onItemsChange = { ignoredUsers = it.joinToString("\n") }
-                            )
-                            OutlinedTextField(value = maxQueue, onValueChange = { maxQueue = it.filter(Char::isDigit).take(3) }, label = { Text("Tamaño de cola (5–100)") }, leadingIcon = { Icon(Icons.Default.Queue, null, tint = Violet) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(16.dp))
-                        }
-                    }
-
-                    SectionHeader("03", "Automatizaciones del chat", "Comandos locales, bienvenida y alertas avanzadas")
-                    GlassCard {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                            SettingSwitch("Activar comandos personalizados", customCommandsEnabled) { customCommandsEnabled = it }
-                            CustomCommandEditor(
-                                commands = customCommandEntries,
-                                onCommandsChange = { updated ->
-                                    customCommandEntries = updated
-                                    customCommandsText = updated.joinToString("\n") { "${it.trigger}=${it.response}" }
-                                }
-                            )
-                            Text("Cada activador se reconoce al inicio del comentario. La respuesta se reproduce solo en tu dispositivo; no se publica en el chat de TikTok.", color = Muted, style = MaterialTheme.typography.bodySmall)
-                            HorizontalDivider(color = Color.White.copy(alpha = .09f))
-                            SettingSwitch("Dar bienvenida al primer comentario de cada usuario", welcomeEnabled) { welcomeEnabled = it }
-                            OutlinedTextField(
-                                value = welcomeTemplate,
-                                onValueChange = { welcomeTemplate = it.take(280) },
-                                label = { Text("Mensaje de bienvenida") },
-                                supportingText = { Text("Puedes usar {user}. Se activa una vez por usuario y conexión.") },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = false,
-                                minLines = 2,
-                                shape = RoundedCornerShape(16.dp)
-                            )
-                            HorizontalDivider(color = Color.White.copy(alpha = .09f))
-                            OutlinedTextField(
-                                value = giftMinimumRepeat,
-                                onValueChange = { giftMinimumRepeat = it.filter(Char::isDigit).take(3) },
-                                label = { Text("Repeticiones mínimas para alertar (1–999)") },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                shape = RoundedCornerShape(16.dp)
-                            )
-                            OutlinedTextField(
-                                value = giftAlertTemplate,
-                                onValueChange = { giftAlertTemplate = it.take(280) },
-                                label = { Text("Plantilla de alerta de regalo (opcional)") },
-                                placeholder = { Text("{user} envió {count} regalos") },
-                                supportingText = { Text("Variables disponibles: {user} y {count}. Se usa el contador de repetición recibido de TikTok.") },
-                                modifier = Modifier.fillMaxWidth(),
-                                minLines = 2,
-                                shape = RoundedCornerShape(16.dp)
-                            )
-                            Text("La alerta usa únicamente el contador de repetición disponible en el evento Webcast. No se inventan nombres de regalos ni valores de diamantes.", color = Muted, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-
-                    SectionHeader("04", "Proveedor de voz", "Elige el motor que leerá los comentarios")
-                    GlassCard {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                listOf("piper" to "Piper", "tikfinity" to "TikFinity", "edge" to "Edge", "tiktok" to "TikTok").forEach { (provider, label) ->
+                                if (appUpdate != null) {
                                     Button(
-                                        onClick = { speechProvider = provider },
-                                        modifier = Modifier.weight(1f),
-                                        contentPadding = PaddingValues(horizontal = 3.dp, vertical = 8.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = if (speechProvider == provider) Violet else Color.White.copy(alpha = .08f), contentColor = Color.White),
-                                        shape = RoundedCornerShape(12.dp)
-                                    ) { Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1) }
-                                }
-                            }
-                            Text(
-                                when (speechProvider) {
-                                    "piper" -> "Piper genera voz en el dispositivo y puede funcionar sin internet."
-                                    "tikfinity" -> "TikFinity genera audio MP3 mediante su API. Requiere conexión a internet."
-                                    "edge" -> "Edge-TTS utiliza las voces neuronales de Microsoft mediante WebSocket seguro."
-                                    else -> "TikTok TTS genera audio MP3 mediante el servicio de voces de TikTok."
-                                }, color = Muted, style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                    }
-                    if (speechProvider == "piper") {
-                    SectionHeader("05", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local")
-                    GlassCard {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("SELECCIONA UNA VOZ", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
-                            OutlinedButton(
-                                onClick = { voiceMenuExpanded = true },
-                                modifier = Modifier.fillMaxWidth().height(54.dp),
-                                shape = RoundedCornerShape(15.dp)
-                            ) {
-                                Icon(Icons.Default.RecordVoiceOver, null, tint = Violet)
-                                Text("  ${selectedVoice.name}", modifier = Modifier.weight(1f))
-                                Icon(Icons.Default.ExpandMore, null)
-                            }
-                            if (voiceMenuExpanded) {
-                                AlertDialog(
-                                    onDismissRequest = { voiceMenuExpanded = false },
-                                    title = { Text("Seleccionar voz") },
-                                    text = {
-                                        Column(
-                                            Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
-                                            verticalArrangement = Arrangement.spacedBy(7.dp)
-                                        ) {
-                                            PiperVoiceCatalog.voices.forEach { voice ->
-                                                val installed = PiperSpeechEngine.isVoiceInstalled(context, voice.id)
-                                                Surface(
-                                                    onClick = {
-                                                        voiceId = voice.id
-                                                        voiceInstalled = installed
-                                                        voiceError = ""
-                                                        voiceMenuExpanded = false
-                                                    },
-                                                    color = if (voice.id == voiceId) Violet.copy(alpha = .20f) else Color.White.copy(alpha = .045f),
-                                                    shape = RoundedCornerShape(13.dp),
-                                                    modifier = Modifier.fillMaxWidth()
-                                                ) {
-                                                    Row(
-                                                        Modifier.fillMaxWidth().padding(12.dp),
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                                    ) {
-                                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                                            Text(voice.name, fontWeight = FontWeight.SemiBold)
-                                                            Text(voice.description, style = MaterialTheme.typography.bodySmall, color = Muted)
-                                                            Text(if (installed) "INSTALADA" else "NO INSTALADA", style = MaterialTheme.typography.labelSmall, color = if (installed) Cyan else Muted)
-                                                        }
-                                                        if (voice.id == voiceId) Icon(Icons.Default.CheckCircle, contentDescription = "Seleccionada", tint = Cyan)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    },
-                                    confirmButton = {
-                                        TextButton(onClick = { voiceMenuExpanded = false }) { Text("CERRAR") }
-                                    }
-                                )
-                            }
-                            Text(selectedVoice.description, color = Muted, style = MaterialTheme.typography.bodySmall)
-                            if (!selectedVoice.official) {
-                                Text("Voz comunitaria experimental. El modelo se descarga gratis desde su repositorio, pero su licencia y calidad pueden variar; no se incluye en la APK.", color = Color(0xFFFFD18A), style = MaterialTheme.typography.bodySmall)
-                            }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Surface(color = if (voiceInstalled) Cyan.copy(alpha = .16f) else Violet.copy(alpha = .16f), shape = RoundedCornerShape(50)) {
-                                    Text(if (voiceInstalled) "INSTALADA" else "NO INSTALADA", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = if (voiceInstalled) Cyan else Violet, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                                }
-                                Spacer(Modifier.weight(1f))
-                                if (!voiceInstalled) {
-                                    Button(
-                                        enabled = !downloading,
-                                        onClick = {
-                                            downloading = true
-                                            voiceError = ""
-                                            downloadProgress = 0
-                                            downloadStage = "Preparando descarga"
-                                            onDownloadVoice(voiceId, { percent, stage ->
-                                                downloadProgress = percent.coerceIn(0, 100)
-                                                downloadStage = stage
-                                            }) { error ->
-                                                downloading = false
-                                                if (error == null) {
-                                                    downloadProgress = 100
-                                                    voiceInstalled = PiperSpeechEngine.isVoiceInstalled(context, voiceId)
-                                                    voiceError = if (voiceInstalled) "Voz instalada y validada." else "No se pudo validar el modelo."
-                                                } else voiceError = error
-                                            }
-                                        },
+                                        onClick = { startAppUpdate() },
+                                        enabled = !appUpdateBusy,
+                                        modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(14.dp)
                                     ) {
-                                        if (downloading) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
-                                        else Icon(Icons.Default.Download, null)
-                                        Text(if (downloading) " ${downloadProgress}%" else " DESCARGAR")
+                                        Icon(Icons.Default.SystemUpdate, contentDescription = null)
+                                        Text(if (downloadedUpdatePath == null) "  ACTUALIZAR DESDE LA APP" else "  INSTALAR ACTUALIZACIÓN")
                                     }
                                 }
+                                Text("La descarga se verifica mediante SHA-256. Android mostrará su confirmación de instalación; los datos de la app se conservan si la firma coincide.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                             }
-                            if (downloading) {
-                                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text(downloadStage, color = Muted, style = MaterialTheme.typography.labelSmall)
-                                        Text("${downloadProgress}%", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
-                                    }
-                                    LinearProgressIndicator(
-                                        progress = downloadProgress / 100f,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        color = Cyan,
-                                        trackColor = Color.White.copy(alpha = .10f)
-                                    )
+                        }
+                    }
+                    item {
+                        SectionHeader("03", "Lectura y moderación", "Personaliza qué contenido se convierte en voz")
+                    }
+                    item {
+                        GlassCard {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                                SettingSwitch("Leer nombre del usuario", readUsername) { readUsername = it }
+                                SettingSwitch("Leer solo el nombre (omitir comentarios)", onlyUsername) { onlyUsername = it }
+                                SettingSwitch("Ignorar emojis", ignoreEmojis) { ignoreEmojis = it }
+                                SettingSwitch("Ignorar símbolos y signos", ignoreSymbols) { ignoreSymbols = it }
+                                SettingSwitch("Leer solo comentarios de seguidores", followerOnlyChat) { followerOnlyChat = it }
+                                SettingSwitch("Avisar cuando alguien te siga", readFollows) { readFollows = it }
+                                SettingSwitch("Avisar cuando recibas regalos", readGifts) { readGifts = it }
+                                HorizontalDivider(color = Color.White.copy(alpha = .09f))
+                                Text("ALERTAS DE ACTIVIDAD", color = LocalAppThemeColors.current.secondary, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                                SettingSwitch("Avisar cuando compartan el LIVE (máx. 2 por usuario)", readShares) { readShares = it }
+                                if (readShares) SettingSwitch("Compartidos: solo seguidores", shareFollowerOnly) { shareFollowerOnly = it }
+                                SettingSwitch("Avisar cuando alguien se una al LIVE", readJoins) { readJoins = it }
+                                if (readJoins) SettingSwitch("Usuarios que se unen: solo seguidores", joinFollowerOnly) { joinFollowerOnly = it }
+                                SettingSwitch("Agradecer al usuario cada 1,000 me gusta", readLikes) { readLikes = it }
+                                Text("Los compartidos se anuncian hasta 2 veces por usuario en cada LIVE. Los me gusta se acumulan por usuario y la alerta puede repetirse después de 10 minutos.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
+                                if (speechProvider == "piper") {
+                                    SettingSwitch("Cambiar de voz Piper aleatoriamente", randomVoices) { randomVoices = it }
+                                    Text("El modo aleatorio alterna entre las voces Piper descargadas. Si solo tienes una instalada, utilizará esa.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                                 }
+                                Text("El filtro de seguidores depende del estado que TikTok incluya en cada comentario; si no llega ese dato, el comentario se descarta por seguridad.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
+                                HorizontalDivider(color = Color.White.copy(alpha = .09f))
+                                EditableStringList(
+                                    title = "Palabras bloqueadas",
+                                    placeholder = "Añadir palabra",
+                                    items = splitList(blockedWords),
+                                    onItemsChange = { blockedWords = it.joinToString("\n") }
+                                )
+                                EditableStringList(
+                                    title = "Usuarios que el bot no leerá",
+                                    placeholder = "@usuario",
+                                    items = splitList(ignoredUsers),
+                                    onItemsChange = { ignoredUsers = it.joinToString("\n") }
+                                )
+                                OutlinedTextField(value = maxQueue, onValueChange = { maxQueue = it.filter(Char::isDigit).take(3) }, label = { Text("Tamaño de cola (5–100)") }, leadingIcon = { Icon(Icons.Default.Queue, null, tint = LocalAppThemeColors.current.primary) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(16.dp))
                             }
-                            if (voiceInstalled) {
-                                Button(
-                                    onClick = { showDeleteVoiceDialog = true },
-                                    enabled = !downloading && !connected,
+                        }
+                    }
+                    item {
+                        SectionHeader("04", "Automatizaciones del chat", "Comandos locales, bienvenida y alertas avanzadas")
+                    }
+                    item {
+                        GlassCard {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                                SettingSwitch("Activar comandos personalizados", customCommandsEnabled) { customCommandsEnabled = it }
+                                CustomCommandEditor(
+                                    commands = customCommandEntries,
+                                    onCommandsChange = { updated ->
+                                        customCommandEntries = updated
+                                        customCommandsText = updated.joinToString("\n") { "${it.trigger}=${it.response}" }
+                                    }
+                                )
+                                Text("Cada activador se reconoce al inicio del comentario. La respuesta se reproduce solo en tu dispositivo; no se publica en el chat de TikTok.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
+                                HorizontalDivider(color = Color.White.copy(alpha = .09f))
+                                SettingSwitch("Dar bienvenida al primer comentario de cada usuario", welcomeEnabled) { welcomeEnabled = it }
+                                OutlinedTextField(
+                                    value = welcomeTemplate,
+                                    onValueChange = { welcomeTemplate = it.take(280) },
+                                    label = { Text("Mensaje de bienvenida") },
+                                    supportingText = { Text("Puedes usar {user}. Se activa una vez por usuario y conexión.") },
                                     modifier = Modifier.fillMaxWidth(),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3263E), contentColor = Color.White),
-                                    shape = RoundedCornerShape(14.dp)
-                                ) {
-                                    Icon(Icons.Default.Delete, null)
-                                    Text("  ELIMINAR VOZ")
-                                }
-                                if (connected) Text("Detén el LIVE antes de eliminar modelos de voz.", color = Color(0xFFFFA6A6), style = MaterialTheme.typography.bodySmall)
+                                    singleLine = false,
+                                    minLines = 2,
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                                HorizontalDivider(color = Color.White.copy(alpha = .09f))
+                                OutlinedTextField(
+                                    value = giftMinimumRepeat,
+                                    onValueChange = { giftMinimumRepeat = it.filter(Char::isDigit).take(3) },
+                                    label = { Text("Repeticiones mínimas para alertar (1–999)") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                                OutlinedTextField(
+                                    value = giftAlertTemplate,
+                                    onValueChange = { giftAlertTemplate = it.take(280) },
+                                    label = { Text("Plantilla de alerta de regalo (opcional)") },
+                                    placeholder = { Text("{user} envió {count} regalos") },
+                                    supportingText = { Text("Variables disponibles: {user} y {count}. Se usa el contador de repetición recibido de TikTok.") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    minLines = 2,
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                                Text("La alerta usa únicamente el contador de repetición disponible en el evento Webcast. No se inventan nombres de regalos ni valores de diamantes.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                             }
-                            if (voiceError.isNotBlank()) Text(voiceError, color = if (voiceInstalled) Cyan else Color(0xFFFFA6A6), style = MaterialTheme.typography.bodySmall)
-                            Text("El catálogo incluye voces oficiales de México, España y Argentina, además de voces comunitarias experimentales.", color = Muted, style = MaterialTheme.typography.bodySmall)
-                            if (showDeleteVoiceDialog) {
-                                AlertDialog(
-                                    onDismissRequest = { showDeleteVoiceDialog = false },
-                                    title = { Text("Eliminar voz") },
-                                    text = { Text("¿Quieres eliminar ${selectedVoice.name} de este dispositivo? Podrás descargarla nuevamente cuando quieras.") },
-                                    confirmButton = {
-                                        TextButton(
-                                            onClick = {
-                                                showDeleteVoiceDialog = false
-                                                onDeleteVoice(voiceId) { error ->
-                                                    if (error == null) {
-                                                        voiceInstalled = false
-                                                        voiceError = "Voz eliminada del dispositivo."
-                                                    } else voiceError = error
-                                                }
-                                            }
-                                        ) { Text("ELIMINAR", color = Color(0xFFFF6B75)) }
-                                    },
-                                    dismissButton = {
-                                        TextButton(onClick = { showDeleteVoiceDialog = false }) { Text("CANCELAR") }
+                        }
+                    }
+                    item {
+                        SectionHeader("05", "Proveedor de voz", "Elige el motor que leerá los comentarios")
+                    }
+                    item {
+                        GlassCard {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    listOf("piper" to "Piper", "tikfinity" to "TikFinity", "edge" to "Edge", "tiktok" to "TikTok").forEach { (provider, label) ->
+                                        Button(
+                                            onClick = { speechProvider = provider },
+                                            modifier = Modifier.weight(1f),
+                                            contentPadding = PaddingValues(horizontal = 3.dp, vertical = 8.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = if (speechProvider == provider) LocalAppThemeColors.current.primary else Color.White.copy(alpha = .08f), contentColor = Color.White),
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) { Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1) }
                                     }
+                                }
+                                Text(
+                                    when (speechProvider) {
+                                        "piper" -> "Piper genera voz en el dispositivo y puede funcionar sin internet."
+                                        "tikfinity" -> "TikFinity genera audio MP3 mediante su API. Requiere conexión a internet."
+                                        "edge" -> "Edge-TTS utiliza las voces neuronales de Microsoft mediante WebSocket seguro."
+                                        else -> "TikTok TTS genera audio MP3 mediante el servicio de voces de TikTok."
+                                    }, color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall
                                 )
                             }
                         }
                     }
-
-                    } else {
-                        SectionHeader("05", "Voces API", when (speechProvider) { "tikfinity" -> "TikFinity · generación de audio por internet"; "edge" -> "Edge-TTS · voces neuronales de Microsoft"; else -> "TikTok TTS · voces de TikTok" })
+                    item {
+                        if (speechProvider == "piper") {
+                        SectionHeader("06", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local")
                         GlassCard {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Text("SELECCIONA UNA VOZ API", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                                Text("SELECCIONA UNA VOZ", color = LocalAppThemeColors.current.secondary, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
                                 OutlinedButton(
-                                    onClick = { apiVoiceMenuExpanded = true },
+                                    onClick = { voiceMenuExpanded = true },
                                     modifier = Modifier.fillMaxWidth().height(54.dp),
-                                    shape = RoundedCornerShape(15.dp),
-                                    enabled = speechProvider != "tikfinity" || !apiRandomVoice
+                                    shape = RoundedCornerShape(15.dp)
                                 ) {
-                                    Icon(Icons.Default.RecordVoiceOver, null, tint = Violet)
-                                    Text("  $selectedApiVoiceName", modifier = Modifier.weight(1f))
+                                    Icon(Icons.Default.RecordVoiceOver, null, tint = LocalAppThemeColors.current.primary)
+                                    Text("  ${selectedVoice.name}", modifier = Modifier.weight(1f))
                                     Icon(Icons.Default.ExpandMore, null)
                                 }
-                                if (apiVoiceMenuExpanded) {
+                                if (voiceMenuExpanded) {
                                     AlertDialog(
-                                        onDismissRequest = { apiVoiceMenuExpanded = false },
-                                        title = { Text("Voces API · ${when (speechProvider) { "tikfinity" -> "TikFinity"; "edge" -> "Edge-TTS"; else -> "TikTok TTS" }}") },
+                                        onDismissRequest = { voiceMenuExpanded = false },
+                                        title = { Text("Seleccionar voz") },
                                         text = {
                                             Column(
-                                                Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                                                Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
                                                 verticalArrangement = Arrangement.spacedBy(7.dp)
                                             ) {
-                                                apiVoiceItems.forEach { voice ->
+                                                PiperVoiceCatalog.voices.forEach { voice ->
+                                                    val installed = PiperSpeechEngine.isVoiceInstalled(context, voice.id)
                                                     Surface(
                                                         onClick = {
-                                                            when (speechProvider) { "edge" -> edgeVoiceId = voice.first; "tiktok" -> tikTokVoiceId = voice.first; else -> apiVoiceId = voice.first }
-                                                            apiVoiceMenuExpanded = false
+                                                            voiceId = voice.id
+                                                            voiceInstalled = installed
+                                                            voiceError = ""
+                                                            voiceMenuExpanded = false
                                                         },
-                                                        color = if (voice.first == selectedApiVoiceId) Violet.copy(alpha = .20f) else Color.White.copy(alpha = .045f),
+                                                        color = if (voice.id == voiceId) LocalAppThemeColors.current.primary.copy(alpha = .20f) else Color.White.copy(alpha = .045f),
                                                         shape = RoundedCornerShape(13.dp),
                                                         modifier = Modifier.fillMaxWidth()
                                                     ) {
                                                         Row(
                                                             Modifier.fillMaxWidth().padding(12.dp),
-                                                            verticalAlignment = Alignment.CenterVertically
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                                                         ) {
                                                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                                                Text(voice.second, fontWeight = FontWeight.SemiBold)
-                                                                Text(voice.third, style = MaterialTheme.typography.bodySmall, color = Muted)
-                                                                Text(voice.first, style = MaterialTheme.typography.labelSmall, color = Muted)
+                                                                Text(voice.name, fontWeight = FontWeight.SemiBold)
+                                                                Text(voice.description, style = MaterialTheme.typography.bodySmall, color = LocalAppThemeColors.current.muted)
+                                                                Text(if (installed) "INSTALADA" else "NO INSTALADA", style = MaterialTheme.typography.labelSmall, color = if (installed) LocalAppThemeColors.current.secondary else LocalAppThemeColors.current.muted)
                                                             }
-                                                            if (voice.first == selectedApiVoiceId) Icon(Icons.Default.CheckCircle, contentDescription = "Seleccionada", tint = Cyan)
+                                                            if (voice.id == voiceId) Icon(Icons.Default.CheckCircle, contentDescription = "Seleccionada", tint = LocalAppThemeColors.current.secondary)
                                                         }
                                                     }
                                                 }
                                             }
                                         },
                                         confirmButton = {
-                                            TextButton(onClick = { apiVoiceMenuExpanded = false }) { Text("CERRAR") }
+                                            TextButton(onClick = { voiceMenuExpanded = false }) { Text("CERRAR") }
                                         }
                                     )
                                 }
-                                if (speechProvider == "tikfinity") {
-                                    SettingSwitch("Usar voces aleatorias", apiRandomVoice) { apiRandomVoice = it }
-                                    Text("Cada comentario utilizará una voz TikFinity aleatoria del catálogo.", color = Muted, style = MaterialTheme.typography.bodySmall)
-                                    OutlinedTextField(
-                                        value = tikFinityChannelId,
-                                        onValueChange = { tikFinityChannelId = it.filter(Char::isDigit).take(24) },
-                                        label = { Text("Channel ID de TikFinity") },
-                                        supportingText = { Text("Valor predeterminado: 0") },
+                                Text(selectedVoice.description, color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
+                                if (!selectedVoice.official) {
+                                    Text("Voz comunitaria experimental. El modelo se descarga gratis desde su repositorio, pero su licencia y calidad pueden variar; no se incluye en la APK.", color = Color(0xFFFFD18A), style = MaterialTheme.typography.bodySmall)
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(color = if (voiceInstalled) LocalAppThemeColors.current.secondary.copy(alpha = .16f) else LocalAppThemeColors.current.primary.copy(alpha = .16f), shape = RoundedCornerShape(50)) {
+                                        Text(if (voiceInstalled) "INSTALADA" else "NO INSTALADA", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = if (voiceInstalled) LocalAppThemeColors.current.secondary else LocalAppThemeColors.current.primary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                    }
+                                    Spacer(Modifier.weight(1f))
+                                    if (!voiceInstalled) {
+                                        Button(
+                                            enabled = !downloading,
+                                            onClick = {
+                                                downloading = true
+                                                voiceError = ""
+                                                downloadProgress = 0
+                                                downloadStage = "Preparando descarga"
+                                                onDownloadVoice(voiceId, { percent, stage ->
+                                                    downloadProgress = percent.coerceIn(0, 100)
+                                                    downloadStage = stage
+                                                }) { error ->
+                                                    downloading = false
+                                                    if (error == null) {
+                                                        downloadProgress = 100
+                                                        voiceInstalled = PiperSpeechEngine.isVoiceInstalled(context, voiceId)
+                                                        voiceError = if (voiceInstalled) "Voz instalada y validada." else "No se pudo validar el modelo."
+                                                    } else voiceError = error
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(14.dp)
+                                        ) {
+                                            if (downloading) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                                            else Icon(Icons.Default.Download, null)
+                                            Text(if (downloading) " ${downloadProgress}%" else " DESCARGAR")
+                                        }
+                                    }
+                                }
+                                if (downloading) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text(downloadStage, color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.labelSmall)
+                                            Text("${downloadProgress}%", color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                                        }
+                                        LinearProgressIndicator(
+                                            progress = downloadProgress / 100f,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            color = LocalAppThemeColors.current.secondary,
+                                            trackColor = Color.White.copy(alpha = .10f)
+                                        )
+                                    }
+                                }
+                                if (voiceInstalled) {
+                                    Button(
+                                        onClick = { showDeleteVoiceDialog = true },
+                                        enabled = !downloading && !connected,
                                         modifier = Modifier.fillMaxWidth(),
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(15.dp)
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3263E), contentColor = Color.White),
+                                        shape = RoundedCornerShape(14.dp)
+                                    ) {
+                                        Icon(Icons.Default.Delete, null)
+                                        Text("  ELIMINAR VOZ")
+                                    }
+                                    if (connected) Text("Detén el LIVE antes de eliminar modelos de voz.", color = Color(0xFFFFA6A6), style = MaterialTheme.typography.bodySmall)
+                                }
+                                if (voiceError.isNotBlank()) Text(voiceError, color = if (voiceInstalled) LocalAppThemeColors.current.secondary else Color(0xFFFFA6A6), style = MaterialTheme.typography.bodySmall)
+                                Text("El catálogo incluye voces oficiales de México, España y Argentina, además de voces comunitarias experimentales.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
+                                if (showDeleteVoiceDialog) {
+                                    AlertDialog(
+                                        onDismissRequest = { showDeleteVoiceDialog = false },
+                                        title = { Text("Eliminar voz") },
+                                        text = { Text("¿Quieres eliminar ${selectedVoice.name} de este dispositivo? Podrás descargarla nuevamente cuando quieras.") },
+                                        confirmButton = {
+                                            TextButton(
+                                                onClick = {
+                                                    showDeleteVoiceDialog = false
+                                                    onDeleteVoice(voiceId) { error ->
+                                                        if (error == null) {
+                                                            voiceInstalled = false
+                                                            voiceError = "Voz eliminada del dispositivo."
+                                                        } else voiceError = error
+                                                    }
+                                                }
+                                            ) { Text("ELIMINAR", color = Color(0xFFFF6B75)) }
+                                        },
+                                        dismissButton = {
+                                            TextButton(onClick = { showDeleteVoiceDialog = false }) { Text("CANCELAR") }
+                                        }
                                     )
                                 }
-                                Text("Cada proveedor conserva su propia voz seleccionada. Todos utilizan la misma cola FIFO; Piper mantiene sus modelos y ajustes locales independientes.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+    
+                        } else {
+                            SectionHeader("06", "Voces API", when (speechProvider) { "tikfinity" -> "TikFinity · generación de audio por internet"; "edge" -> "Edge-TTS · voces neuronales de Microsoft"; else -> "TikTok TTS · voces de TikTok" })
+                            GlassCard {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text("SELECCIONA UNA VOZ API", color = LocalAppThemeColors.current.secondary, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                                    OutlinedButton(
+                                        onClick = { apiVoiceMenuExpanded = true },
+                                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                                        shape = RoundedCornerShape(15.dp),
+                                        enabled = speechProvider != "tikfinity" || !apiRandomVoice
+                                    ) {
+                                        Icon(Icons.Default.RecordVoiceOver, null, tint = LocalAppThemeColors.current.primary)
+                                        Text("  $selectedApiVoiceName", modifier = Modifier.weight(1f))
+                                        Icon(Icons.Default.ExpandMore, null)
+                                    }
+                                    if (apiVoiceMenuExpanded) {
+                                        AlertDialog(
+                                            onDismissRequest = { apiVoiceMenuExpanded = false },
+                                            title = { Text("Voces API · ${when (speechProvider) { "tikfinity" -> "TikFinity"; "edge" -> "Edge-TTS"; else -> "TikTok TTS" }}") },
+                                            text = {
+                                                Column(
+                                                    Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                                                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                                                ) {
+                                                    apiVoiceItems.forEach { voice ->
+                                                        Surface(
+                                                            onClick = {
+                                                                when (speechProvider) { "edge" -> edgeVoiceId = voice.first; "tiktok" -> tikTokVoiceId = voice.first; else -> apiVoiceId = voice.first }
+                                                                apiVoiceMenuExpanded = false
+                                                            },
+                                                            color = if (voice.first == selectedApiVoiceId) LocalAppThemeColors.current.primary.copy(alpha = .20f) else Color.White.copy(alpha = .045f),
+                                                            shape = RoundedCornerShape(13.dp),
+                                                            modifier = Modifier.fillMaxWidth()
+                                                        ) {
+                                                            Row(
+                                                                Modifier.fillMaxWidth().padding(12.dp),
+                                                                verticalAlignment = Alignment.CenterVertically
+                                                            ) {
+                                                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                                                    Text(voice.second, fontWeight = FontWeight.SemiBold)
+                                                                    Text(voice.third, style = MaterialTheme.typography.bodySmall, color = LocalAppThemeColors.current.muted)
+                                                                    Text(voice.first, style = MaterialTheme.typography.labelSmall, color = LocalAppThemeColors.current.muted)
+                                                                }
+                                                                if (voice.first == selectedApiVoiceId) Icon(Icons.Default.CheckCircle, contentDescription = "Seleccionada", tint = LocalAppThemeColors.current.secondary)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            confirmButton = {
+                                                TextButton(onClick = { apiVoiceMenuExpanded = false }) { Text("CERRAR") }
+                                            }
+                                        )
+                                    }
+                                    if (speechProvider == "tikfinity") {
+                                        SettingSwitch("Usar voces aleatorias", apiRandomVoice) { apiRandomVoice = it }
+                                        Text("Cada comentario utilizará una voz TikFinity aleatoria del catálogo.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
+                                        OutlinedTextField(
+                                            value = tikFinityChannelId,
+                                            onValueChange = { tikFinityChannelId = it.filter(Char::isDigit).take(24) },
+                                            label = { Text("Channel ID de TikFinity") },
+                                            supportingText = { Text("Valor predeterminado: 0") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(15.dp)
+                                        )
+                                    }
+                                    Text("Cada proveedor conserva su propia voz seleccionada. Todos utilizan la misma cola FIFO; Piper mantiene sus modelos y ajustes locales independientes.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
+                                }
                             }
                         }
                     }
-
-                    SectionHeader("06", "Controles de voz", "Ajusta la reproducción a tu gusto")
-                    GlassCard {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Volumen", fontWeight = FontWeight.SemiBold)
-                                    Spacer(Modifier.weight(1f))
-                                    Text("${(volume * 100).toInt()}%", color = Cyan, fontWeight = FontWeight.Bold)
+                    item {
+                        SectionHeader("07", "Controles de voz", "Ajusta la reproducción a tu gusto")
+                    }
+                    item {
+                        GlassCard {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Volumen", fontWeight = FontWeight.SemiBold)
+                                        Spacer(Modifier.weight(1f))
+                                        Text("${(volume * 100).toInt()}%", color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.Bold)
+                                    }
+                                    Slider(value = volume, onValueChange = { volume = it }, valueRange = 0f..1f)
                                 }
-                                Slider(value = volume, onValueChange = { volume = it }, valueRange = 0f..1f)
-                            }
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Velocidad de lectura", fontWeight = FontWeight.SemiBold)
-                                    Spacer(Modifier.weight(1f))
-                                    Text(String.format(java.util.Locale.US, "%.2fx", speed), color = Cyan, fontWeight = FontWeight.Bold)
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Velocidad de lectura", fontWeight = FontWeight.SemiBold)
+                                        Spacer(Modifier.weight(1f))
+                                        Text(String.format(java.util.Locale.US, "%.2fx", speed), color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.Bold)
+                                    }
+                                    Slider(value = speed, onValueChange = { speed = it }, valueRange = 0.65f..1.5f)
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Lenta", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.labelSmall)
+                                        Text("Rápida", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.labelSmall)
+                                    }
                                 }
-                                Slider(value = speed, onValueChange = { speed = it }, valueRange = 0.65f..1.5f)
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("Lenta", color = Muted, style = MaterialTheme.typography.labelSmall)
-                                    Text("Rápida", color = Muted, style = MaterialTheme.typography.labelSmall)
+                                OutlinedButton(
+                                    onClick = { voiceMuted = !voiceMuted; onSetMuted(voiceMuted) },
+                                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                                    shape = RoundedCornerShape(15.dp)
+                                ) {
+                                    Icon(if (voiceMuted) Icons.Default.VolumeOff else Icons.Default.VolumeMute, null)
+                                    Text(if (voiceMuted) "  ACTIVAR VOZ" else "  SILENCIAR VOZ")
                                 }
-                            }
-                            OutlinedButton(
-                                onClick = { voiceMuted = !voiceMuted; onSetMuted(voiceMuted) },
-                                modifier = Modifier.fillMaxWidth().height(48.dp),
-                                shape = RoundedCornerShape(15.dp)
-                            ) {
-                                Icon(if (voiceMuted) Icons.Default.VolumeOff else Icons.Default.VolumeMute, null)
-                                Text(if (voiceMuted) "  ACTIVAR VOZ" else "  SILENCIAR VOZ")
-                            }
-                            OutlinedButton(
-                                onClick = { onTestVoice(buildReaderSettings()) },
-                                modifier = Modifier.fillMaxWidth().height(50.dp),
-                                enabled = selectedProviderReady && !downloading,
-                                shape = RoundedCornerShape(15.dp)
-                            ) {
-                                Icon(Icons.Default.VolumeUp, null)
-                                Text("  PROBAR VOZ")
+                                OutlinedButton(
+                                    onClick = { onTestVoice(buildReaderSettings()) },
+                                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                                    enabled = selectedProviderReady && !downloading,
+                                    shape = RoundedCornerShape(15.dp)
+                                ) {
+                                    Icon(Icons.Default.VolumeUp, null)
+                                    Text("  PROBAR VOZ")
+                                }
                             }
                         }
                     }
-
-                    Text(
-                        "TIK TOK READER  •  v0.13.6  •  BY ROXI",
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        color = Muted.copy(alpha = .7f),
-                        style = MaterialTheme.typography.labelSmall,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        letterSpacing = 1.sp
-                    )
+                    item {
+                        Text(
+                            "TIK TOK READER  •  v0.13.6  •  BY ROXI",
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            color = LocalAppThemeColors.current.muted.copy(alpha = .7f),
+                            style = MaterialTheme.typography.labelSmall,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                    }
                     }
                 }
             }
@@ -1352,8 +1445,8 @@ private fun BotApp(
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("Tik Tok Reader ${appUpdate!!.versionName} ya está publicado en GitHub Releases.")
-                            Text("Puedes descargarlo e iniciar la instalación desde aquí, sin abrir el navegador.", color = Muted, style = MaterialTheme.typography.bodySmall)
-                            if (appUpdateStatus.isNotBlank()) Text(appUpdateStatus, color = Muted, style = MaterialTheme.typography.bodySmall)
+                            Text("Puedes descargarlo e iniciar la instalación desde aquí, sin abrir el navegador.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
+                            if (appUpdateStatus.isNotBlank()) Text(appUpdateStatus, color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                         }
                     },
                     confirmButton = {
@@ -1367,6 +1460,9 @@ private fun BotApp(
                 )
             }
     }
+}
+}
+
 }
 
 @Composable
@@ -1391,9 +1487,9 @@ private fun LiveChatPanel(
         GlassCard {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("CHAT EN VIVO", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                    Text("CHAT EN VIVO", color = LocalAppThemeColors.current.secondary, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
                     Spacer(Modifier.weight(1f))
-                    Text("${liveComments.size} mensajes", color = Muted, style = MaterialTheme.typography.labelSmall)
+                    Text("${liveComments.size} mensajes", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.labelSmall)
                     IconButton(
                         onClick = onClearChat,
                         enabled = liveComments.isNotEmpty(),
@@ -1402,7 +1498,7 @@ private fun LiveChatPanel(
                         Icon(
                             Icons.Default.DeleteOutline,
                             contentDescription = "Limpiar chat",
-                            tint = if (liveComments.isNotEmpty()) Muted else Muted.copy(alpha = .35f),
+                            tint = if (liveComments.isNotEmpty()) LocalAppThemeColors.current.muted else LocalAppThemeColors.current.muted.copy(alpha = .35f),
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -1410,7 +1506,7 @@ private fun LiveChatPanel(
                 if (liveComments.isEmpty()) {
                     Text(
                         "Los comentarios aparecerán aquí cuando el lector se conecte y reciba mensajes.",
-                        color = Muted,
+                        color = LocalAppThemeColors.current.muted,
                         style = MaterialTheme.typography.bodySmall
                     )
                 } else {
@@ -1423,7 +1519,7 @@ private fun LiveChatPanel(
                         items(liveComments.asReversed(), key = { it.id }) { comment ->
                             Surface(
                                 modifier = Modifier.fillMaxWidth(),
-                                color = Panel.copy(alpha = .48f),
+                                color = LocalAppThemeColors.current.panel.copy(alpha = .48f),
                                 shape = RoundedCornerShape(16.dp)
                             ) {
                             Row(
@@ -1434,13 +1530,13 @@ private fun LiveChatPanel(
                                 AsyncImage(
                                     model = comment.avatarUrl,
                                     contentDescription = "Foto de perfil de ${comment.username}",
-                                    modifier = Modifier.size(38.dp).clip(RoundedCornerShape(50.dp)).background(Panel),
+                                    modifier = Modifier.size(38.dp).clip(RoundedCornerShape(50.dp)).background(LocalAppThemeColors.current.panel),
                                     contentScale = androidx.compose.ui.layout.ContentScale.Crop
                                 )
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Text(comment.username.ifBlank { "Usuario" }, color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                                    Text(comment.username.ifBlank { "Usuario" }, color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
                                     if (!comment.replyToDisplayName.isNullOrBlank()) {
-                                        Text("↪ Respondió a @${comment.replyToDisplayName}", color = Violet, style = MaterialTheme.typography.labelSmall)
+                                        Text("↪ Respondió a @${comment.replyToDisplayName}", color = LocalAppThemeColors.current.primary, style = MaterialTheme.typography.labelSmall)
                                     }
                                     Text(comment.message, color = Color(0xFFF4F1FF), style = MaterialTheme.typography.bodyMedium)
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -1462,17 +1558,17 @@ private fun LiveChatPanel(
             }
         }
     }
-}
+    }
 
 @Composable
 private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().shadow(14.dp, RoundedCornerShape(22.dp))
-            .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = .28f), Violet.copy(alpha = .20f), Cyan.copy(alpha = .08f))), RoundedCornerShape(22.dp))
+            .border(1.dp, Brush.linearGradient(listOf(LocalAppThemeColors.current.primary.copy(alpha = .30f), LocalAppThemeColors.current.secondary.copy(alpha = .20f), Color.White.copy(alpha = .10f))), RoundedCornerShape(22.dp))
             .animateContentSize(),
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xB91B2036),
+            containerColor = LocalAppThemeColors.current.panel,
             contentColor = Color(0xFFF4F1FF)
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -1483,10 +1579,10 @@ private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
 @Composable
 private fun SectionHeader(number: String, title: String, subtitle: String, modifier: Modifier = Modifier) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(number, color = Violet, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelLarge)
+        Text(number, color = LocalAppThemeColors.current.primary, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelLarge)
         Column {
             Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-            Text(subtitle, color = Muted, style = MaterialTheme.typography.bodySmall)
+            Text(subtitle, color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -1511,7 +1607,7 @@ private fun CustomCommandEditor(
     var validation by remember { mutableStateOf("") }
 
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        Text("TUS COMANDOS", color = Cyan, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
+        Text("TUS COMANDOS", color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
         OutlinedTextField(
             value = title, onValueChange = { title = it.take(40) },
             label = { Text("Título del comando") }, modifier = Modifier.fillMaxWidth(),
@@ -1551,17 +1647,17 @@ private fun CustomCommandEditor(
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(command.title, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                        Text(command.trigger, color = Cyan, fontWeight = FontWeight.Bold)
+                        Text(command.trigger, color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.Bold)
                         IconButton(onClick = { onCommandsChange(commands.filterNot { it.trigger == command.trigger }) }) {
-                            Icon(Icons.Default.DeleteOutline, contentDescription = "Eliminar comando", tint = Muted)
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Eliminar comando", tint = LocalAppThemeColors.current.muted)
                         }
                     }
-                    Text(command.response, color = Muted, style = MaterialTheme.typography.bodySmall)
+                    Text(command.response, color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
-        if (commands.isEmpty()) Text("Aún no hay comandos guardados.", color = Muted, style = MaterialTheme.typography.bodySmall)
-        Text("${commands.size}/40 comandos", color = Muted, style = MaterialTheme.typography.labelSmall)
+        if (commands.isEmpty()) Text("Aún no hay comandos guardados.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
+        Text("${commands.size}/40 comandos", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.labelSmall)
     }
 }
 
@@ -1598,7 +1694,7 @@ private fun EditableStringList(
             ) { Icon(Icons.Default.Add, contentDescription = "Añadir") }
         }
         if (items.isEmpty()) {
-            Text("Todavía no hay elementos en esta lista.", color = Muted, style = MaterialTheme.typography.bodySmall)
+            Text("Todavía no hay elementos en esta lista.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items.forEach { item ->
@@ -1613,7 +1709,7 @@ private fun EditableStringList(
                         ) {
                             Text(item, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                             IconButton(onClick = { onItemsChange(items.filterNot { it == item }) }) {
-                                Icon(Icons.Default.Close, contentDescription = "Eliminar $item", tint = Muted)
+                                Icon(Icons.Default.Close, contentDescription = "Eliminar $item", tint = LocalAppThemeColors.current.muted)
                             }
                         }
                     }

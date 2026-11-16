@@ -18,6 +18,7 @@ import com.myclivebot.core.EdgeTtsVoiceCatalog
 import com.myclivebot.core.TikTokTtsVoiceCatalog
 import com.myclivebot.core.LocalBridgeServer
 import com.myclivebot.core.LiveComment
+import com.myclivebot.core.DjMusicController
 import com.myclivebot.core.PiperSpeechEngine
 import com.myclivebot.core.PiperVoiceCatalog
 import com.myclivebot.core.ReaderSettings
@@ -340,6 +341,7 @@ class BotForegroundService : Service() {
         pipeline = livePipeline
         val liveConnector = TikTokLiveConnector(
             onComment = { comment ->
+                DjMusicController.handleLiveComment(comment)
                 publishLiveComment(comment)
                 livePipeline.onComment(comment)
                 publishLiveStatsIfDue()

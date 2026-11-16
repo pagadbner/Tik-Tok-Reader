@@ -15,6 +15,13 @@ if grep -q 'https://repo1.maven.org/maven2/' "$PIPER_DEPS_SCRIPT"; then
   sed -i 's#https://repo1.maven.org/maven2/#https://repo.maven.apache.org/maven2/#g' "$PIPER_DEPS_SCRIPT"
 fi
 
+# Maven Central can temporarily answer HTTP 429 from shared GitHub Actions
+# runners. Retry transient throttling/network failures instead of aborting the
+# whole Android build before Gradle starts.
+if grep -q 'curl -fL -o /tmp/onnxruntime-android.aar' "$PIPER_DEPS_SCRIPT"; then
+  sed -i 's#curl -fL -o /tmp/onnxruntime-android.aar#curl --retry 6 --retry-all-errors --retry-delay 5 --retry-max-time 180 --connect-timeout 20 --max-time 240 -fL -o /tmp/onnxruntime-android.aar#' "$PIPER_DEPS_SCRIPT"
+fi
+
 ./scripts/fetch-native-deps.sh
 ./scripts/stage-espeak-data.sh
 
