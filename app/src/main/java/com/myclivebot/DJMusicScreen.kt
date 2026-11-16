@@ -55,6 +55,20 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
             .getBoolean(DjMusicPlaybackService.PREF_BACKGROUND, false))
     }
 
+    var searchText by remember { mutableStateOf("") }
+    var searchView by remember { mutableStateOf<WebView?>(null) }
+    var playerView by remember { mutableStateOf<WebView?>(null) }
+    val searchRequestId = remember { AtomicInteger(0) }
+    val completedSearchId = remember { AtomicInteger(0) }
+    val searchRequester = remember { AtomicReference("Tú") }
+    val searchQuery = remember { AtomicReference("") }
+    var activeSearchId by remember { mutableIntStateOf(0) }
+    var searching by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<DjMusicTrack?>(null) }
+    var accessMenu by remember { mutableStateOf(false) }
+    var playerPlaying by remember { mutableStateOf(false) }
+    var playerReady by remember { mutableStateOf(false) }
+
     fun sendPlaybackServiceAction(action: String, title: String = "", playing: Boolean = false) {
         val intent = Intent(context, DjMusicPlaybackService::class.java)
             .setAction(action)
@@ -92,19 +106,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
             )
         }
     }
-    var searchText by remember { mutableStateOf("") }
-    var searchView by remember { mutableStateOf<WebView?>(null) }
-    var playerView by remember { mutableStateOf<WebView?>(null) }
-    val searchRequestId = remember { AtomicInteger(0) }
-    val completedSearchId = remember { AtomicInteger(0) }
-    val searchRequester = remember { AtomicReference("Tú") }
-    val searchQuery = remember { AtomicReference("") }
-    var activeSearchId by remember { mutableIntStateOf(0) }
-    var searching by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf<DjMusicTrack?>(null) }
-    var accessMenu by remember { mutableStateOf(false) }
-    var playerPlaying by remember { mutableStateOf(false) }
-    var playerReady by remember { mutableStateOf(false) }
+
 
     fun startSearch(rawQuery: String, requestedBy: String) {
         val query = rawQuery.trim()
