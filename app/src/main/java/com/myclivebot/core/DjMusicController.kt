@@ -8,6 +8,7 @@ data class DjMusicTrack(val videoId: String, val title: String, val thumbnailUrl
 data class DjMusicState(
     val followersOnly: Boolean = false,
     val pendingSearches: List<Pair<String, String>> = emptyList(),
+    val activeSearch: Pair<String, String>? = null,
     val currentTrack: DjMusicTrack? = null,
     val queue: List<DjMusicTrack> = emptyList(),
     val muted: Boolean = false,
@@ -35,20 +36,44 @@ object DjMusicController {
                 val current = mutableState.value
                 if (current.followersOnly && comment.isFollower != true) return
                 val query = text.substringAfter(' ').trim()
-                if (query.isNotBlank()) mutableState.value = current.copy(
-                    pendingSearches = current.pendingSearches + (query to comment.displayName),
-                    message = "${comment.displayName} pidió: $query"
-                )
+                if (query.isNotBlank()) enqueueSearch(query, comment.displayName)
             }
         }
     }
 
     @Synchronized
+    fun enqueueSearch(query: String, requester: String = "Tú") {
+        val clean = query.trim()
+        if (clean.isBlank()) return
+        val current = mutableState.value
+        if (current.pendingSearches.size >= 50) {
+            mutableState.value = current.copy(message = "La cola de solicitudes está llena. Inténtalo más tarde.")
+            return
+        }
+        mutableState.value = current.copy(
+            pendingSearches = current.pendingSearches + (clean to requester),
+            message = "$requester pidió: $clean"
+        )
+    }
+
+    @Synchronized
     fun takeNextSearch(): Pair<String, String>? {
         val current = mutableState.value
+        current.activeSearch?.let { return it }
         val next = current.pendingSearches.firstOrNull() ?: return null
-        mutableState.value = current.copy(pendingSearches = current.pendingSearches.drop(1))
+        mutableState.value = current.copy(
+            activeSearch = next,
+            pendingSearches = current.pendingSearches.drop(1)
+        )
         return next
+    }
+
+    @Synchronized
+    fun completeSearch(query: String, requester: String) {
+        val current = mutableState.value
+        if (current.activeSearch == (query to requester)) {
+            mutableState.value = current.copy(activeSearch = null)
+        }
     }
 
     @Synchronized
