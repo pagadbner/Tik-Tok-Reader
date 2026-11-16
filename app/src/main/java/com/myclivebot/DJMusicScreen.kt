@@ -475,6 +475,36 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                 }
             }
         }
+
+        Surface(color = DjPanel, shape = RoundedCornerShape(20.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("REPRODUCCIÓN EN SEGUNDO PLANO", color = DjCyan, style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        "Mantener DJ Music activo al salir de la aplicación. Android y YouTube aún pueden limitar la reproducción en segundo plano.",
+                        color = DjMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Switch(
+                    checked = backgroundEnabled,
+                    onCheckedChange = { enabled ->
+                        backgroundEnabled = enabled
+                        context.getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
+                            .edit().putBoolean(DjMusicPlaybackService.PREF_BACKGROUND, enabled).apply()
+                        sendPlaybackServiceAction(
+                            if (enabled) DjMusicPlaybackService.ACTION_ENABLE_BACKGROUND
+                            else DjMusicPlaybackService.ACTION_DISABLE_BACKGROUND,
+                            state.currentTrack?.title.orEmpty(),
+                            playerPlaying
+                        )
+                    }
+                )
+            }
+        }
     }
 
     AndroidView(
