@@ -45,9 +45,9 @@ import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
-private val DjPanel = Color(0x99501A78)
-private val DjMuted = Color(0xFFD9C5E8)
-private val DjCyan = Color(0xFFF0B5FF)
+private val DjPanel = Color(0xB3121820)
+private val DjMuted = Color(0xFFB9C6D2)
+private val DjCyan = Color(0xFFA8E9FF)
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -172,7 +172,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
         modifier = modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Surface(color = DjPanel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, Color(0x99E05BFF))) {
+        Surface(color = DjPanel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, Color(0x9963D8FF))) {
             Column(
                 Modifier.fillMaxWidth().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
