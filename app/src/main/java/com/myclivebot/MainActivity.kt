@@ -1448,7 +1448,7 @@ private fun BotApp(
                     }
                     item {
                         Text(
-                            "TIK TOK READER  •  v0.13.6  •  BY ROXI",
+                            "TIK TOK READER  •  v0.13.8  •  BY ROXI",
                             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                             color = LocalAppThemeColors.current.muted.copy(alpha = .7f),
                             style = MaterialTheme.typography.labelSmall,
@@ -1628,6 +1628,15 @@ private fun CustomCommandEditor(
     var trigger by remember { mutableStateOf("!") }
     var response by remember { mutableStateOf("") }
     var validation by remember { mutableStateOf("") }
+    var editingTrigger by remember { mutableStateOf<String?>(null) }
+
+    fun clearEditor() {
+        title = ""
+        trigger = "!"
+        response = ""
+        validation = ""
+        editingTrigger = null
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
         Text("TUS COMANDOS", color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
@@ -1649,17 +1658,35 @@ private fun CustomCommandEditor(
         if (validation.isNotBlank()) Text(validation, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         Button(
             modifier = Modifier.fillMaxWidth(),
-            enabled = title.isNotBlank() && Regex("^![a-z0-9_]{1,24}$").matches(trigger.trim()) && response.isNotBlank() && commands.size < 40,
+            enabled = title.isNotBlank() &&
+                Regex("^![a-z0-9_]{1,24}$").matches(trigger.trim()) &&
+                response.isNotBlank() &&
+                (editingTrigger != null || commands.size < 40),
             onClick = {
                 val key = trigger.trim()
-                val entry = CustomCommandEntry(title.trim(), key, response.trim())
-                onCommandsChange(commands.filterNot { it.trigger == key } + entry)
-                title = ""; trigger = "!"; response = ""; validation = ""
+                val duplicate = commands.any { it.trigger == key && it.trigger != editingTrigger }
+                if (duplicate) {
+                    validation = "Ya existe un comando con ese activador."
+                } else {
+                    val entry = CustomCommandEntry(title.trim(), key, response.trim())
+                    onCommandsChange(commands.filterNot { it.trigger == editingTrigger || it.trigger == key } + entry)
+                    clearEditor()
+                }
             }
         ) {
             Icon(Icons.Default.Save, contentDescription = null)
             Spacer(Modifier.width(8.dp))
-            Text("Guardar comando")
+            Text(if (editingTrigger == null) "Guardar comando" else "Guardar cambios")
+        }
+        if (editingTrigger != null) {
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { clearEditor() }
+            ) {
+                Icon(Icons.Default.Close, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Cancelar edición")
+            }
         }
         commands.forEach { command ->
             Surface(
@@ -1671,7 +1698,19 @@ private fun CustomCommandEditor(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(command.title, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                         Text(command.trigger, color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.Bold)
-                        IconButton(onClick = { onCommandsChange(commands.filterNot { it.trigger == command.trigger }) }) {
+                        IconButton(onClick = {
+                            title = command.title
+                            trigger = command.trigger
+                            response = command.response
+                            validation = ""
+                            editingTrigger = command.trigger
+                        }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Editar comando", tint = LocalAppThemeColors.current.secondary)
+                        }
+                        IconButton(onClick = {
+                            if (editingTrigger == command.trigger) clearEditor()
+                            onCommandsChange(commands.filterNot { it.trigger == command.trigger })
+                        }) {
                             Icon(Icons.Default.DeleteOutline, contentDescription = "Eliminar comando", tint = LocalAppThemeColors.current.muted)
                         }
                     }
