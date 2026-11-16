@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [ main, master, feature/in-app-updater-signing-release ]
+    branches: [ main, master, feature/in-app-updater-signing-release, test/updater-v24-controlled ]
     tags: [ 'v*' ]
   pull_request:
     branches: [ main, master ]
@@ -83,7 +83,7 @@ jobs:
           ./scripts/prepare-piper-assets.sh
 
       - name: Configure persistent Android release signing
-        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release')) || github.event_name == 'workflow_dispatch'
+        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release' || github.ref == 'refs/heads/test/updater-v24-controlled')) || github.event_name == 'workflow_dispatch'
         shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -137,6 +137,11 @@ jobs:
         run: |
           set -euo pipefail
           gradle testDebugUnitTest assembleRelease --no-daemon --stacktrace
+          if [[ "$GITHUB_REF" == "refs/heads/test/updater-v24-controlled" ]]; then
+            mkdir -p test-installer
+            cp app/build/outputs/apk/release/app-release.apk test-installer/TikLBot-updater-test-installer.apk
+            gradle -PappVersionCode=24 -PappVersionName=0.13.7 assembleRelease --no-daemon --stacktrace
+          fi
 
       - name: Verify APK signature matches the permanent keystore
         if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release')) || github.event_name == 'workflow_dispatch'
@@ -160,8 +165,13 @@ jobs:
           mkdir -p release-assets
           cp "$APK" release-assets/TikLBot-latest.apk
           (cd release-assets && sha256sum TikLBot-latest.apk > TikLBot-latest.apk.sha256)
-          VERSION_NAME="$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts | head -n 1)"
-          VERSION_CODE="$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' app/build.gradle.kts | head -n 1)"
+          if [[ "$GITHUB_REF" == "refs/heads/test/updater-v24-controlled" ]]; then
+            VERSION_NAME="0.13.7"
+            VERSION_CODE="24"
+          else
+            VERSION_NAME="$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts | head -n 1)"
+            VERSION_CODE="$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' app/build.gradle.kts | head -n 1)"
+          fi
           test -n "$VERSION_NAME" && test -n "$VERSION_CODE"
           printf 'VersionName: %s\nVersionCode: %s\n\nActualización oficial de TikLBot.\n' "$VERSION_NAME" "$VERSION_CODE" > release-assets/release-info.txt
           ls -lh release-assets
@@ -172,6 +182,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: TikLBot-release-${{ github.sha }}
-          path: release-assets/*
+          path: |
+            release-assets/*
+            test-installer/*
           if-no-files-found: error
           retention-days: 30
