@@ -1,0 +1,57 @@
+name: Publish isolated updater test release
+
+on:
+  workflow_run:
+    workflows: ["Android APK"]
+    types: [completed]
+    branches: [test/updater-v24-controlled]
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: tiklbot-updater-v24-test
+  cancel-in-progress: false
+
+jobs:
+  publish-test:
+    name: Publish VersionCode 24 as a non-latest prerelease
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'test/updater-v24-controlled'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download signed test APKs
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          name: TikLBot-release-${{ github.event.workflow_run.head_sha }}
+          path: artifacts
+
+      - name: Validate VersionCode 24 release payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s artifacts/release-assets/TikLBot-latest.apk
+          test -s artifacts/release-assets/TikLBot-latest.apk.sha256
+          test -s artifacts/test-installer/TikLBot-updater-test-installer.apk
+          cd artifacts/release-assets
+          sha256sum --check TikLBot-latest.apk.sha256
+          grep -qx 'VersionName: 0.13.7' release-info.txt
+          grep -qx 'VersionCode: 24' release-info.txt
+
+      - name: Publish isolated prerelease without changing latest
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: updater-test-v0.13.7
+          name: TikLBot updater test 0.13.7
+          target_commitish: ${{ github.event.workflow_run.head_sha }}
+          body_path: artifacts/release-assets/release-info.txt
+          files: |
+            artifacts/release-assets/TikLBot-latest.apk
+            artifacts/release-assets/TikLBot-latest.apk.sha256
+          overwrite_files: true
+          make_latest: false
+          draft: false
+          prerelease: true
+          fail_on_unmatched_files: true
