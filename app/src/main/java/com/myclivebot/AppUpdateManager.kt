@@ -25,6 +25,10 @@ internal data class AppUpdateInfo(
 internal fun isNewerAppVersion(installedVersionCode: Long, publishedVersionCode: Long): Boolean =
     publishedVersionCode > installedVersionCode
 
+internal fun parsePublishedVersionCode(releaseBody: String): Long? =
+    Regex("(?im)^\\\\s*VersionCode\\\\s*[:=]\\\\s*(\\\\d+)\\\\s*$")
+        .find(releaseBody)?.groupValues?.get(1)?.toLongOrNull()
+
 internal object AppUpdateManager {
     private const val RELEASE_API = "https://api.github.com/repos/pagadbner/TikLBot/releases/latest"
     private const val RELEASE_ASSET_PREFIX = "https://github.com/pagadbner/TikLBot/releases/download/"
@@ -61,8 +65,7 @@ internal object AppUpdateManager {
         if (release.optBoolean("draft", true) || release.optBoolean("prerelease", true)) return null
 
         val body = release.optString("body")
-        val code = Regex("(?im)^\\s*VersionCode\\s*[:=]\\s*(\\d+)\\s*$")
-            .find(body)?.groupValues?.get(1)?.toLongOrNull()
+        val code = parsePublishedVersionCode(body)
             ?: error("La publicación oficial no incluye un VersionCode válido.")
 
         val name = Regex("(?im)^\\s*VersionName\\s*[:=]\\s*([^\\r\\n]+)")
