@@ -744,13 +744,16 @@ private fun BotApp(
         )
     ) {
         Box(
-            Modifier.fillMaxSize().background(
-                Brush.linearGradient(
-                    colors = listOf(Color(0xFF08080D), Color(0xFF211735), Color(0xFF111019), Color(0xFF261A3A), Color(0xFF08080D)),
-                    start = Offset(0f, gradientPhase * 1150f),
-                    end = Offset(1250f, 1800f - gradientPhase * 1150f)
+            Modifier.fillMaxSize().drawBehind {
+                // Read animation state in the draw phase so the whole UI is not recomposed every frame.
+                drawRect(
+                    Brush.linearGradient(
+                        colors = listOf(Color(0xFF08080D), Color(0xFF211735), Color(0xFF111019), Color(0xFF261A3A), Color(0xFF08080D)),
+                        start = Offset(0f, gradientPhase * 1150f),
+                        end = Offset(1250f, 1800f - gradientPhase * 1150f)
+                    )
                 )
-            )
+            }
         ) {
             Scaffold(
                 containerColor = Color.Transparent,
