@@ -541,10 +541,9 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                 value=cleanTitle(value);return isDuration(value)?'':value;
                               }
                               function send(items){
-                                var x=items&&items[0];
+                                var x=(items||[]).find(function(item){return item&&item.videoId&&cleanTitle(item.title)&&!isDuration(item.title);});
                                 if(x&&x.videoId){
                                   var title=cleanTitle(x.title);
-                                  if(!title||isDuration(title))return false;
                                   var thumbs=x.thumbnails||[];
                                   thumbs.sort(function(a,b){return (b.width||0)-(a.width||0);});
                                   TikLBotMusicSearch.onResults(requestId,JSON.stringify({
@@ -571,6 +570,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                   Object.keys(o).forEach(function(k){if(k!=='videoRenderer')walk(o[k]);});
                                 }
                                 walk(data);
+                                found=found.filter(function(item){return item&&item.title&&!isDuration(item.title);});
                                 if(!found.length){
                                   document.querySelectorAll('a#video-title,a[href*="watch?v="]').forEach(function(a){
                                     var m=(a.href||'').match(/[?&]v=([^&]+)/);if(!m)return;
