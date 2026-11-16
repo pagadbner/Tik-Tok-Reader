@@ -484,7 +484,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                         post {
                             if (requestId != searchRequestId.get()) return@post
                             searching = false
-                            DjMusicController.completeSearch(searchRequester.get())
+                            DjMusicController.completeSearch(searchQuery.get(), searchRequester.get())
                             if (track != null) {
                                 result = track
                                 DjMusicController.addTrack(track)
