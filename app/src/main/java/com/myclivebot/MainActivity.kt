@@ -1384,6 +1384,7 @@ private fun BotApp(
             }
     }
 }
+}
 
 @Composable
 private fun LiveChatPanel(
@@ -1473,7 +1474,6 @@ private fun LiveChatPanel(
                             }
                             }
                         }
-                    }
                     }
                 }
             }
