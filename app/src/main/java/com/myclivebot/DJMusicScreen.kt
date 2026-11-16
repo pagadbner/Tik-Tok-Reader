@@ -367,7 +367,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                             width:Math.max(document.documentElement.clientWidth, 320),
                                             height:Math.max(document.documentElement.clientHeight, 180),
                                             videoId:'${track.videoId}',
-                                            playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'https://com.myclivebot'},
+                                            playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'https://www.youtube-nocookie.com'},
                                             events:{
                                               onReady:function(e){e.target.setVolume(desiredVolume);if(desiredMuted)e.target.mute();else e.target.unMute();TikLBotMusicPlayer.onPlayerReady();e.target.playVideo();},
                                               onStateChange:function(e){if(e.data===0)TikLBotMusicPlayer.onPlayerEnded();if(e.data===1)TikLBotMusicPlayer.onPlayerState(1);if(e.data===2||e.data===0||e.data===-1)TikLBotMusicPlayer.onPlayerState(0);},
@@ -385,7 +385,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                     </body>
                                     </html>
                                 """.trimIndent()
-                                view.loadDataWithBaseURL("https://com.myclivebot/", html, "text/html", "UTF-8", null)
+                                view.loadDataWithBaseURL("https://www.youtube-nocookie.com/", html, "text/html", "UTF-8", null)
                             }
                         } else {
                             view.evaluateJavascript(
