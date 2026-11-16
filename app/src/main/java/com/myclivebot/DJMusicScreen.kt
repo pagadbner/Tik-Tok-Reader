@@ -47,6 +47,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
     var searchView by remember { mutableStateOf<WebView?>(null) }
     var playerView by remember { mutableStateOf<WebView?>(null) }
     val searchRequestId = remember { AtomicInteger(0) }
+    val completedSearchId = remember { AtomicInteger(0) }
     val searchRequester = remember { AtomicReference("Tú") }
     val searchQuery = remember { AtomicReference("") }
     var activeSearchId by remember { mutableIntStateOf(0) }
@@ -93,6 +94,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
             delay(20_000)
             if (searching && activeSearchId == requestId) {
                 searching = false
+                searchRequestId.incrementAndGet()
                 DjMusicController.completeSearch(searchQuery.get(), searchRequester.get())
                 DjMusicController.setMessage("YouTube no respondió a tiempo. Comprueba tu conexión o intenta otra búsqueda.")
             }
@@ -339,7 +341,6 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                           player = new YT.Player('player', {
                                             width:'100%', height:'220',
                                             videoId:'${track.videoId}',
-                                            host:'https://www.youtube.com',
                                             playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'https://com.myclivebot'},
                                             events:{
                                               onReady:function(e){e.target.setVolume(desiredVolume);if(desiredMuted)e.target.mute();else e.target.unMute();TikLBotMusicPlayer.onPlayerReady();e.target.playVideo();},
@@ -469,7 +470,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                 addJavascriptInterface(object {
                     @JavascriptInterface
                     fun onResults(requestId: Int, json: String) {
-                        if (requestId != searchRequestId.get()) return
+                        if (requestId != searchRequestId.get() || completedSearchId.getAndSet(requestId) == requestId) return
                         val track = runCatching {
                             val item = org.json.JSONObject(json)
                             val id = item.optString("id")
