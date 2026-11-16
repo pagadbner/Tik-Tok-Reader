@@ -54,6 +54,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
         mutableStateOf(context.getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
             .getBoolean(DjMusicPlaybackService.PREF_BACKGROUND, false))
     }
+    var playbackServiceActive by remember { mutableStateOf(false) }
 
     var searchText by remember { mutableStateOf("") }
     var searchView by remember { mutableStateOf<WebView?>(null) }
@@ -98,12 +99,13 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
 
     LaunchedEffect(state.currentTrack?.videoId, playerPlaying, backgroundEnabled) {
         val track = state.currentTrack
-        if (track != null || backgroundEnabled) {
+        if (track != null || backgroundEnabled || playbackServiceActive) {
             sendPlaybackServiceAction(
                 DjMusicPlaybackService.ACTION_UPDATE,
                 track?.title.orEmpty(),
                 playerPlaying
             )
+            playbackServiceActive = track != null || backgroundEnabled
         }
     }
 
@@ -493,6 +495,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                     checked = backgroundEnabled,
                     onCheckedChange = { enabled ->
                         backgroundEnabled = enabled
+                        playbackServiceActive = enabled || state.currentTrack != null
                         context.getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
                             .edit().putBoolean(DjMusicPlaybackService.PREF_BACKGROUND, enabled).apply()
                         sendPlaybackServiceAction(
