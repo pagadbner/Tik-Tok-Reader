@@ -8,7 +8,7 @@ import java.net.URI
 import java.util.concurrent.TimeUnit
 
 /**
- * Reads the public TikTok profile page only to display its public avatar in Home.
+ * Reads public TikTok profile data for the Home avatar and LIVE indicator.
  * It is independent from LIVE connection, authentication and reader services.
  */
 object TikTokProfileLookup {
