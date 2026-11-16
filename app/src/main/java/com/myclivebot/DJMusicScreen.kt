@@ -24,6 +24,9 @@ import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +53,7 @@ private val DjCyan = Color(0xFF69DED2)
 fun DJMusicScreen(modifier: Modifier = Modifier) {
     val state by DjMusicController.state.collectAsState()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var backgroundEnabled by remember {
         mutableStateOf(context.getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE)
             .getBoolean(DjMusicPlaybackService.PREF_BACKGROUND, false))
@@ -95,6 +99,17 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
             context.registerReceiver(receiver, filter)
         }
         onDispose { runCatching { context.unregisterReceiver(receiver) } }
+    }
+
+    DisposableEffect(lifecycleOwner, backgroundEnabled) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && !backgroundEnabled) {
+                playerView?.evaluateJavascript("if(player)player.pauseVideo()", null)
+                playerPlaying = false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(state.currentTrack?.videoId, playerPlaying, backgroundEnabled) {
