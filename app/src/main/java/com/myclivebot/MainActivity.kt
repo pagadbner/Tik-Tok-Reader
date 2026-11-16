@@ -5,7 +5,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.widget.ImageView
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -48,7 +47,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import com.myclivebot.core.ChatCommandParser
 import com.myclivebot.core.DjMusicController
@@ -159,11 +157,6 @@ class MainActivity : ComponentActivity() {
         clearHistoryOnFirstStart = savedInstanceState == null
         if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         setContent {
-            var showBrandSplash by remember { mutableStateOf(true) }
-            LaunchedEffect(Unit) {
-                delay(850)
-                showBrandSplash = false
-            }
             Box(Modifier.fillMaxSize()) {
             BotApp(
                 externalStatus = readerStatus.value,
@@ -299,40 +292,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             )
-            if (showBrandSplash) {
-                Box(
-                    modifier = Modifier.fillMaxSize().background(Color.Transparent),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        AndroidView(
-                            factory = { context ->
-                                ImageView(context).apply {
-                                    setImageResource(R.mipmap.ic_launcher)
-                                    contentDescription = "Tik Tok Reader"
-                                    scaleType = ImageView.ScaleType.FIT_CENTER
-                                }
-                            },
-                            modifier = Modifier.size(92.dp)
-                        )
-                        Spacer(Modifier.height(18.dp))
-                        Text(
-                            "TikTok Live Reader",
-                            color = Color.White,
-                            fontSize = 23.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "LECTOR INTELIGENTE DE DIRECTOS",
-                            color = Cyan,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 1.5.sp
-                        )
-                    }
-                }
-            }
             }
         }
     }
