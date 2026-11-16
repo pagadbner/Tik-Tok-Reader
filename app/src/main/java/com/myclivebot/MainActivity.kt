@@ -456,7 +456,7 @@ private fun BotApp(
                 recentAvatarUrls = recentAvatarUrls + (normalizedProfileUsername to fetchedAvatar)
                 prefs.edit().putStringSet(
                     "recent_user_avatars",
-                    recentAvatarUrls.map { (name, url) -> "$name\\t$url" }.toSet()
+                    recentAvatarUrls.map { (name, url) -> "$name\t$url" }.toSet()
                 ).apply()
             }
             profileLookupBusy = false
