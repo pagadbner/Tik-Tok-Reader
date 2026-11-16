@@ -201,7 +201,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                     }
                 }
 
-                Surface(color = Color(0x332F9D98), shape = RoundedCornerShape(12.dp)) {
+                Surface(color = Color(0x33FFFFFF), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))) {
                     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("COMANDOS DEL LIVE", color = DjCyan, style = MaterialTheme.typography.labelMedium)
                         Text("!play nombre de la canción  ·  busca y agrega la primera coincidencia", color = Color.White, style = MaterialTheme.typography.bodySmall)
@@ -229,7 +229,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        Surface(color = DjPanel, shape = RoundedCornerShape(20.dp)) {
+        Surface(color = DjPanel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, Color.White.copy(alpha = 0.16f))) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("RESULTADO SELECCIONADO", color = DjCyan, style = MaterialTheme.typography.labelMedium)
                 if (searching) {
@@ -255,7 +255,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        Surface(color = DjPanel, shape = RoundedCornerShape(20.dp)) {
+        Surface(color = DjPanel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, Color.White.copy(alpha = 0.16f))) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("EN REPRODUCCIÓN", color = DjCyan, style = MaterialTheme.typography.labelMedium)
                 val current = state.currentTrack
@@ -465,7 +465,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        Surface(color = DjPanel, shape = RoundedCornerShape(20.dp)) {
+        Surface(color = DjPanel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, Color.White.copy(alpha = 0.16f))) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("COLA DE REPRODUCCIÓN", color = DjCyan, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
