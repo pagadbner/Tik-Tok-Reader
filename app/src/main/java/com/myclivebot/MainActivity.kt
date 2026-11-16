@@ -14,6 +14,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -35,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.*
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -59,11 +66,11 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import java.io.File
 
-private val Night = Color(0xFF090B18)
-private val Panel = Color(0xCC1B2036)
-private val Violet = Color(0xFF9B86FF)
-private val Cyan = Color(0xFF69DED2)
-private val Muted = Color(0xFFB8BBD0)
+private val Night = Color(0xFF08080D)
+private val Panel = Color(0x663A3944)
+private val Violet = Color(0xFFD0C4FF)
+private val Cyan = Color(0xFFE4DFFF)
+private val Muted = Color(0xFFB8B5C2)
 
 private data class LiveCommentUi(val id: String, val username: String, val message: String, val avatarUrl: String?, val replyToDisplayName: String?, val receivedAt: Long, val skipped: Boolean = false)
 private data class CustomCommandEntry(val title: String, val trigger: String, val response: String)
@@ -294,7 +301,7 @@ class MainActivity : ComponentActivity() {
             )
             if (showBrandSplash) {
                 Box(
-                    modifier = Modifier.fillMaxSize().background(Night),
+                    modifier = Modifier.fillMaxSize().background(Color.Transparent),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -721,6 +728,13 @@ private fun BotApp(
         if (connected && selectedProviderReady) onUpdateSettings(buildReaderSettings())
     }
     val pulse by animateFloatAsState(if (connected) 1f else 0.72f, label = "statusPulse")
+    val gradientTransition = rememberInfiniteTransition(label = "neonGlassBackground")
+    val gradientPhase by gradientTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(durationMillis = 18000, easing = LinearEasing), repeatMode = RepeatMode.Reverse),
+        label = "neonGradientPhase"
+    )
 
     MaterialTheme(
         colorScheme = darkColorScheme(
@@ -729,9 +743,15 @@ private fun BotApp(
             surfaceVariant = Color(0xFF292D45), onSurfaceVariant = Muted
         )
     ) {
-        Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF17152D), Night, Color(0xFF101D2C))))) {
-            Box(Modifier.align(Alignment.TopEnd).padding(top = 50.dp, end = 8.dp).size(190.dp).blur(75.dp).background(Violet.copy(alpha = .22f), RoundedCornerShape(100)))
-            Box(Modifier.align(Alignment.BottomStart).padding(bottom = 100.dp, start = 0.dp).size(170.dp).blur(75.dp).background(Cyan.copy(alpha = .13f), RoundedCornerShape(100)))
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.linearGradient(
+                    colors = listOf(Color(0xFF08080D), Color(0xFF211735), Color(0xFF111019), Color(0xFF261A3A), Color(0xFF08080D)),
+                    start = Offset(0f, gradientPhase * 1150f),
+                    end = Offset(1250f, 1800f - gradientPhase * 1150f)
+                )
+            )
+        ) {
             Scaffold(
                 containerColor = Color.Transparent,
                 contentColor = Color(0xFFF4F1FF),
@@ -744,14 +764,14 @@ private fun BotApp(
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = Color(0x77111629),
+                            containerColor = Color(0x443A3944),
                             titleContentColor = Color(0xFFF4F1FF),
                             actionIconContentColor = Cyan
                         )
                     )
                 },
                 bottomBar = {
-                    NavigationBar(containerColor = Color(0xCC111629), contentColor = Color(0xFFF4F1FF)) {
+                    NavigationBar(containerColor = Color(0x553A3944), contentColor = Color(0xFFF4F1FF), tonalElevation = 0.dp) {
                         NavigationBarItem(
                             selected = !showSettings && !showDjMusic,
                             onClick = { showSettings = false; showDjMusic = false },
@@ -1485,11 +1505,11 @@ private fun LiveChatPanel(
 private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().shadow(14.dp, RoundedCornerShape(22.dp))
-            .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = .28f), Violet.copy(alpha = .20f), Cyan.copy(alpha = .08f))), RoundedCornerShape(22.dp))
+            .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = .30f), Violet.copy(alpha = .22f), Color.White.copy(alpha = .10f))), RoundedCornerShape(22.dp))
             .animateContentSize(),
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xB91B2036),
+            containerColor = Color(0x663A3944),
             contentColor = Color(0xFFF4F1FF)
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
