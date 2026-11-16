@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
+import android.widget.ImageView
 import androidx.activity.ComponentActivity
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.compose.setContent
@@ -45,6 +46,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
@@ -63,12 +65,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import java.io.File
-
-private val Night = Color(0xFF05070A)
-private val Panel = Color(0xB3121820)
-private val Violet = Color(0xFF63D8FF)
-private val Cyan = Color(0xFFA8E9FF)
-private val Muted = Color(0xFFB9C6D2)
 
 private data class LiveCommentUi(val id: String, val username: String, val message: String, val avatarUrl: String?, val replyToDisplayName: String?, val receivedAt: Long, val skipped: Boolean = false)
 private data class CustomCommandEntry(val title: String, val trigger: String, val response: String)
@@ -157,6 +153,11 @@ class MainActivity : ComponentActivity() {
         clearHistoryOnFirstStart = savedInstanceState == null
         if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         setContent {
+            var showBrandSplash by remember { mutableStateOf(true) }
+            LaunchedEffect(Unit) {
+                delay(850)
+                showBrandSplash = false
+            }
             Box(Modifier.fillMaxSize()) {
             BotApp(
                 externalStatus = readerStatus.value,
@@ -292,6 +293,29 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             )
+                if (showBrandSplash) {
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(Color(0xFF07090D)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            AndroidView(
+                                factory = { context ->
+                                    ImageView(context).apply {
+                                        setImageResource(R.mipmap.ic_launcher)
+                                        contentDescription = "Tik Tok Reader"
+                                        scaleType = ImageView.ScaleType.FIT_CENTER
+                                    }
+                                },
+                                modifier = Modifier.size(92.dp)
+                            )
+                            Spacer(Modifier.height(18.dp))
+                            Text("TikTok Live Reader", color = Color(0xFFE3E7EC), fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(6.dp))
+                            Text("LECTOR INTELIGENTE DE DIRECTOS", color = Color(0xFF9AA3AE), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp)
+                        }
+                    }
+                }
             }
         }
     }
@@ -395,6 +419,8 @@ private fun BotApp(
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("tiklbot_preferences", Context.MODE_PRIVATE) }
+    var selectedThemeId by remember { mutableStateOf(prefs.getString("appearance_theme", "obsidian") ?: "obsidian") }
+    val appTheme = AppThemePresets.byId(selectedThemeId)
 
     var username by remember { mutableStateOf(prefs.getString("last_username", "").orEmpty()) }
     var recentUsernames by remember {
@@ -694,11 +720,13 @@ private fun BotApp(
         label = "neonGradientPhase"
     )
 
+    CompositionLocalProvider(LocalAppThemeColors provides appTheme) {
     MaterialTheme(
         colorScheme = darkColorScheme(
-            primary = Violet, secondary = Cyan, background = Night, surface = Panel,
-            onBackground = Color(0xFFF4F1FF), onSurface = Color(0xFFF4F1FF),
-            surfaceVariant = Color(0xFF1B2630), onSurfaceVariant = Muted
+            primary = appTheme.primary, secondary = appTheme.secondary,
+            background = appTheme.background, surface = appTheme.panel,
+            onBackground = Color(0xFFF0F1F3), onSurface = Color(0xFFF0F1F3),
+            surfaceVariant = appTheme.surfaceVariant, onSurfaceVariant = appTheme.muted
         )
     ) {
         Box(
@@ -706,7 +734,7 @@ private fun BotApp(
                 // Read animation state in the draw phase so the whole UI is not recomposed every frame.
                 drawRect(
                     Brush.linearGradient(
-                        colors = listOf(Color(0xFF05070A), Color(0xFF081925), Color(0xFF0B1019), Color(0xFF09202B), Color(0xFF05070A)),
+                        colors = appTheme.gradient,
                         start = Offset(0f, gradientPhase * 1150f),
                         end = Offset(1250f, 1800f - gradientPhase * 1150f)
                     )
@@ -715,24 +743,24 @@ private fun BotApp(
         ) {
             Scaffold(
                 containerColor = Color.Transparent,
-                contentColor = Color(0xFFF4F1FF),
+                contentColor = Color(0xFFF0F1F3),
                 topBar = {
                     TopAppBar(
                         title = {
                             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                 Text("TIK TOK READER", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleSmall, letterSpacing = 1.1.sp)
-                                Text(when (speechProvider) { "tikfinity" -> "TIKFINITY API · CONTROL EN VIVO"; "edge" -> "EDGE-TTS · CONTROL EN VIVO"; "tiktok" -> "TIKTOK TTS · CONTROL EN VIVO"; else -> "PIPER OFFLINE · CONTROL EN VIVO" }, style = MaterialTheme.typography.labelSmall, color = Cyan, letterSpacing = .8.sp)
+                                Text(when (speechProvider) { "tikfinity" -> "TIKFINITY API · CONTROL EN VIVO"; "edge" -> "EDGE-TTS · CONTROL EN VIVO"; "tiktok" -> "TIKTOK TTS · CONTROL EN VIVO"; else -> "PIPER OFFLINE · CONTROL EN VIVO" }, style = MaterialTheme.typography.labelSmall, color = LocalAppThemeColors.current.secondary, letterSpacing = .8.sp)
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = Color(0xB310151C),
-                            titleContentColor = Color(0xFFF4F1FF),
-                            actionIconContentColor = Cyan
+                            containerColor = appTheme.panel.copy(alpha = .94f),
+                            titleContentColor = Color(0xFFF0F1F3),
+                            actionIconContentColor = appTheme.secondary
                         )
                     )
                 },
                 bottomBar = {
-                    NavigationBar(containerColor = Color(0xB310151C), contentColor = Color(0xFFF4F1FF), tonalElevation = 0.dp) {
+                    NavigationBar(containerColor = appTheme.panel.copy(alpha = .94f), contentColor = Color(0xFFF0F1F3), tonalElevation = 0.dp) {
                         NavigationBarItem(
                             selected = !showSettings && !showDjMusic,
                             onClick = { showSettings = false; showDjMusic = false },
@@ -770,17 +798,17 @@ private fun BotApp(
                     GlassCard {
                         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(Violet.copy(alpha = .18f)).border(1.dp, Violet.copy(alpha = .5f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.GraphicEq, null, tint = Violet)
+                                Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(LocalAppThemeColors.current.primary.copy(alpha = .18f)).border(1.dp, LocalAppThemeColors.current.primary.copy(alpha = .5f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.GraphicEq, null, tint = LocalAppThemeColors.current.primary)
                                 }
                                 Column(Modifier.weight(1f)) {
-                                    Text("CENTRO DE CONTROL", style = MaterialTheme.typography.labelSmall, color = Cyan, letterSpacing = 1.4.sp)
+                                    Text("CENTRO DE CONTROL", style = MaterialTheme.typography.labelSmall, color = LocalAppThemeColors.current.secondary, letterSpacing = 1.4.sp)
                                     Text("Estado del lector", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                 }
-                                Box(Modifier.size(11.dp).graphicsLayer { scaleX = pulse; scaleY = pulse }.clip(RoundedCornerShape(50)).background(if (connected) Cyan else Violet))
+                                Box(Modifier.size(11.dp).graphicsLayer { scaleX = pulse; scaleY = pulse }.clip(RoundedCornerShape(50)).background(if (connected) LocalAppThemeColors.current.secondary else LocalAppThemeColors.current.primary))
                             }
                             Text(status, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                            Text("Lee el chat público del LIVE y convierte los comentarios en voz en tu dispositivo.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            Text("Lee el chat público del LIVE y convierte los comentarios en voz en tu dispositivo.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Button(
                                     onClick = {
@@ -815,7 +843,7 @@ private fun BotApp(
                                 onValueChange = { username = it },
                                 label = { Text("Usuario de TikTok") },
                                 placeholder = { Text("@ejemplo_usuario") },
-                                leadingIcon = { Icon(Icons.Default.AlternateEmail, null, tint = Violet) },
+                                leadingIcon = { Icon(Icons.Default.AlternateEmail, null, tint = LocalAppThemeColors.current.primary) },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(16.dp)
@@ -825,7 +853,7 @@ private fun BotApp(
                                     modifier = Modifier.fillMaxWidth(),
                                     color = Color.White.copy(alpha = .055f),
                                     shape = RoundedCornerShape(16.dp),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Violet.copy(alpha = .22f))
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, LocalAppThemeColors.current.primary.copy(alpha = .22f))
                                 ) {
                                     Row(
                                         Modifier.padding(12.dp),
@@ -833,7 +861,7 @@ private fun BotApp(
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
                                         Box(
-                                            Modifier.size(58.dp).clip(RoundedCornerShape(50)).background(Panel),
+                                            Modifier.size(58.dp).clip(RoundedCornerShape(50)).background(LocalAppThemeColors.current.panel),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             if (profileAvatarUrl != null) {
@@ -844,7 +872,7 @@ private fun BotApp(
                                                     contentScale = androidx.compose.ui.layout.ContentScale.Crop
                                                 )
                                             } else {
-                                                Icon(Icons.Default.AccountCircle, null, tint = Muted, modifier = Modifier.size(42.dp))
+                                                Icon(Icons.Default.AccountCircle, null, tint = LocalAppThemeColors.current.muted, modifier = Modifier.size(42.dp))
                                             }
                                         }
                                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -855,7 +883,7 @@ private fun BotApp(
                                                     profileAvatarUrl != null -> "Perfil de TikTok encontrado"
                                                     else -> "No se pudo cargar la foto; puedes guardar el usuario igualmente"
                                                 },
-                                                color = Muted,
+                                                color = LocalAppThemeColors.current.muted,
                                                 style = MaterialTheme.typography.bodySmall
                                             )
                                         }
@@ -869,7 +897,7 @@ private fun BotApp(
                                 }
                             }
                             if (recentUsernames.isNotEmpty()) {
-                                Text("PERFILES GUARDADOS", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                                Text("PERFILES GUARDADOS", color = LocalAppThemeColors.current.secondary, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     recentUsernames.forEach { recent ->
                                         Surface(
@@ -886,12 +914,12 @@ private fun BotApp(
                                                 AsyncImage(
                                                     model = recentAvatarUrls[recent],
                                                     contentDescription = "Foto de perfil de @$recent",
-                                                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(50)).background(Panel),
+                                                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(50)).background(LocalAppThemeColors.current.panel),
                                                     contentScale = androidx.compose.ui.layout.ContentScale.Crop
                                                 )
                                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                                     Text("@$recent", fontWeight = FontWeight.SemiBold)
-                                                    Text("Perfil guardado", color = Muted, style = MaterialTheme.typography.labelSmall)
+                                                    Text("Perfil guardado", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.labelSmall)
                                                 }
                                                 TextButton(onClick = { username = recent }) { Text("USAR") }
                                                 IconButton(onClick = {
@@ -902,14 +930,14 @@ private fun BotApp(
                                                         .putStringSet("recent_user_avatars", recentAvatarUrls.map { (name, url) -> "$name\t$url" }.toSet())
                                                         .apply()
                                                 }) {
-                                                    Icon(Icons.Default.Close, contentDescription = "Quitar perfil @$recent", tint = Muted)
+                                                    Icon(Icons.Default.Close, contentDescription = "Quitar perfil @$recent", tint = LocalAppThemeColors.current.muted)
                                                 }
                                             }
                                         }
                                     }
                                 }
                             }
-                            Text("El creador debe tener un LIVE activo. No se solicita contraseña ni cookies.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            Text("El creador debe tener un LIVE activo. No se solicita contraseña ni cookies.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                         }
                     }
 
@@ -925,18 +953,62 @@ private fun BotApp(
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                     item {
-                        SectionHeader("06", "Actualizar aplicación", "Descarga la última versión oficial sin salir de TikLBot")
+                        SectionHeader("00", "Apariencia y temas", "Personaliza el estilo visual de toda la aplicación")
+                    }
+                    item {
+                        GlassCard {
+                            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("TEMAS DISPONIBLES", color = appTheme.secondary, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                                AppThemePresets.all.chunked(2).forEach { themeRow ->
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        themeRow.forEach { theme ->
+                                            val isSelected = selectedThemeId == theme.id
+                                            Surface(
+                                                onClick = {
+                                                    selectedThemeId = theme.id
+                                                    prefs.edit().putString("appearance_theme", theme.id).apply()
+                                                },
+                                                modifier = Modifier.weight(1f).heightIn(min = 112.dp),
+                                                color = if (isSelected) theme.primary.copy(alpha = .13f) else Color.White.copy(alpha = .035f),
+                                                shape = RoundedCornerShape(16.dp),
+                                                border = androidx.compose.foundation.BorderStroke(
+                                                    if (isSelected) 1.5.dp else 1.dp,
+                                                    if (isSelected) theme.primary.copy(alpha = .72f) else theme.glassBorder.copy(alpha = .55f)
+                                                )
+                                            ) {
+                                                Column(Modifier.fillMaxWidth().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                        listOf(theme.background, theme.panel, theme.primary, theme.secondary).forEach { swatch ->
+                                                            Box(Modifier.size(13.dp).clip(RoundedCornerShape(50)).background(swatch))
+                                                        }
+                                                        Spacer(Modifier.weight(1f))
+                                                        if (isSelected) Icon(Icons.Default.CheckCircle, contentDescription = "Tema seleccionado", tint = theme.secondary, modifier = Modifier.size(17.dp))
+                                                    }
+                                                    Text(theme.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                                                    Text(theme.description, color = appTheme.muted, style = MaterialTheme.typography.labelSmall)
+                                                }
+                                            }
+                                        }
+                                        if (themeRow.size == 1) Spacer(Modifier.weight(1f))
+                                    }
+                                }
+                                Text("La selección se guarda automáticamente y se aplica en Home, Settings y DJ Music.", color = appTheme.muted, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                    item {
+                        SectionHeader("07", "Actualizar aplicación", "Descarga la última versión oficial sin salir de TikLBot")
                     }
                     item {
                         GlassCard {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = Cyan)
+                                    Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = LocalAppThemeColors.current.secondary)
                                     Spacer(Modifier.width(9.dp))
-                                    Text("ACTUALIZACIONES", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                                    Text("ACTUALIZACIONES", color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
                                 }
                                 Text(appUpdate?.let { "Nueva versión ${it.versionName} (código ${it.versionCode})" } ?: if (appUpdateStatus.startsWith("No se pudo consultar")) "No se pudo comprobar la versión" else "Estado de actualización", fontWeight = FontWeight.SemiBold)
-                                Text(appUpdateStatus, color = Muted, style = MaterialTheme.typography.bodySmall)
+                                Text(appUpdateStatus, color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                                 Button(
                                     onClick = { checkAppUpdateManually() },
                                     enabled = !appUpdateBusy,
@@ -958,7 +1030,7 @@ private fun BotApp(
                                         Text(if (downloadedUpdatePath == null) "  ACTUALIZAR DESDE LA APP" else "  INSTALAR ACTUALIZACIÓN")
                                     }
                                 }
-                                Text("La descarga se verifica mediante SHA-256. Android mostrará su confirmación de instalación; los datos de la app se conservan si la firma coincide.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                                Text("La descarga se verifica mediante SHA-256. Android mostrará su confirmación de instalación; los datos de la app se conservan si la firma coincide.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -976,18 +1048,18 @@ private fun BotApp(
                                 SettingSwitch("Avisar cuando alguien te siga", readFollows) { readFollows = it }
                                 SettingSwitch("Avisar cuando recibas regalos", readGifts) { readGifts = it }
                                 HorizontalDivider(color = Color.White.copy(alpha = .09f))
-                                Text("ALERTAS DE ACTIVIDAD", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                                Text("ALERTAS DE ACTIVIDAD", color = LocalAppThemeColors.current.secondary, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
                                 SettingSwitch("Avisar cuando compartan el LIVE (máx. 2 por usuario)", readShares) { readShares = it }
                                 if (readShares) SettingSwitch("Compartidos: solo seguidores", shareFollowerOnly) { shareFollowerOnly = it }
                                 SettingSwitch("Avisar cuando alguien se una al LIVE", readJoins) { readJoins = it }
                                 if (readJoins) SettingSwitch("Usuarios que se unen: solo seguidores", joinFollowerOnly) { joinFollowerOnly = it }
                                 SettingSwitch("Agradecer al usuario cada 1,000 me gusta", readLikes) { readLikes = it }
-                                Text("Los compartidos se anuncian hasta 2 veces por usuario en cada LIVE. Los me gusta se acumulan por usuario y la alerta puede repetirse después de 10 minutos.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                                Text("Los compartidos se anuncian hasta 2 veces por usuario en cada LIVE. Los me gusta se acumulan por usuario y la alerta puede repetirse después de 10 minutos.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                                 if (speechProvider == "piper") {
                                     SettingSwitch("Cambiar de voz Piper aleatoriamente", randomVoices) { randomVoices = it }
-                                    Text("El modo aleatorio alterna entre las voces Piper descargadas. Si solo tienes una instalada, utilizará esa.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                                    Text("El modo aleatorio alterna entre las voces Piper descargadas. Si solo tienes una instalada, utilizará esa.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                                 }
-                                Text("El filtro de seguidores depende del estado que TikTok incluya en cada comentario; si no llega ese dato, el comentario se descarta por seguridad.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                                Text("El filtro de seguidores depende del estado que TikTok incluya en cada comentario; si no llega ese dato, el comentario se descarta por seguridad.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                                 HorizontalDivider(color = Color.White.copy(alpha = .09f))
                                 EditableStringList(
                                     title = "Palabras bloqueadas",
@@ -1001,7 +1073,7 @@ private fun BotApp(
                                     items = splitList(ignoredUsers),
                                     onItemsChange = { ignoredUsers = it.joinToString("\n") }
                                 )
-                                OutlinedTextField(value = maxQueue, onValueChange = { maxQueue = it.filter(Char::isDigit).take(3) }, label = { Text("Tamaño de cola (5–100)") }, leadingIcon = { Icon(Icons.Default.Queue, null, tint = Violet) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(16.dp))
+                                OutlinedTextField(value = maxQueue, onValueChange = { maxQueue = it.filter(Char::isDigit).take(3) }, label = { Text("Tamaño de cola (5–100)") }, leadingIcon = { Icon(Icons.Default.Queue, null, tint = LocalAppThemeColors.current.primary) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(16.dp))
                             }
                         }
                     }
@@ -1019,7 +1091,7 @@ private fun BotApp(
                                         customCommandsText = updated.joinToString("\n") { "${it.trigger}=${it.response}" }
                                     }
                                 )
-                                Text("Cada activador se reconoce al inicio del comentario. La respuesta se reproduce solo en tu dispositivo; no se publica en el chat de TikTok.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                                Text("Cada activador se reconoce al inicio del comentario. La respuesta se reproduce solo en tu dispositivo; no se publica en el chat de TikTok.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                                 HorizontalDivider(color = Color.White.copy(alpha = .09f))
                                 SettingSwitch("Dar bienvenida al primer comentario de cada usuario", welcomeEnabled) { welcomeEnabled = it }
                                 OutlinedTextField(
@@ -1051,7 +1123,7 @@ private fun BotApp(
                                     minLines = 2,
                                     shape = RoundedCornerShape(16.dp)
                                 )
-                                Text("La alerta usa únicamente el contador de repetición disponible en el evento Webcast. No se inventan nombres de regalos ni valores de diamantes.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                                Text("La alerta usa únicamente el contador de repetición disponible en el evento Webcast. No se inventan nombres de regalos ni valores de diamantes.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -1067,7 +1139,7 @@ private fun BotApp(
                                             onClick = { speechProvider = provider },
                                             modifier = Modifier.weight(1f),
                                             contentPadding = PaddingValues(horizontal = 3.dp, vertical = 8.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = if (speechProvider == provider) Violet else Color.White.copy(alpha = .08f), contentColor = Color.White),
+                                            colors = ButtonDefaults.buttonColors(containerColor = if (speechProvider == provider) LocalAppThemeColors.current.primary else Color.White.copy(alpha = .08f), contentColor = Color.White),
                                             shape = RoundedCornerShape(12.dp)
                                         ) { Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1) }
                                     }
@@ -1078,7 +1150,7 @@ private fun BotApp(
                                         "tikfinity" -> "TikFinity genera audio MP3 mediante su API. Requiere conexión a internet."
                                         "edge" -> "Edge-TTS utiliza las voces neuronales de Microsoft mediante WebSocket seguro."
                                         else -> "TikTok TTS genera audio MP3 mediante el servicio de voces de TikTok."
-                                    }, color = Muted, style = MaterialTheme.typography.bodySmall
+                                    }, color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall
                                 )
                             }
                         }
@@ -1088,13 +1160,13 @@ private fun BotApp(
                         SectionHeader("05", "Catálogo de voces Piper", "Modelos descargables · síntesis completamente local")
                         GlassCard {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Text("SELECCIONA UNA VOZ", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                                Text("SELECCIONA UNA VOZ", color = LocalAppThemeColors.current.secondary, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
                                 OutlinedButton(
                                     onClick = { voiceMenuExpanded = true },
                                     modifier = Modifier.fillMaxWidth().height(54.dp),
                                     shape = RoundedCornerShape(15.dp)
                                 ) {
-                                    Icon(Icons.Default.RecordVoiceOver, null, tint = Violet)
+                                    Icon(Icons.Default.RecordVoiceOver, null, tint = LocalAppThemeColors.current.primary)
                                     Text("  ${selectedVoice.name}", modifier = Modifier.weight(1f))
                                     Icon(Icons.Default.ExpandMore, null)
                                 }
@@ -1116,7 +1188,7 @@ private fun BotApp(
                                                             voiceError = ""
                                                             voiceMenuExpanded = false
                                                         },
-                                                        color = if (voice.id == voiceId) Violet.copy(alpha = .20f) else Color.White.copy(alpha = .045f),
+                                                        color = if (voice.id == voiceId) LocalAppThemeColors.current.primary.copy(alpha = .20f) else Color.White.copy(alpha = .045f),
                                                         shape = RoundedCornerShape(13.dp),
                                                         modifier = Modifier.fillMaxWidth()
                                                     ) {
@@ -1127,10 +1199,10 @@ private fun BotApp(
                                                         ) {
                                                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                                                 Text(voice.name, fontWeight = FontWeight.SemiBold)
-                                                                Text(voice.description, style = MaterialTheme.typography.bodySmall, color = Muted)
-                                                                Text(if (installed) "INSTALADA" else "NO INSTALADA", style = MaterialTheme.typography.labelSmall, color = if (installed) Cyan else Muted)
+                                                                Text(voice.description, style = MaterialTheme.typography.bodySmall, color = LocalAppThemeColors.current.muted)
+                                                                Text(if (installed) "INSTALADA" else "NO INSTALADA", style = MaterialTheme.typography.labelSmall, color = if (installed) LocalAppThemeColors.current.secondary else LocalAppThemeColors.current.muted)
                                                             }
-                                                            if (voice.id == voiceId) Icon(Icons.Default.CheckCircle, contentDescription = "Seleccionada", tint = Cyan)
+                                                            if (voice.id == voiceId) Icon(Icons.Default.CheckCircle, contentDescription = "Seleccionada", tint = LocalAppThemeColors.current.secondary)
                                                         }
                                                     }
                                                 }
@@ -1141,13 +1213,13 @@ private fun BotApp(
                                         }
                                     )
                                 }
-                                Text(selectedVoice.description, color = Muted, style = MaterialTheme.typography.bodySmall)
+                                Text(selectedVoice.description, color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                                 if (!selectedVoice.official) {
                                     Text("Voz comunitaria experimental. El modelo se descarga gratis desde su repositorio, pero su licencia y calidad pueden variar; no se incluye en la APK.", color = Color(0xFFFFD18A), style = MaterialTheme.typography.bodySmall)
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Surface(color = if (voiceInstalled) Cyan.copy(alpha = .16f) else Violet.copy(alpha = .16f), shape = RoundedCornerShape(50)) {
-                                        Text(if (voiceInstalled) "INSTALADA" else "NO INSTALADA", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = if (voiceInstalled) Cyan else Violet, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                    Surface(color = if (voiceInstalled) LocalAppThemeColors.current.secondary.copy(alpha = .16f) else LocalAppThemeColors.current.primary.copy(alpha = .16f), shape = RoundedCornerShape(50)) {
+                                        Text(if (voiceInstalled) "INSTALADA" else "NO INSTALADA", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = if (voiceInstalled) LocalAppThemeColors.current.secondary else LocalAppThemeColors.current.primary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                                     }
                                     Spacer(Modifier.weight(1f))
                                     if (!voiceInstalled) {
@@ -1181,13 +1253,13 @@ private fun BotApp(
                                 if (downloading) {
                                     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text(downloadStage, color = Muted, style = MaterialTheme.typography.labelSmall)
-                                            Text("${downloadProgress}%", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                                            Text(downloadStage, color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.labelSmall)
+                                            Text("${downloadProgress}%", color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
                                         }
                                         LinearProgressIndicator(
                                             progress = downloadProgress / 100f,
                                             modifier = Modifier.fillMaxWidth(),
-                                            color = Cyan,
+                                            color = LocalAppThemeColors.current.secondary,
                                             trackColor = Color.White.copy(alpha = .10f)
                                         )
                                     }
@@ -1205,8 +1277,8 @@ private fun BotApp(
                                     }
                                     if (connected) Text("Detén el LIVE antes de eliminar modelos de voz.", color = Color(0xFFFFA6A6), style = MaterialTheme.typography.bodySmall)
                                 }
-                                if (voiceError.isNotBlank()) Text(voiceError, color = if (voiceInstalled) Cyan else Color(0xFFFFA6A6), style = MaterialTheme.typography.bodySmall)
-                                Text("El catálogo incluye voces oficiales de México, España y Argentina, además de voces comunitarias experimentales.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                                if (voiceError.isNotBlank()) Text(voiceError, color = if (voiceInstalled) LocalAppThemeColors.current.secondary else Color(0xFFFFA6A6), style = MaterialTheme.typography.bodySmall)
+                                Text("El catálogo incluye voces oficiales de México, España y Argentina, además de voces comunitarias experimentales.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                                 if (showDeleteVoiceDialog) {
                                     AlertDialog(
                                         onDismissRequest = { showDeleteVoiceDialog = false },
@@ -1237,14 +1309,14 @@ private fun BotApp(
                             SectionHeader("05", "Voces API", when (speechProvider) { "tikfinity" -> "TikFinity · generación de audio por internet"; "edge" -> "Edge-TTS · voces neuronales de Microsoft"; else -> "TikTok TTS · voces de TikTok" })
                             GlassCard {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Text("SELECCIONA UNA VOZ API", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                                    Text("SELECCIONA UNA VOZ API", color = LocalAppThemeColors.current.secondary, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
                                     OutlinedButton(
                                         onClick = { apiVoiceMenuExpanded = true },
                                         modifier = Modifier.fillMaxWidth().height(54.dp),
                                         shape = RoundedCornerShape(15.dp),
                                         enabled = speechProvider != "tikfinity" || !apiRandomVoice
                                     ) {
-                                        Icon(Icons.Default.RecordVoiceOver, null, tint = Violet)
+                                        Icon(Icons.Default.RecordVoiceOver, null, tint = LocalAppThemeColors.current.primary)
                                         Text("  $selectedApiVoiceName", modifier = Modifier.weight(1f))
                                         Icon(Icons.Default.ExpandMore, null)
                                     }
@@ -1263,7 +1335,7 @@ private fun BotApp(
                                                                 when (speechProvider) { "edge" -> edgeVoiceId = voice.first; "tiktok" -> tikTokVoiceId = voice.first; else -> apiVoiceId = voice.first }
                                                                 apiVoiceMenuExpanded = false
                                                             },
-                                                            color = if (voice.first == selectedApiVoiceId) Violet.copy(alpha = .20f) else Color.White.copy(alpha = .045f),
+                                                            color = if (voice.first == selectedApiVoiceId) LocalAppThemeColors.current.primary.copy(alpha = .20f) else Color.White.copy(alpha = .045f),
                                                             shape = RoundedCornerShape(13.dp),
                                                             modifier = Modifier.fillMaxWidth()
                                                         ) {
@@ -1273,10 +1345,10 @@ private fun BotApp(
                                                             ) {
                                                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                                                     Text(voice.second, fontWeight = FontWeight.SemiBold)
-                                                                    Text(voice.third, style = MaterialTheme.typography.bodySmall, color = Muted)
-                                                                    Text(voice.first, style = MaterialTheme.typography.labelSmall, color = Muted)
+                                                                    Text(voice.third, style = MaterialTheme.typography.bodySmall, color = LocalAppThemeColors.current.muted)
+                                                                    Text(voice.first, style = MaterialTheme.typography.labelSmall, color = LocalAppThemeColors.current.muted)
                                                                 }
-                                                                if (voice.first == selectedApiVoiceId) Icon(Icons.Default.CheckCircle, contentDescription = "Seleccionada", tint = Cyan)
+                                                                if (voice.first == selectedApiVoiceId) Icon(Icons.Default.CheckCircle, contentDescription = "Seleccionada", tint = LocalAppThemeColors.current.secondary)
                                                             }
                                                         }
                                                     }
@@ -1289,7 +1361,7 @@ private fun BotApp(
                                     }
                                     if (speechProvider == "tikfinity") {
                                         SettingSwitch("Usar voces aleatorias", apiRandomVoice) { apiRandomVoice = it }
-                                        Text("Cada comentario utilizará una voz TikFinity aleatoria del catálogo.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                                        Text("Cada comentario utilizará una voz TikFinity aleatoria del catálogo.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                                         OutlinedTextField(
                                             value = tikFinityChannelId,
                                             onValueChange = { tikFinityChannelId = it.filter(Char::isDigit).take(24) },
@@ -1300,7 +1372,7 @@ private fun BotApp(
                                             shape = RoundedCornerShape(15.dp)
                                         )
                                     }
-                                    Text("Cada proveedor conserva su propia voz seleccionada. Todos utilizan la misma cola FIFO; Piper mantiene sus modelos y ajustes locales independientes.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                                    Text("Cada proveedor conserva su propia voz seleccionada. Todos utilizan la misma cola FIFO; Piper mantiene sus modelos y ajustes locales independientes.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }
@@ -1315,7 +1387,7 @@ private fun BotApp(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text("Volumen", fontWeight = FontWeight.SemiBold)
                                         Spacer(Modifier.weight(1f))
-                                        Text("${(volume * 100).toInt()}%", color = Cyan, fontWeight = FontWeight.Bold)
+                                        Text("${(volume * 100).toInt()}%", color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.Bold)
                                     }
                                     Slider(value = volume, onValueChange = { volume = it }, valueRange = 0f..1f)
                                 }
@@ -1323,12 +1395,12 @@ private fun BotApp(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text("Velocidad de lectura", fontWeight = FontWeight.SemiBold)
                                         Spacer(Modifier.weight(1f))
-                                        Text(String.format(java.util.Locale.US, "%.2fx", speed), color = Cyan, fontWeight = FontWeight.Bold)
+                                        Text(String.format(java.util.Locale.US, "%.2fx", speed), color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.Bold)
                                     }
                                     Slider(value = speed, onValueChange = { speed = it }, valueRange = 0.65f..1.5f)
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Lenta", color = Muted, style = MaterialTheme.typography.labelSmall)
-                                        Text("Rápida", color = Muted, style = MaterialTheme.typography.labelSmall)
+                                        Text("Lenta", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.labelSmall)
+                                        Text("Rápida", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.labelSmall)
                                     }
                                 }
                                 OutlinedButton(
@@ -1355,7 +1427,7 @@ private fun BotApp(
                         Text(
                             "TIK TOK READER  •  v0.13.6  •  BY ROXI",
                             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                            color = Muted.copy(alpha = .7f),
+                            color = LocalAppThemeColors.current.muted.copy(alpha = .7f),
                             style = MaterialTheme.typography.labelSmall,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             letterSpacing = 1.sp
@@ -1373,8 +1445,8 @@ private fun BotApp(
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("Tik Tok Reader ${appUpdate!!.versionName} ya está publicado en GitHub Releases.")
-                            Text("Puedes descargarlo e iniciar la instalación desde aquí, sin abrir el navegador.", color = Muted, style = MaterialTheme.typography.bodySmall)
-                            if (appUpdateStatus.isNotBlank()) Text(appUpdateStatus, color = Muted, style = MaterialTheme.typography.bodySmall)
+                            Text("Puedes descargarlo e iniciar la instalación desde aquí, sin abrir el navegador.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
+                            if (appUpdateStatus.isNotBlank()) Text(appUpdateStatus, color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                         }
                     },
                     confirmButton = {
@@ -1413,9 +1485,9 @@ private fun LiveChatPanel(
         GlassCard {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("CHAT EN VIVO", color = Cyan, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+                    Text("CHAT EN VIVO", color = LocalAppThemeColors.current.secondary, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
                     Spacer(Modifier.weight(1f))
-                    Text("${liveComments.size} mensajes", color = Muted, style = MaterialTheme.typography.labelSmall)
+                    Text("${liveComments.size} mensajes", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.labelSmall)
                     IconButton(
                         onClick = onClearChat,
                         enabled = liveComments.isNotEmpty(),
@@ -1424,7 +1496,7 @@ private fun LiveChatPanel(
                         Icon(
                             Icons.Default.DeleteOutline,
                             contentDescription = "Limpiar chat",
-                            tint = if (liveComments.isNotEmpty()) Muted else Muted.copy(alpha = .35f),
+                            tint = if (liveComments.isNotEmpty()) LocalAppThemeColors.current.muted else LocalAppThemeColors.current.muted.copy(alpha = .35f),
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -1432,7 +1504,7 @@ private fun LiveChatPanel(
                 if (liveComments.isEmpty()) {
                     Text(
                         "Los comentarios aparecerán aquí cuando el lector se conecte y reciba mensajes.",
-                        color = Muted,
+                        color = LocalAppThemeColors.current.muted,
                         style = MaterialTheme.typography.bodySmall
                     )
                 } else {
@@ -1445,7 +1517,7 @@ private fun LiveChatPanel(
                         items(liveComments.asReversed(), key = { it.id }) { comment ->
                             Surface(
                                 modifier = Modifier.fillMaxWidth(),
-                                color = Panel.copy(alpha = .48f),
+                                color = LocalAppThemeColors.current.panel.copy(alpha = .48f),
                                 shape = RoundedCornerShape(16.dp)
                             ) {
                             Row(
@@ -1456,13 +1528,13 @@ private fun LiveChatPanel(
                                 AsyncImage(
                                     model = comment.avatarUrl,
                                     contentDescription = "Foto de perfil de ${comment.username}",
-                                    modifier = Modifier.size(38.dp).clip(RoundedCornerShape(50.dp)).background(Panel),
+                                    modifier = Modifier.size(38.dp).clip(RoundedCornerShape(50.dp)).background(LocalAppThemeColors.current.panel),
                                     contentScale = androidx.compose.ui.layout.ContentScale.Crop
                                 )
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Text(comment.username.ifBlank { "Usuario" }, color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                                    Text(comment.username.ifBlank { "Usuario" }, color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
                                     if (!comment.replyToDisplayName.isNullOrBlank()) {
-                                        Text("↪ Respondió a @${comment.replyToDisplayName}", color = Violet, style = MaterialTheme.typography.labelSmall)
+                                        Text("↪ Respondió a @${comment.replyToDisplayName}", color = LocalAppThemeColors.current.primary, style = MaterialTheme.typography.labelSmall)
                                     }
                                     Text(comment.message, color = Color(0xFFF4F1FF), style = MaterialTheme.typography.bodyMedium)
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -1484,17 +1556,18 @@ private fun LiveChatPanel(
             }
         }
     }
+    }
 }
 
 @Composable
 private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().shadow(14.dp, RoundedCornerShape(22.dp))
-            .border(1.dp, Brush.linearGradient(listOf(Color(0xFF63D8FF).copy(alpha = .42f), Color(0xFF287FA8).copy(alpha = .30f), Color.White.copy(alpha = .12f))), RoundedCornerShape(22.dp))
+            .border(1.dp, Brush.linearGradient(listOf(LocalAppThemeColors.current.primary.copy(alpha = .30f), LocalAppThemeColors.current.secondary.copy(alpha = .20f), Color.White.copy(alpha = .10f))), RoundedCornerShape(22.dp))
             .animateContentSize(),
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xB3121820),
+            containerColor = LocalAppThemeColors.current.panel,
             contentColor = Color(0xFFF4F1FF)
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -1505,10 +1578,10 @@ private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
 @Composable
 private fun SectionHeader(number: String, title: String, subtitle: String, modifier: Modifier = Modifier) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(number, color = Violet, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelLarge)
+        Text(number, color = LocalAppThemeColors.current.primary, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelLarge)
         Column {
             Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-            Text(subtitle, color = Muted, style = MaterialTheme.typography.bodySmall)
+            Text(subtitle, color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -1533,7 +1606,7 @@ private fun CustomCommandEditor(
     var validation by remember { mutableStateOf("") }
 
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        Text("TUS COMANDOS", color = Cyan, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
+        Text("TUS COMANDOS", color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
         OutlinedTextField(
             value = title, onValueChange = { title = it.take(40) },
             label = { Text("Título del comando") }, modifier = Modifier.fillMaxWidth(),
@@ -1573,17 +1646,17 @@ private fun CustomCommandEditor(
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(command.title, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                        Text(command.trigger, color = Cyan, fontWeight = FontWeight.Bold)
+                        Text(command.trigger, color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.Bold)
                         IconButton(onClick = { onCommandsChange(commands.filterNot { it.trigger == command.trigger }) }) {
-                            Icon(Icons.Default.DeleteOutline, contentDescription = "Eliminar comando", tint = Muted)
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Eliminar comando", tint = LocalAppThemeColors.current.muted)
                         }
                     }
-                    Text(command.response, color = Muted, style = MaterialTheme.typography.bodySmall)
+                    Text(command.response, color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
-        if (commands.isEmpty()) Text("Aún no hay comandos guardados.", color = Muted, style = MaterialTheme.typography.bodySmall)
-        Text("${commands.size}/40 comandos", color = Muted, style = MaterialTheme.typography.labelSmall)
+        if (commands.isEmpty()) Text("Aún no hay comandos guardados.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
+        Text("${commands.size}/40 comandos", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.labelSmall)
     }
 }
 
@@ -1620,7 +1693,7 @@ private fun EditableStringList(
             ) { Icon(Icons.Default.Add, contentDescription = "Añadir") }
         }
         if (items.isEmpty()) {
-            Text("Todavía no hay elementos en esta lista.", color = Muted, style = MaterialTheme.typography.bodySmall)
+            Text("Todavía no hay elementos en esta lista.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items.forEach { item ->
@@ -1635,7 +1708,7 @@ private fun EditableStringList(
                         ) {
                             Text(item, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                             IconButton(onClick = { onItemsChange(items.filterNot { it == item }) }) {
-                                Icon(Icons.Default.Close, contentDescription = "Eliminar $item", tint = Muted)
+                                Icon(Icons.Default.Close, contentDescription = "Eliminar $item", tint = LocalAppThemeColors.current.muted)
                             }
                         }
                     }
