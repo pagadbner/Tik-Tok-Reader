@@ -25,6 +25,9 @@ import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +54,7 @@ private val DjCyan = Color(0xFFE4DFFF)
 fun DJMusicScreen(modifier: Modifier = Modifier) {
     val state by DjMusicController.state.collectAsState()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var playbackServiceActive by remember { mutableStateOf(false) }
 
     var searchText by remember { mutableStateOf("") }
@@ -92,6 +96,19 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
             context.registerReceiver(receiver, filter)
         }
         onDispose { runCatching { context.unregisterReceiver(receiver) } }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                // Background playback was intentionally removed; pause the official player
+                // when the app leaves the foreground.
+                playerView?.evaluateJavascript("if(player)player.pauseVideo()", null)
+                playerPlaying = false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(state.currentTrack?.videoId, playerPlaying) {
