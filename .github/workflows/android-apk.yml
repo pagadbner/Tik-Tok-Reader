@@ -177,6 +177,31 @@ jobs:
           ls -lh release-assets
           sha256sum release-assets/TikLBot-latest.apk
 
+      - name: Publish isolated updater test prerelease
+        if: github.event_name == 'push' && github.ref == 'refs/heads/test/updater-v24-controlled'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="updater-test-v0.13.7"
+          NOTES="release-assets/release-info.txt"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              release-assets/TikLBot-latest.apk \
+              release-assets/TikLBot-latest.apk.sha256 \
+              --clobber
+            gh release edit "$TAG" --title "TikLBot 0.13.7 — Prueba del actualizador" --notes-file "$NOTES" --prerelease
+          else
+            gh release create "$TAG" \
+              release-assets/TikLBot-latest.apk \
+              release-assets/TikLBot-latest.apk.sha256 \
+              --title "TikLBot 0.13.7 — Prueba del actualizador" \
+              --notes-file "$NOTES" \
+              --prerelease \
+              --target "$GITHUB_SHA"
+          fi
+
       - name: Upload signed release APK artifact
         if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/in-app-updater-signing-release' || github.ref == 'refs/heads/test/updater-v24-controlled')) || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
