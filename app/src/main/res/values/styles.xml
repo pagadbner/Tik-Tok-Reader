@@ -4,13 +4,13 @@
         <item name="android:fontFamily">sans</item>
         <item name="android:windowBackground">#05070A</item>
         <item name="android:colorAccent">#63D8FF</item>
-        <item name="android:statusBarColor">#090B18</item>
-        <item name="android:navigationBarColor">#090B18</item>
+        <item name="android:statusBarColor">#05070A</item>
+        <item name="android:navigationBarColor">#05070A</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
     <style name="Theme.TikLBot.Starting" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">#090B18</item>
+        <item name="windowSplashScreenBackground">#05070A</item>
         <item name="windowSplashScreenAnimatedIcon">@android:color/transparent</item>
         <item name="postSplashScreenTheme">@style/AppTheme</item>
     </style>
