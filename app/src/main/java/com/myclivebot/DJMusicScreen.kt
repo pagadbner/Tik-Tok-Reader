@@ -252,7 +252,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        Surface(color = palette.panel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, Color(0x99E05BFF))) {
+        Surface(color = palette.panel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, palette.glassBorder)) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("EN REPRODUCCIÓN", color = palette.secondary, style = MaterialTheme.typography.labelMedium)
                 val current = state.currentTrack
@@ -462,7 +462,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        Surface(color = palette.panel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, Color(0x99E05BFF))) {
+        Surface(color = palette.panel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, palette.glassBorder)) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("COLA DE REPRODUCCIÓN", color = palette.secondary, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
