@@ -425,43 +425,9 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                     "text/html", "UTF-8", null
                                 )
                             } else {
-                                val html = """
-                                    <!doctype html>
-                                    <html>
-                                    <head>
-                                      <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-                                      <style>html,body,#player{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden}</style>
-                                    </head>
-                                    <body>
-                                      <div id="player"></div>
-                                      <script>
-                                        var player;
-                                        var desiredVolume=${state.volume};
-                                        var desiredMuted=${state.muted};
-                                        function onYouTubeIframeAPIReady() {
-                                          player = new YT.Player('player', {
-                                            width:Math.max(document.documentElement.clientWidth, 320),
-                                            height:Math.max(document.documentElement.clientHeight, 180),
-                                            videoId:'${track.videoId}',
-                                            playerVars:{autoplay:1,playsinline:1,controls:1,rel:0},
-                                            events:{
-                                              onReady:function(e){e.target.setVolume(desiredVolume);if(desiredMuted)e.target.mute();else e.target.unMute();TikLBotMusicPlayer.onPlayerReady();e.target.playVideo();},
-                                              onStateChange:function(e){if(e.data===0)TikLBotMusicPlayer.onPlayerEnded();if(e.data===1)TikLBotMusicPlayer.onPlayerState(1);if(e.data===2||e.data===0||e.data===-1)TikLBotMusicPlayer.onPlayerState(0);},
-                                              onError:function(e){TikLBotMusicPlayer.onPlayerError(e.data);},
-                                              onAutoplayBlocked:function(){TikLBotMusicPlayer.onAutoplayBlocked();}
-                                            }
-                                          });
-                                        }
-                                        function setVolume(v){desiredVolume=Math.max(0,Math.min(100,v));if(player && player.setVolume)player.setVolume(desiredVolume);}
-                                        function setMuted(v){desiredMuted=!!v;if(player){if(desiredMuted)player.mute();else player.unMute();}}
-                                        function playPause(){if(!player||!player.getPlayerState)return;if(player.getPlayerState()===1){player.pauseVideo();}else{player.unMute();player.playVideo();}}
-                                        function seekBy(seconds){if(player&&player.getCurrentTime&&player.seekTo)player.seekTo(Math.max(0,player.getCurrentTime()+seconds),true);}
-                                      </script>
-                                      <script src="https://www.youtube.com/iframe_api"></script>
-                                    </body>
-                                    </html>
-                                """.trimIndent()
-                                view.loadDataWithBaseURL("https://www.youtube.com/", html, "text/html", "UTF-8", null)
+                                val muteJs = if (state.muted) "e.target.mute();" else "e.target.unMute();" 
+                                val html = "<!doctype html><html><body style='margin:0;background:#000'><div id='player'></div><script src='https://www.youtube.com/iframe_api'></script><script>var player;function onYouTubeIframeAPIReady(){player=new YT.Player('player',{width:'100%',height:'220',videoId:'" + track.videoId + "',playerVars:{autoplay:1,playsinline:1,rel:0},events:{onReady:function(e){e.target.setVolume(" + state.volume + ");" + muteJs + "e.target.playVideo();},onStateChange:function(e){if(e.data===0)TikLBotMusicPlayer.onPlayerEnded();}}});}function setVolume(v){if(player)player.setVolume(v);}function setMuted(v){if(player){if(v)player.mute();else player.unMute();}}function playPause(){if(player){if(player.getPlayerState()===1)player.pauseVideo();else{player.unMute();player.playVideo();}}}function seekBy(s){if(player)player.seekTo(Math.max(0,player.getCurrentTime()+s),true);}</script></body></html>"
+                                view.loadDataWithBaseURL("https://www.youtube.com", html, "text/html", "UTF-8", null)
                             }
                         } else {
                             view.evaluateJavascript(
