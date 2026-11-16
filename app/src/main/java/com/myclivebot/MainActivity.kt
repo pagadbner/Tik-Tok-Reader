@@ -1463,6 +1463,8 @@ private fun BotApp(
 }
 }
 
+}
+
 @Composable
 private fun LiveChatPanel(
     liveComments: SnapshotStateList<LiveCommentUi>,
