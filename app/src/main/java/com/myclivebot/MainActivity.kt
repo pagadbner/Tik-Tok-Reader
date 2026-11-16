@@ -740,7 +740,7 @@ private fun BotApp(
         colorScheme = darkColorScheme(
             primary = Violet, secondary = Cyan, background = Night, surface = Panel,
             onBackground = Color(0xFFF4F1FF), onSurface = Color(0xFFF4F1FF),
-            surfaceVariant = Color(0xFF292D45), onSurfaceVariant = Muted
+            surfaceVariant = Color(0xFF34343D), onSurfaceVariant = Muted
         )
     ) {
         Box(
