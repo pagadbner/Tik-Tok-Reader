@@ -532,8 +532,8 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                 var h=Math.floor(total/3600),m=Math.floor((total%3600)/60),s=total%60;
                                 return h? h+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0') : m+':'+String(s).padStart(2,'0');
                               }
-                              function cleanTitle(value){return String(value||'').replace(/\\s+/g,' ').trim();}
-                              function isDuration(value){return /^\\d{1,2}:\\d{2}(?::\\d{2})?$/.test(cleanTitle(value));}
+                              function cleanTitle(value){return String(value||'').replace(/\s+/g,' ').trim();}
+                              function isDuration(value){return /^\d{1,2}:\d{2}(?::\d{2})?$/.test(cleanTitle(value));}
                               function rendererTitle(video){
                                 var t=video&&video.title;if(!t)return '';
                                 var value=(t.runs||[]).map(function(r){return r.text||'';}).join('');
