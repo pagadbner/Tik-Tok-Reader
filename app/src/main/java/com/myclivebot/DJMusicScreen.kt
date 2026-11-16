@@ -48,6 +48,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
     var playerView by remember { mutableStateOf<WebView?>(null) }
     val searchRequestId = remember { AtomicInteger(0) }
     val searchRequester = remember { AtomicReference("Tú") }
+    val searchQuery = remember { AtomicReference("") }
     var activeSearchId by remember { mutableIntStateOf(0) }
     var searching by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<DjMusicTrack?>(null) }
@@ -60,6 +61,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
         val requestId = searchRequestId.incrementAndGet()
         activeSearchId = requestId
         searchRequester.set(requestedBy)
+        searchQuery.set(query)
         searching = true
         result = null
         DjMusicController.setMessage("Buscando la primera coincidencia…")
@@ -90,7 +92,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
             delay(20_000)
             if (searching && activeSearchId == requestId) {
                 searching = false
-                DjMusicController.completeSearch(searchRequester.get())
+                DjMusicController.completeSearch(searchQuery.get(), searchRequester.get())
                 DjMusicController.setMessage("YouTube no respondió a tiempo. Comprueba tu conexión o intenta otra búsqueda.")
             }
         }
