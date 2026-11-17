@@ -586,4 +586,54 @@ class LiveAutomationTest {
         assertEquals("Karina", filter.usernameForSpeech(withoutHandle, ReaderSettings(useProfileUsername = true)))
     }
 
+    @Test fun speakerTurnIsCommittedOnlyAfterQueueAcceptance() {
+        val tracker = CommentSpeakerTracker()
+        val ana = LiveComment("user-1", "Ana", "hola")
+
+        assertTrue(tracker.shouldAnnounce(ana))
+        // A rejected comment must not consume the speaker turn.
+        assertTrue(tracker.shouldAnnounce(ana.copy(text = "segundo mensaje")))
+        tracker.markQueued(ana.copy(text = "segundo mensaje"))
+        assertFalse(tracker.shouldAnnounce(ana.copy(text = "tercer mensaje")))
+    }
+
+    @Test fun followerIsDeduplicatedAcrossSeparateAnnouncementBatches() {
+        val spoken = Collections.synchronizedList(mutableListOf<String>())
+        val latch = CountDownLatch(2)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                spoken += text
+                latch.countDown()
+            }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(
+            CommentFilter(), queue, ReaderSettings(readFollows = true),
+            followBatchWindowMs = 40L
+        )
+        try {
+            val ana = LiveEvent(LiveEventType.FOLLOW, "Ana", userId = "follow-ana")
+            assertTrue(pipeline.onEvent(ana))
+            // Wait for the first batch to be accepted and spoken.
+            val firstDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (spoken.isEmpty() && System.nanoTime() < firstDeadline) Thread.sleep(5)
+            assertEquals(listOf("Gracias por seguirme, Ana"), spoken.toList())
+
+            assertFalse(pipeline.onEvent(ana.copy(receivedAt = ana.receivedAt + 1)))
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Luis", userId = "follow-luis")))
+            assertTrue(latch.await(2, TimeUnit.SECONDS))
+            assertEquals(
+                listOf("Gracias por seguirme, Ana", "Gracias por seguirme, Luis"),
+                spoken.toList()
+            )
+        } finally {
+            pipeline.close()
+            queue.close()
+            scope.cancel()
+        }
+    }
+
 }
