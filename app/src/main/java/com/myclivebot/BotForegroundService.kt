@@ -57,6 +57,7 @@ class BotForegroundService : Service() {
         const val EXTRA_STATUS = "reader_status"
         const val EXTRA_USERNAME = "username"
         const val EXTRA_READ_USERNAME = "read_username"
+        const val EXTRA_USE_PROFILE_USERNAME = "use_profile_username"
         const val EXTRA_BLOCKED_WORDS = "blocked_words"
         const val EXTRA_IGNORED_USERS = "ignored_users"
         const val EXTRA_MAX_QUEUE = "max_queue"
@@ -379,6 +380,7 @@ class BotForegroundService : Service() {
 
     private fun readSettings(intent: Intent) = ReaderSettings(
         readUsername = intent.getBooleanExtra(EXTRA_READ_USERNAME, true),
+        useProfileUsername = intent.getBooleanExtra(EXTRA_USE_PROFILE_USERNAME, false),
         blockedWords = intent.getStringArrayListExtra(EXTRA_BLOCKED_WORDS)?.toSet().orEmpty(),
         ignoredUsers = intent.getStringArrayListExtra(EXTRA_IGNORED_USERS)?.toSet().orEmpty(),
         maxQueueSize = intent.getIntExtra(EXTRA_MAX_QUEUE, 30).coerceIn(5, 100),
