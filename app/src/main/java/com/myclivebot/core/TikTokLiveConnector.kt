@@ -298,7 +298,7 @@ class TikTokLiveConnector(
                     }
                 }
                 if (!accepted) {
-                    if (worker.droppedTaskCount() > droppedBefore && overloadWarningActive.compareAndSet(false, true)) {
+                    if (isSessionActive(sessionId) && worker.droppedTaskCount() > droppedBefore && overloadWarningActive.compareAndSet(false, true)) {
                         onStatus("Conectado al LIVE, pero la cola de recepción está saturada. Se conservaron los paquetes anteriores y este paquete no fue aceptado; reduciendo carga para proteger los comentarios pendientes.")
                     }
                     return
@@ -413,7 +413,7 @@ class TikTokLiveConnector(
                     val replyToUser = payloadMessage.message(12)
                     val comment = payloadMessage.string(3).trim()
                     if (comment.isBlank()) return@forEach
-                    onComment(
+                    if (isSessionActive(sessionId)) onComment(
                         LiveComment(
                             userId = user?.long(1)?.toString().orEmpty(),
                             displayName = displayName(user),
@@ -447,10 +447,10 @@ class TikTokLiveConnector(
                     val userId = user?.long(1)?.takeIf { it != 0L }?.toString().orEmpty()
                     val follower = followerStatus(user)
                     when (payloadMessage.long(4)) {
-                        1L -> onEvent(
+                        1L -> if (isSessionActive(sessionId)) onEvent(
                             LiveEvent(LiveEventType.FOLLOW, userName, userId = userId, isFollower = follower)
                         )
-                        3L -> onEvent(
+                        3L -> if (isSessionActive(sessionId)) onEvent(
                             LiveEvent(LiveEventType.SHARE, userName, userId = userId, isFollower = follower)
                         )
                     }
@@ -458,7 +458,7 @@ class TikTokLiveConnector(
                 "WebcastMemberMessage" -> {
                     val user = payloadMessage.message(2)
                     if (user != null) {
-                        onEvent(
+                        if (isSessionActive(sessionId)) onEvent(
                             LiveEvent(
                                 LiveEventType.JOIN,
                                 displayName(user),
@@ -472,7 +472,7 @@ class TikTokLiveConnector(
                     val user = payloadMessage.message(5)
                     if (user != null) {
                         val likesInEvent = payloadMessage.long(2).coerceAtLeast(1L)
-                        onEvent(
+                        if (isSessionActive(sessionId)) onEvent(
                             LiveEvent(
                                 LiveEventType.LIKE,
                                 displayName(user),
@@ -486,7 +486,7 @@ class TikTokLiveConnector(
                     val user = payloadMessage.message(7)
                     val repeatCount = payloadMessage.long(5).coerceAtLeast(1L)
                     val detail = if (repeatCount > 1L) "x$repeatCount" else ""
-                    onEvent(LiveEvent(LiveEventType.GIFT, displayName(user), detail, userId = user?.long(1)?.takeIf { it != 0L }?.toString().orEmpty(), giftGroupId = payloadMessage.long(3).takeIf { it != 0L }?.toString().orEmpty()))
+                    if (isSessionActive(sessionId)) onEvent(LiveEvent(LiveEventType.GIFT, displayName(user), detail, userId = user?.long(1)?.takeIf { it != 0L }?.toString().orEmpty(), giftGroupId = payloadMessage.long(3).takeIf { it != 0L }?.toString().orEmpty()))
                 }
             }
         }
