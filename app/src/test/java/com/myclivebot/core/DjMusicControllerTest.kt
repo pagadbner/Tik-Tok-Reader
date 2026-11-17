@@ -12,6 +12,7 @@ class DjMusicControllerTest {
         // Moderator-only mode rejects viewers and followers, but accepts moderators.
         controller.setFollowersOnly(false)
         controller.setModeratorsOnly(true)
+        assertEquals(false, controller.state.value.followersOnly)
         var count = controller.state.value.pendingSearches.size
         controller.handleLiveComment(
             LiveComment(userId = "viewer", displayName = "Viewer", text = "!play canción", isModerator = false, isFollower = true)
@@ -26,6 +27,7 @@ class DjMusicControllerTest {
 
         // Follower-only mode keeps its original behavior.
         controller.setFollowersOnly(true)
+        assertEquals(false, controller.state.value.moderatorsOnly)
         controller.handleLiveComment(
             LiveComment(userId = "viewer", displayName = "Viewer", text = "!play otra", isModerator = false, isFollower = false)
         )
