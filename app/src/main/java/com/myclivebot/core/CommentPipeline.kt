@@ -51,7 +51,11 @@ class CommentPipeline(
     private var giftFlush: ScheduledFuture<*>? = null
     @Volatile private var closed = false
 
-    private data class GiftBatchItem(val displayName: String, var count: Long)
+    private data class GiftBatchItem(
+        val displayName: String,
+        var count: Long,
+        val groupCounts: MutableMap<String, Long> = LinkedHashMap()
+    )
 
     companion object {
         const val DEFAULT_FOLLOW_BATCH_WINDOW_MS = 4_000L
@@ -186,7 +190,7 @@ class CommentPipeline(
     private fun queueFollow(event: LiveEvent, current: ReaderSettings): Boolean {
         if (!current.readFollows) return false
         val name = ChatCommandParser.spokenUsername(event.displayName)
-        val key = event.userId.trim().ifBlank { name.lowercase() }
+        val key = event.userId.trim().ifBlank { event.displayName.trim().lowercase() }
         if (key.isBlank()) return false
         synchronized(alertLock) {
             if (closed) return false
@@ -207,11 +211,27 @@ class CommentPipeline(
         val count = GiftAlertRules.repeatCount(event).toLong()
         synchronized(alertLock) {
             if (closed) return false
+            val groupId = event.giftGroupId.trim()
             val existing = pendingGifts[key]
             if (existing != null) {
-                existing.count = if (Long.MAX_VALUE - existing.count < count) Long.MAX_VALUE else existing.count + count
+                if (groupId.isBlank()) {
+                    existing.count = addGiftCounts(existing.count, count)
+                } else {
+                    val previousGroupCount = existing.groupCounts[groupId]
+                    when {
+                        previousGroupCount == null -> {
+                            existing.groupCounts[groupId] = count
+                            existing.count = addGiftCounts(existing.count, count)
+                        }
+                        count > previousGroupCount -> {
+                            existing.groupCounts[groupId] = count
+                            existing.count = addGiftCounts(existing.count, count - previousGroupCount)
+                        }
+                    }
+                }
             } else if (pendingGifts.size < MAX_BATCH_USERS) {
-                pendingGifts[key] = GiftBatchItem(name, count)
+                val groupCounts = if (groupId.isBlank()) LinkedHashMap() else linkedMapOf(groupId to count)
+                pendingGifts[key] = GiftBatchItem(name, count, groupCounts)
             } else {
                 pendingGiftOverflowUsers++
                 pendingGiftOverflowCount = if (Long.MAX_VALUE - pendingGiftOverflowCount < count) {
@@ -222,6 +242,9 @@ class CommentPipeline(
         }
         return true
     }
+
+    private fun addGiftCounts(current: Long, increment: Long): Long =
+        if (Long.MAX_VALUE - current < increment) Long.MAX_VALUE else current + increment
 
     private fun scheduleFollowFlushLocked(delayMs: Long) {
         followFlush?.cancel(false)
