@@ -66,7 +66,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import java.io.File
 
-private data class LiveCommentUi(val id: String, val username: String, val message: String, val avatarUrl: String?, val replyToDisplayName: String?, val receivedAt: Long, val skipped: Boolean = false)
+private data class LiveCommentUi(val id: String, val username: String, val message: String, val avatarUrl: String?, val replyToDisplayName: String?, val receivedAt: Long, val isModerator: Boolean = false, val isFollower: Boolean = false, val skipped: Boolean = false)
 private data class CustomCommandEntry(val title: String, val trigger: String, val response: String)
 
 class MainActivity : ComponentActivity() {
@@ -96,7 +96,9 @@ class MainActivity : ComponentActivity() {
                                 message = message,
                                 avatarUrl = intent.getStringExtra(BotForegroundService.EXTRA_COMMENT_AVATAR),
                                 replyToDisplayName = intent.getStringExtra(BotForegroundService.EXTRA_REPLY_TO)?.takeIf { it.isNotBlank() },
-                                receivedAt = intent.getLongExtra(BotForegroundService.EXTRA_COMMENT_TIME, System.currentTimeMillis())
+                                receivedAt = intent.getLongExtra(BotForegroundService.EXTRA_COMMENT_TIME, System.currentTimeMillis()),
+                                isModerator = intent.getBooleanExtra(BotForegroundService.EXTRA_COMMENT_IS_MODERATOR, false),
+                                isFollower = intent.getBooleanExtra(BotForegroundService.EXTRA_COMMENT_IS_FOLLOWER, false)
                             )
                         )
                     }
@@ -377,7 +379,9 @@ class MainActivity : ComponentActivity() {
                             message = comment.text,
                             avatarUrl = comment.avatarUrl,
                             replyToDisplayName = comment.replyToDisplayName,
-                            receivedAt = comment.receivedAt
+                            receivedAt = comment.receivedAt,
+                            isModerator = comment.isModerator,
+                            isFollower = comment.isFollower == true
                         )
                     )
                 }
@@ -1448,7 +1452,7 @@ private fun BotApp(
                     }
                     item {
                         Text(
-                            "TIK TOK READER  •  v0.13.8  •  BY ROXI",
+                            "TIK TOK READER  •  v0.13.9  •  BY ROXI",
                             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                             color = LocalAppThemeColors.current.muted.copy(alpha = .7f),
                             style = MaterialTheme.typography.labelSmall,
@@ -1557,7 +1561,19 @@ private fun LiveChatPanel(
                                     contentScale = androidx.compose.ui.layout.ContentScale.Crop
                                 )
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Text(comment.username.ifBlank { "Usuario" }, color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text(comment.username.ifBlank { "Usuario" }, color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                                        if (comment.isModerator) {
+                                            Surface(color = Color(0xFF7657D8).copy(alpha = .22f), shape = RoundedCornerShape(6.dp)) {
+                                                Text("Moderador", modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = Color(0xFFC6B5FF), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
+                                        if (comment.isFollower) {
+                                            Surface(color = Color(0xFF168C91).copy(alpha = .22f), shape = RoundedCornerShape(6.dp)) {
+                                                Text("Follower", modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = Color(0xFF77E3E0), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
+                                    }
                                     if (!comment.replyToDisplayName.isNullOrBlank()) {
                                         Text("↪ Respondió a @${comment.replyToDisplayName}", color = LocalAppThemeColors.current.primary, style = MaterialTheme.typography.labelSmall)
                                     }

@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.asStateFlow
 data class DjMusicTrack(val videoId: String, val title: String, val thumbnailUrl: String, val duration: String = "", val requestedBy: String = "Tú")
 data class DjMusicState(
     val followersOnly: Boolean = false,
+    val moderatorsOnly: Boolean = false,
     val pendingSearches: List<Pair<String, String>> = emptyList(),
     val activeSearch: Pair<String, String>? = null,
     val currentTrack: DjMusicTrack? = null,
@@ -21,7 +22,9 @@ object DjMusicController {
     val state: StateFlow<DjMusicState> = mutableState.asStateFlow()
 
     @Synchronized
-    fun setFollowersOnly(enabled: Boolean) { mutableState.value = mutableState.value.copy(followersOnly = enabled) }
+    fun setFollowersOnly(enabled: Boolean) { mutableState.value = mutableState.value.copy(followersOnly = enabled, moderatorsOnly = false) }
+    @Synchronized
+    fun setModeratorsOnly(enabled: Boolean) { mutableState.value = mutableState.value.copy(followersOnly = false, moderatorsOnly = enabled) }
     @Synchronized
     fun setMuted(muted: Boolean) { mutableState.value = mutableState.value.copy(muted = muted) }
     @Synchronized
@@ -34,6 +37,7 @@ object DjMusicController {
             text.equals("!skip", true) -> if (comment.isModerator) skip("La moderación saltó la canción.")
             text.startsWith("!play ", true) -> {
                 val current = mutableState.value
+                if (current.moderatorsOnly && !comment.isModerator) return
                 if (current.followersOnly && comment.isFollower != true) return
                 val query = text.substringAfter(' ').trim()
                 if (query.isNotBlank()) enqueueSearch(query, comment.displayName)
