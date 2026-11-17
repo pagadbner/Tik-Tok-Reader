@@ -256,34 +256,34 @@ class TikTokLiveConnector(
                 // Copy and enqueue without waiting: the OkHttp reader must remain free
                 // to receive control frames and keep the WebSocket transport responsive.
                 val frame = bytes.toByteArray()
-                // Preserve the existing transport ACK behavior and payload.
-                runCatching {
-                    val logId = ProtoMessage(frame).long(2)
-                    if (logId != 0L) webSocket.send(ByteString.of(*encodeAck(logId)))
-                }
                 val worker = eventExecutor ?: return
-                val accepted = worker.tryExecute {
-                    if (!stopped) {
-                        runCatching { processWebcastFrame(webSocket, frame) }
-                            .onFailure {
-                                if (!stopped) onStatus("Se recibió un paquete LIVE no válido; se omitió sin cerrar la conexión.")
-                            }
+                val logId = runCatching { ProtoMessage(frame).long(2) }.getOrDefault(0L)
+                val droppedBefore = worker.droppedTaskCount()
+                val accepted = enqueueAndAcknowledge(
+                    worker,
+                    Runnable {
+                        if (!stopped) {
+                            runCatching { processWebcastFrame(webSocket, frame) }
+                                .onFailure {
+                                    if (!stopped) onStatus("Se recibió un paquete LIVE no válido; se omitió sin cerrar la conexión.")
+                                }
+                        }
+                        // Permit another overload notice after the backlog has recovered.
+                        if (worker.queuedCount() <= BoundedSerialEventExecutor.DEFAULT_QUEUE_CAPACITY / 2) {
+                            overloadWarningActive.set(false)
+                        }
                     }
-                    // Once the backlog has drained below half capacity, allow a new
-                    // overload warning if another independent burst occurs.
-                    if (worker.queuedCount() <= BoundedSerialEventExecutor.DEFAULT_QUEUE_CAPACITY / 2) {
-                        overloadWarningActive.set(false)
+                ) {
+                    if (logId != 0L) {
+                        runCatching { webSocket.send(ByteString.of(*encodeAck(logId))) }
                     }
                 }
-                if (!accepted) {
-                    // Keep the WebSocket connected and its reader non-blocking.
-                    // Only this incoming frame is skipped when the bounded queue is full.
-                    if (overloadWarningActive.compareAndSet(false, true)) {
-                        onStatus("La cola de eventos LIVE está llena. Algunos eventos podrían omitirse mientras se recupera el procesamiento; la conexión permanece activa.")
-                    }
-                    return
+                if (!accepted) return
+                if (worker.droppedTaskCount() > droppedBefore &&
+                    overloadWarningActive.compareAndSet(false, true)
+                ) {
+                    onStatus("Hay demasiados eventos LIVE por procesar. Se priorizan los más recientes para mantener la conexión activa; algunos eventos antiguos podrían omitirse.")
                 }
-
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
