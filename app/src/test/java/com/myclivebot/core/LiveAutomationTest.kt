@@ -177,8 +177,8 @@ class LiveAutomationTest {
         val queue = SpeechQueueWorker(engine, scope, capacity = 4)
         val pipeline = CommentPipeline(
             CommentFilter(), queue, ReaderSettings(),
-            followBatchWindowMs = 30L,
-            giftBatchWindowMs = 30L
+            followBatchWindowMs = 150L,
+            giftBatchWindowMs = 150L
         )
 
         try {
@@ -211,7 +211,7 @@ class LiveAutomationTest {
         val queue = SpeechQueueWorker(engine, scope, capacity = 4)
         val pipeline = CommentPipeline(
             CommentFilter(), queue, ReaderSettings(readFollows = true),
-            followBatchWindowMs = 40L
+            followBatchWindowMs = 150L
         )
         try {
             assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Ana", userId = "f1")))
@@ -246,7 +246,7 @@ class LiveAutomationTest {
         val queue = SpeechQueueWorker(engine, scope, capacity = 4)
         val pipeline = CommentPipeline(
             CommentFilter(), queue, ReaderSettings(readGifts = true),
-            giftBatchWindowMs = 40L
+            giftBatchWindowMs = 150L
         )
         try {
             assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.GIFT, "Ana", "x2", userId = "g1")))
