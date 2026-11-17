@@ -3,7 +3,6 @@ package com.myclivebot.core
 import java.io.Closeable
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.RejectedExecutionException
-import java.util.concurrent.RejectedExecutionHandler
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
@@ -11,9 +10,9 @@ import java.util.concurrent.TimeUnit
 /**
  * Serial LIVE frame processor with a bounded backlog.
  *
- * When the pending queue is full, the submitting WebSocket callback waits for
- * capacity. This provides backpressure without dropping frames or running frame
- * decoding concurrently, so accepted frames retain their arrival order.
+ * Submission never waits for queue capacity: when full, tryExecute returns false
+ * so the WebSocket reader can close the overloaded session without blocking
+ * OkHttp's frame reader, ping/pong handling, or heartbeat traffic.
  */
 internal class BoundedSerialEventExecutor(
     queueCapacity: Int = DEFAULT_QUEUE_CAPACITY,
@@ -30,22 +29,6 @@ internal class BoundedSerialEventExecutor(
         val threadFactory = ThreadFactory { runnable ->
             Thread(runnable, threadName).apply { isDaemon = true }
         }
-        val rejectionHandler = RejectedExecutionHandler { task, pool ->
-            if (pool.isShutdown) {
-                throw RejectedExecutionException("LIVE event processor is closed")
-            }
-            try {
-                // Block only the submitting callback while the bounded queue is full.
-                pool.queue.put(task)
-                // A concurrent disconnect may have shut down and drained the queue.
-                if (pool.isShutdown && pool.queue.remove(task)) {
-                    throw RejectedExecutionException("LIVE event processor closed while submitting")
-                }
-            } catch (interrupted: InterruptedException) {
-                Thread.currentThread().interrupt()
-                throw RejectedExecutionException("Interrupted while waiting for LIVE event capacity", interrupted)
-            }
-        }
         executor = ThreadPoolExecutor(
             1,
             1,
@@ -53,13 +36,21 @@ internal class BoundedSerialEventExecutor(
             TimeUnit.MILLISECONDS,
             ArrayBlockingQueue(queueCapacity),
             threadFactory,
-            rejectionHandler
+            ThreadPoolExecutor.AbortPolicy()
         )
     }
 
-    fun execute(task: Runnable) {
-        executor.execute(task)
-    }
+    /**
+     * Returns false immediately if the bounded queue is full or the worker is closed.
+     * Accepted tasks remain serial and FIFO.
+     */
+    fun tryExecute(task: Runnable): Boolean =
+        try {
+            executor.execute(task)
+            true
+        } catch (_: RejectedExecutionException) {
+            false
+        }
 
     fun queuedCount(): Int = executor.queue.size
 
