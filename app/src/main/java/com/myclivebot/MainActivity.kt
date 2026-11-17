@@ -172,6 +172,7 @@ class MainActivity : ComponentActivity() {
                         .setAction(BotForegroundService.ACTION_START)
                         .putExtra(BotForegroundService.EXTRA_USERNAME, username)
                         .putExtra(BotForegroundService.EXTRA_READ_USERNAME, settings.readUsername)
+                        .putExtra(BotForegroundService.EXTRA_USE_PROFILE_USERNAME, settings.useProfileUsername)
                         .putStringArrayListExtra(BotForegroundService.EXTRA_BLOCKED_WORDS, ArrayList(settings.blockedWords))
                         .putStringArrayListExtra(BotForegroundService.EXTRA_IGNORED_USERS, ArrayList(settings.ignoredUsers))
                         .putExtra(BotForegroundService.EXTRA_MAX_QUEUE, settings.maxQueueSize)
@@ -208,6 +209,7 @@ class MainActivity : ComponentActivity() {
                     val intent = Intent(this@MainActivity, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_UPDATE_SETTINGS)
                         .putExtra(BotForegroundService.EXTRA_READ_USERNAME, settings.readUsername)
+                        .putExtra(BotForegroundService.EXTRA_USE_PROFILE_USERNAME, settings.useProfileUsername)
                         .putStringArrayListExtra(BotForegroundService.EXTRA_BLOCKED_WORDS, ArrayList(settings.blockedWords))
                         .putStringArrayListExtra(BotForegroundService.EXTRA_IGNORED_USERS, ArrayList(settings.ignoredUsers))
                         .putExtra(BotForegroundService.EXTRA_MAX_QUEUE, settings.maxQueueSize)
@@ -479,6 +481,7 @@ private fun BotApp(
         }
     }
     var readUsername by remember { mutableStateOf(prefs.getBoolean("read_username", true)) }
+    var readAccountUsername by remember { mutableStateOf(prefs.getBoolean("read_account_username", false)) }
     var onlyUsername by remember { mutableStateOf(prefs.getBoolean("only_username", false)) }
     var ignoreEmojis by remember { mutableStateOf(prefs.getBoolean("ignore_emojis", true)) }
     var ignoreSymbols by remember { mutableStateOf(prefs.getBoolean("ignore_symbols", false)) }
@@ -544,6 +547,7 @@ private fun BotApp(
 
     fun buildReaderSettings(): ReaderSettings = ReaderSettings(
         readUsername = readUsername,
+        useProfileUsername = readAccountUsername,
         blockedWords = splitList(blockedWords).toSet(),
         ignoredUsers = splitList(ignoredUsers).toSet(),
         maxQueueSize = maxQueue.toIntOrNull()?.coerceIn(5, 100) ?: 30,
@@ -645,7 +649,7 @@ private fun BotApp(
     LaunchedEffect(username) { prefs.edit().putString("last_username", username).apply() }
     LaunchedEffect(voiceMuted) { prefs.edit().putBoolean("voice_muted", voiceMuted).apply() }
     LaunchedEffect(externalMuted) { voiceMuted = externalMuted }
-    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, readShares, shareFollowerOnly, readJoins, joinFollowerOnly, readLikes, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId, edgeVoiceId, tikTokVoiceId) {
+    LaunchedEffect(readUsername, readAccountUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat, readFollows, readGifts, readShares, shareFollowerOnly, readJoins, joinFollowerOnly, readLikes, randomVoices, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId, edgeVoiceId, tikTokVoiceId) {
         prefs.edit()
             .putBoolean("follower_only_chat", followerOnlyChat)
             .putBoolean("read_follows", readFollows)
@@ -665,9 +669,10 @@ private fun BotApp(
             .apply()
     }
 
-    LaunchedEffect(readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId, edgeVoiceId, tikTokVoiceId) {
+    LaunchedEffect(readUsername, readAccountUsername, onlyUsername, ignoreEmojis, ignoreSymbols, maxQueue, blockedWords, ignoredUsers, volume, speed, voiceId, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId, edgeVoiceId, tikTokVoiceId) {
         prefs.edit()
             .putBoolean("read_username", readUsername)
+            .putBoolean("read_account_username", readAccountUsername)
             .putBoolean("only_username", onlyUsername)
             .putBoolean("ignore_emojis", ignoreEmojis)
             .putBoolean("ignore_symbols", ignoreSymbols)
@@ -706,7 +711,7 @@ private fun BotApp(
     val selectedApiVoiceName = apiVoiceItems.firstOrNull { it.first == selectedApiVoiceId }?.second ?: apiVoiceItems.first().second
     val connected = status.contains("Conectado", true) && !status.contains("no se pudo", true)
     LaunchedEffect(
-        connected, readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat,
+        connected, readUsername, readAccountUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat,
         readFollows, readGifts, readShares, shareFollowerOnly, readJoins, joinFollowerOnly, readLikes,
         randomVoices, maxQueue, blockedWords, ignoredUsers,
         speed, voiceId, voiceInstalled, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId, edgeVoiceId, tikTokVoiceId, customCommandsEnabled, customCommandsText,
@@ -1068,6 +1073,8 @@ private fun BotApp(
                         GlassCard {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                                 SettingSwitch("Leer nombre del usuario", readUsername) { readUsername = it }
+                                SettingSwitch("Leer nombre de usuario de la cuenta (@usuario)", readAccountUsername) { readAccountUsername = it }
+                                Text("Desactivado: usa el nombre visible del perfil. Activado: pronuncia el identificador de la cuenta, por ejemplo karina_fu82.", color = LocalAppThemeColors.current.muted, style = MaterialTheme.typography.bodySmall)
                                 SettingSwitch("Leer solo el nombre (omitir comentarios)", onlyUsername) { onlyUsername = it }
                                 SettingSwitch("Ignorar emojis", ignoreEmojis) { ignoreEmojis = it }
                                 SettingSwitch("Ignorar símbolos y signos", ignoreSymbols) { ignoreSymbols = it }

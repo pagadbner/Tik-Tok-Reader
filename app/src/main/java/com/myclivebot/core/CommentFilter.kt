@@ -37,7 +37,8 @@ data class ReaderSettings(
     val welcomeEnabled: Boolean = false,
     val welcomeTemplate: String = "¡Bienvenido al LIVE, {user}!",
     val giftMinimumRepeatCount: Int = 1,
-    val giftAlertTemplate: String = ""
+    val giftAlertTemplate: String = "",
+    val useProfileUsername: Boolean = false
 )
 
 /**
@@ -73,10 +74,15 @@ class CommentFilter {
         val userKey = comment.userId.ifBlank { comment.displayName }.trim().lowercase()
         val ignored = settings.ignoredUsers.map { it.trim().removePrefix("@").lowercase() }
             .filter { it.isNotEmpty() }.toSet()
-        if (userKey in ignored || comment.displayName.trim().removePrefix("@").lowercase() in ignored) return false
+        val displayKey = comment.displayName.trim().removePrefix("@").lowercase()
+        val profileKey = comment.profileUsername.trim().removePrefix("@").lowercase()
+        if (userKey in ignored || displayKey in ignored || profileKey in ignored) return false
         if (settings.ignoreModerators && comment.isModerator) return false
 
-        val sourceToFilter = if (settings.onlyUsername) comment.displayName else comment.text
+        val sourceToFilter = if (settings.onlyUsername) {
+            if (settings.useProfileUsername) comment.profileUsername.ifBlank { comment.displayName }
+            else comment.displayName
+        } else comment.text
         val cleanText = sourceToFilter.trim().replace(Regex("\\s+"), " ")
         if (cleanText.isBlank() || cleanText.length > settings.maxCommentLength.coerceAtLeast(1)) return false
         val normalized = cleanText.lowercase(java.util.Locale.ROOT)
@@ -107,7 +113,12 @@ class CommentFilter {
     }
 
     fun toSpeech(comment: LiveComment, settings: ReaderSettings): String {
-        val safeName = sanitizeUsername(comment.displayName.take(80))
+        val safeName = if (settings.useProfileUsername) {
+            sanitizeProfileUsername(comment.profileUsername.take(80))
+                .ifBlank { sanitizeUsername(comment.displayName.take(80)) }
+        } else {
+            sanitizeUsername(comment.displayName.take(80))
+        }
         if (settings.onlyUsername) return safeName
 
         var safeText = comment.text.trim()
@@ -119,7 +130,19 @@ class CommentFilter {
         return spokenName + safeText
     }
 
-    /** Preserve decorated names; use "usuario" only when the name has no letters or digits. */
+    /** TikTok handles allow letters, digits, dots and underscores; discard other symbols. */
+    private fun sanitizeProfileUsername(input: String): String {
+        val safe = buildString(input.length) {
+            input.codePoints().forEach { codePoint ->
+                if (Character.isLetterOrDigit(codePoint) || codePoint == '_'.code || codePoint == '.'.code) {
+                    appendCodePoint(codePoint)
+                }
+            }
+        }.trim('.')
+        return if (safe.codePoints().anyMatch { Character.isLetterOrDigit(it) }) safe else ""
+    }
+
+    /** Preserve the display-name fallback; use "usuario" only when it has no words. */
     private fun sanitizeUsername(input: String): String =
         ChatCommandParser.spokenUsername(input)
 
