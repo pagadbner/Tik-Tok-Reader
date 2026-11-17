@@ -377,6 +377,7 @@ class TikTokLiveConnector(
                             userId = user?.long(1)?.toString().orEmpty(),
                             displayName = displayName(user),
                             text = comment,
+                            profileUsername = user?.string(38)?.trim().orEmpty(),
                             avatarUrl = user?.let { sender ->
                                 sender.message(9)?.strings(1)?.firstOrNull()
                                     ?: sender.message(16)?.strings(1)?.firstOrNull()
