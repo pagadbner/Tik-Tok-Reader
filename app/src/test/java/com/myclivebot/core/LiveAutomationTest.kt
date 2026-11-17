@@ -10,6 +10,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import org.junit.Test
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class LiveAutomationTest {
     @Test fun parsesOnlyValidCommandLinesAndNormalizesNames() {
@@ -95,9 +98,12 @@ class LiveAutomationTest {
                     userId = "ana-id",
                     displayName = "Ana",
                     text = "@Karla gracias por el dato",
-                    replyToDisplayName = "Karla"
+                    replyToDisplayName = "Karla",
+                    profileUsername = "ana_handle",
+                    replyToProfileUsername = "karla_handle"
                 )
             )
+            // The option is off by default, so existing display-name speech is preserved.
             assertEquals(listOf("Ana le respondió a Karla: gracias por el dato"), spoken)
         } finally {
             queue.close()
@@ -156,29 +162,155 @@ class LiveAutomationTest {
         )
     }
 
-    @Test fun followAndGiftAlertsUseSharedSpeechQueueWithSafeNames() {
-        val spoken = mutableListOf<String>()
+    @Test fun followAndGiftAlertsAreDebouncedAndUseSafeNames() {
+        val spoken = Collections.synchronizedList(mutableListOf<String>())
+        val spokenLatch = CountDownLatch(2)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val engine = object : SpeechEngine {
             override suspend fun initialize() = Unit
-            override suspend fun speak(text: String) { spoken += text }
+            override suspend fun speak(text: String) {
+                spoken += text
+                spokenLatch.countDown()
+            }
             override suspend fun stop() = Unit
         }
         val queue = SpeechQueueWorker(engine, scope, capacity = 4)
-        val pipeline = CommentPipeline(CommentFilter(), queue, ReaderSettings())
+        val pipeline = CommentPipeline(
+            CommentFilter(), queue, ReaderSettings(),
+            followBatchWindowMs = 150L,
+            giftBatchWindowMs = 150L
+        )
 
         try {
-            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "🔥Ana_99✨")))
-            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.GIFT, "♡", "")))
-            assertEquals(
-                listOf("Ana_99 te ha seguido", "usuario te envió un regalo"),
-                spoken
-            )
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "🔥Ana_99✨", userId = "follow-1")))
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.GIFT, "♡", userId = "gift-1")))
+            // Both alerts wait for their quiet window instead of speaking immediately.
+            assertTrue(spoken.isEmpty())
+            assertTrue(spokenLatch.await(2, TimeUnit.SECONDS))
+            assertTrue(spoken.contains("Gracias por seguirme, Ana_99"))
+            assertTrue(spoken.contains("Gracias usuario por tu regalo"))
         } finally {
+            pipeline.close()
             queue.close()
             scope.cancel()
         }
     }
+
+    @Test fun followEventsAreGroupedDeduplicatedAndLimitedToThreeNames() {
+        val spoken = Collections.synchronizedList(mutableListOf<String>())
+        val latch = CountDownLatch(1)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                spoken += text
+                latch.countDown()
+            }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(
+            CommentFilter(), queue, ReaderSettings(readFollows = true),
+            // Leave enough time for all events to arrive even on a busy CI runner.
+            followBatchWindowMs = 1_000L
+        )
+        try {
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Ana", userId = "f1")))
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Luis", userId = "f2")))
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Mia", userId = "f3")))
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Noah", userId = "f4")))
+            assertFalse(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Ana repetida", userId = "f1")))
+            assertTrue(latch.await(3, TimeUnit.SECONDS))
+            assertEquals(
+                "Gracias por seguirme, Ana, Luis, Mia, y otra persona",
+                spoken.single()
+            )
+        } finally {
+            pipeline.close()
+            queue.close()
+            scope.cancel()
+        }
+    }
+
+    @Test fun giftEventsFromSeveralUsersAreGroupedWithAggregatedRepeatCounts() {
+        val spoken = Collections.synchronizedList(mutableListOf<String>())
+        val latch = CountDownLatch(1)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                spoken += text
+                latch.countDown()
+            }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(
+            CommentFilter(), queue, ReaderSettings(readGifts = true),
+            giftBatchWindowMs = 150L
+        )
+        try {
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.GIFT, "Ana", "x2", userId = "g1")))
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.GIFT, "Ana", "x1", userId = "g1")))
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.GIFT, "Luis", "x1", userId = "g2")))
+            assertTrue(spoken.isEmpty())
+            assertTrue(latch.await(2, TimeUnit.SECONDS))
+            assertEquals("Gracias Ana (x3), Luis por los 4 regalos", spoken.single())
+        } finally {
+            pipeline.close()
+            queue.close()
+            scope.cancel()
+        }
+    }
+
+    @Test fun cumulativeGiftComboUpdatesAreNotDoubleCounted() {
+        val spoken = Collections.synchronizedList(mutableListOf<String>())
+        val latch = CountDownLatch(1)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                spoken += text
+                latch.countDown()
+            }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(
+            CommentFilter(), queue, ReaderSettings(readGifts = true),
+            giftBatchWindowMs = 40L
+        )
+        try {
+            assertTrue(pipeline.onEvent(
+                LiveEvent(LiveEventType.GIFT, "Ana", "x1", userId = "g1", giftGroupId = "combo-1")
+            ))
+            assertTrue(pipeline.onEvent(
+                LiveEvent(LiveEventType.GIFT, "Ana", "x2", userId = "g1", giftGroupId = "combo-1")
+            ))
+            assertTrue(pipeline.onEvent(
+                LiveEvent(LiveEventType.GIFT, "Ana", "x3", userId = "g1", giftGroupId = "combo-1")
+            ))
+            assertTrue(latch.await(2, TimeUnit.SECONDS))
+            assertEquals("Gracias Ana (x3) por los 3 regalos", spoken.single())
+        } finally {
+            pipeline.close()
+            queue.close()
+            scope.cancel()
+        }
+    }
+
+    @Test fun groupedGiftTemplateRetainsUserAndCountPlaceholders() {
+        assertEquals(
+            "Gracias Ana (x2), Luis por los 3 regalos",
+            GiftAlertRules.renderBatch(
+                listOf("Ana" to 2L, "Luis" to 1L),
+                totalCount = 3L,
+                additionalUsers = 0,
+                settings = ReaderSettings(giftAlertTemplate = "Gracias {user} por los {count} regalos")
+            )
+        )
+    }
+
 
     @Test fun giftAlertsRespectExistingMasterSwitchAndIgnoreNonGiftEvents() {
         val gift = LiveEvent(LiveEventType.GIFT, "Mia", "x10")
@@ -354,4 +486,104 @@ class LiveAutomationTest {
             }
         }
     }
+    @Test fun welcomeUsesProfileUsernameWhenTheSettingIsEnabled() {
+        val spoken = mutableListOf<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) { spoken += text }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val settings = ReaderSettings(
+            readUsername = false,
+            welcomeEnabled = true,
+            welcomeTemplate = "¡Bienvenido {user}!",
+            useProfileUsername = true
+        )
+        val pipeline = CommentPipeline(CommentFilter(), queue, settings)
+        try {
+            assertTrue(pipeline.onComment(
+                LiveComment("welcome-1", "Karina", "hola", profileUsername = "karina_fu82")
+            ))
+            assertEquals(listOf("¡Bienvenido karina_fu82!", "hola"), spoken)
+        } finally {
+            queue.close()
+            scope.cancel()
+        }
+    }
+
+    @Test fun customCommandUserPlaceholderUsesSelectedProfileUsername() {
+        val spoken = mutableListOf<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) { spoken += text }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(
+            CommentFilter(), queue,
+            ReaderSettings(
+                readUsername = false,
+                customCommandsEnabled = true,
+                customCommands = mapOf("!hola" to "Hola {user}"),
+                useProfileUsername = true
+            )
+        )
+        try {
+            assertTrue(pipeline.onComment(
+                LiveComment("command-1", "Karina", "!hola", isModerator = true, profileUsername = "karina_fu82")
+            ))
+            assertEquals(listOf("Hola karina_fu82"), spoken)
+        } finally {
+            queue.close()
+            scope.cancel()
+        }
+    }
+
+    @Test fun replyUsesSelectedProfileUsernamesForBothParticipants() {
+        val spoken = mutableListOf<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) { spoken += text }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(
+            CommentFilter(), queue,
+            ReaderSettings(readUsername = true, useProfileUsername = true)
+        )
+        try {
+            assertTrue(pipeline.onComment(
+                LiveComment(
+                    userId = "reply-author",
+                    displayName = "Karina",
+                    text = "@luis_01 gracias por el dato",
+                    profileUsername = "karina_fu82",
+                    replyToDisplayName = "Luis",
+                    replyToProfileUsername = "luis_01"
+                )
+            ))
+            assertEquals(
+                listOf("karina_fu82 le respondió a luis_01: gracias por el dato"),
+                spoken
+            )
+        } finally {
+            queue.close()
+            scope.cancel()
+        }
+    }
+
+    @Test fun profileUsernameSelectionAndDisplayNameFallbackAreConsistent() {
+        val filter = CommentFilter()
+        val withHandle = LiveComment("fallback-1", "Karina", "hola", profileUsername = "karina_fu82")
+        assertEquals("karina_fu82", filter.usernameForSpeech(withHandle, ReaderSettings(useProfileUsername = true)))
+        assertEquals("Karina", filter.usernameForSpeech(withHandle, ReaderSettings(useProfileUsername = false)))
+
+        val withoutHandle = withHandle.copy(profileUsername = "")
+        assertEquals("Karina", filter.usernameForSpeech(withoutHandle, ReaderSettings(useProfileUsername = true)))
+    }
+
 }

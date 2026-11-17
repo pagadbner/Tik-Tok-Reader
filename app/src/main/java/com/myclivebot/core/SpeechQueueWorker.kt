@@ -7,8 +7,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Single speech consumer with two bounded lanes. Important LIVE events are spoken
- * before queued chat messages, but never interrupt audio that is already playing.
+ * Single speech consumer with three bounded lanes:
+ * LIVE comments first, event alerts second, and other speech last.
+ * Audio already in progress is never interrupted.
  */
 class SpeechQueueWorker(
     private val engine: SpeechEngine,
@@ -19,8 +20,10 @@ class SpeechQueueWorker(
 ) {
     private val lock = Any()
     private data class QueuedSpeech(val text: String, val itemId: String?)
-    private val normalQueue = ArrayDeque<QueuedSpeech>()
+    private val commentQueue = ArrayDeque<QueuedSpeech>()
     private val priorityQueue = ArrayDeque<QueuedSpeech>()
+    private val normalQueue = ArrayDeque<QueuedSpeech>()
+    private val commentCapacity = capacity.coerceAtLeast(1)
     private val normalCapacity = capacity.coerceAtLeast(1)
     private val importantCapacity = priorityCapacity.coerceAtLeast(1)
     private val priorityBurstLimit = 3
@@ -32,6 +35,10 @@ class SpeechQueueWorker(
             while (isActive) {
                 val next = synchronized(lock) {
                     when {
+                        commentQueue.isNotEmpty() -> {
+                            consecutivePriority = 0
+                            commentQueue.removeFirst()
+                        }
                         normalQueue.isNotEmpty() &&
                             (priorityQueue.isEmpty() || consecutivePriority >= priorityBurstLimit) -> {
                             consecutivePriority = 0
@@ -62,23 +69,35 @@ class SpeechQueueWorker(
         }
     }
 
-    /** Returns false when the selected bounded lane is full. */
-    fun enqueue(text: String, priority: Boolean = false, itemId: String? = null): Boolean {
+    /**
+     * Comments use their own highest-priority lane. Event alerts use priority=true;
+     * other auxiliary speech stays in the normal lane.
+     */
+    fun enqueue(
+        text: String,
+        priority: Boolean = false,
+        itemId: String? = null,
+        comment: Boolean = false
+    ): Boolean {
         if (text.isBlank()) return false
         val accepted = synchronized(lock) {
-            val queue = if (priority) priorityQueue else normalQueue
-            val limit = if (priority) importantCapacity else normalCapacity
-            if (priority) {
-                if (queue.size >= limit) false else {
-                    queue.addLast(QueuedSpeech(text, itemId))
+            when {
+                comment -> {
+                    if (commentQueue.size >= commentCapacity) commentQueue.removeFirst()
+                    commentQueue.addLast(QueuedSpeech(text, itemId))
                     true
                 }
-            } else {
-                // Prefer fresh LIVE chat over stale backlog: keep the utterance
-                // currently being spoken, evict the oldest pending comment.
-                if (queue.size >= limit) queue.removeFirst()
-                queue.addLast(QueuedSpeech(text, itemId))
-                true
+                priority -> {
+                    if (priorityQueue.size >= importantCapacity) false else {
+                        priorityQueue.addLast(QueuedSpeech(text, itemId))
+                        true
+                    }
+                }
+                else -> {
+                    if (normalQueue.size >= normalCapacity) normalQueue.removeFirst()
+                    normalQueue.addLast(QueuedSpeech(text, itemId))
+                    true
+                }
             }
         }
         if (accepted) wake.trySend(Unit)
@@ -87,25 +106,28 @@ class SpeechQueueWorker(
 
     /** Removes one pending chat utterance by its originating LIVE comment ID. */
     fun skipComment(itemId: String): Boolean = synchronized(lock) {
-        val queued = normalQueue.firstOrNull { it.itemId == itemId } ?: return@synchronized false
-        normalQueue.remove(queued)
+        val queued = commentQueue.firstOrNull { it.itemId == itemId }
+            ?: normalQueue.firstOrNull { it.itemId == itemId }
+            ?: return@synchronized false
+        commentQueue.remove(queued) || normalQueue.remove(queued)
     }
 
-    /** Drops pending chat comments while preserving priority LIVE alerts. */
+    /** Drops pending chat comments while preserving all event alerts and auxiliary speech. */
     fun clearPendingComments(): Int = synchronized(lock) {
-        val removed = normalQueue.size
-        normalQueue.clear()
+        val removed = commentQueue.size
+        commentQueue.clear()
         removed
     }
 
     fun queuedCount(): Int = synchronized(lock) {
-        priorityQueue.size + normalQueue.size
+        commentQueue.size + priorityQueue.size + normalQueue.size
     }
 
     fun close() {
         synchronized(lock) {
-            normalQueue.clear()
+            commentQueue.clear()
             priorityQueue.clear()
+            normalQueue.clear()
         }
         wake.close()
     }

@@ -15,10 +15,10 @@ import java.io.IOException
 import java.util.LinkedHashSet
 import java.util.Locale
 import java.util.TimeZone
-import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.GZIPInputStream
 
 /**
@@ -52,7 +52,7 @@ class TikTokLiveConnector(
 
     @Volatile private var socket: WebSocket? = null
     @Volatile private var scheduler: ScheduledExecutorService? = null
-    @Volatile private var eventExecutor: ExecutorService? = null
+    @Volatile private var eventExecutor: BoundedSerialEventExecutor? = null
     @Volatile private var currentUsername: String? = null
     @Volatile private var currentRoomId: String? = null
     @Volatile private var currentTtwid: String? = null
@@ -68,9 +68,7 @@ class TikTokLiveConnector(
 
         stopConnection()
         stopped = false
-        eventExecutor = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "TikLBot-LIVE-Events").apply { isDaemon = true }
-        }
+        eventExecutor = BoundedSerialEventExecutor()
         currentUsername = username
         scheduler = Executors.newSingleThreadScheduledExecutor { runnable ->
             Thread(runnable, "TikLBot-Connection").apply { isDaemon = true }
@@ -232,6 +230,7 @@ class TikTokLiveConnector(
             .build()
 
         onStatus("Conectando con TikTok LIVE de @$username…")
+        val overloadWarningActive = AtomicBoolean(false)
         socket = http.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 if (stopped) {
@@ -254,28 +253,40 @@ class TikTokLiveConnector(
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                 if (stopped) return
-                // Decode frames sequentially away from OkHttp's transport callback.
-                // This keeps bursts of protobuf parsing and UI publication from blocking
-                // the WebSocket reader while preserving event order.
+                // Copy and enqueue without waiting: the OkHttp reader must remain free
+                // to receive control frames and keep the WebSocket transport responsive.
                 val frame = bytes.toByteArray()
-                // Acknowledge the transport envelope immediately; heavier gzip/protobuf
-                // decoding and application callbacks are handled by the serial worker.
-                runCatching {
-                    val logId = ProtoMessage(frame).long(2)
-                    if (logId != 0L) webSocket.send(ByteString.of(*encodeAck(logId)))
-                }
                 val worker = eventExecutor ?: return
-                runCatching {
-                    worker.execute {
+                val logId = runCatching { ProtoMessage(frame).long(2) }.getOrDefault(0L)
+                val droppedBefore = worker.droppedTaskCount()
+                val accepted = enqueueAndAcknowledge(
+                    worker,
+                    Runnable {
                         if (!stopped) {
                             runCatching { processWebcastFrame(webSocket, frame) }
                                 .onFailure {
                                     if (!stopped) onStatus("Se recibió un paquete LIVE no válido; se omitió sin cerrar la conexión.")
                                 }
                         }
+                        // Permit another overload notice after the backlog has recovered.
+                        if (worker.queuedCount() <= BoundedSerialEventExecutor.DEFAULT_QUEUE_CAPACITY / 2) {
+                            overloadWarningActive.set(false)
+                        }
                     }
-                }.onFailure {
-                    if (!stopped) onStatus("No se pudo procesar un paquete LIVE; la conexión sigue activa.")
+                ) {
+                    if (logId != 0L) {
+                        runCatching { webSocket.send(ByteString.of(*encodeAck(logId))) }
+                    }
+                }
+                if (!accepted) return
+                if (worker.droppedTaskCount() > droppedBefore &&
+                    overloadWarningActive.compareAndSet(false, true)
+                ) {
+                    onStatus("Conectado al LIVE. Hay demasiados eventos por procesar; se priorizan los más recientes y algunos eventos antiguos podrían omitirse para mantener la conexión activa.")
+                    // The worker may have drained the backlog before this callback reports it.
+                    if (worker.queuedCount() <= BoundedSerialEventExecutor.DEFAULT_QUEUE_CAPACITY / 2) {
+                        overloadWarningActive.set(false)
+                    }
                 }
             }
 
@@ -370,6 +381,7 @@ class TikTokLiveConnector(
                 "WebcastChatMessage" -> {
                     val user = payloadMessage.message(2)
                     val identity = payloadMessage.message(18)
+                    val replyToUser = payloadMessage.message(12)
                     val comment = payloadMessage.string(3).trim()
                     if (comment.isBlank()) return@forEach
                     onComment(
@@ -387,8 +399,10 @@ class TikTokLiveConnector(
                             // TikTok exposes the addressed user on the chat payload (atUser).
                             // When present, announce the response target instead of reading
                             // the raw @mention in the message text.
-                            replyToDisplayName = payloadMessage.message(12)?.let(::displayName)
+                            replyToDisplayName = replyToUser?.let(::displayName)
                                 ?.takeUnless { it == "Usuario" },
+                            replyToProfileUsername = replyToUser?.string(38)?.trim()
+                                ?.takeIf { it.isNotBlank() },
                             contentLanguage = payloadMessage.string(14).takeIf { it.isNotBlank() },
                             // Current Webcast User exposes is_follower at field 1029 and
                             // follow_status at 1024. Older schemas may nest follow_status
@@ -443,7 +457,7 @@ class TikTokLiveConnector(
                     val user = payloadMessage.message(7)
                     val repeatCount = payloadMessage.long(5).coerceAtLeast(1L)
                     val detail = if (repeatCount > 1L) "x$repeatCount" else ""
-                    onEvent(LiveEvent(LiveEventType.GIFT, displayName(user), detail))
+                    onEvent(LiveEvent(LiveEventType.GIFT, displayName(user), detail, userId = user?.long(1)?.takeIf { it != 0L }?.toString().orEmpty(), giftGroupId = payloadMessage.long(3).takeIf { it != 0L }?.toString().orEmpty()))
                 }
             }
         }
@@ -492,7 +506,7 @@ class TikTokLiveConnector(
         socket = null
         scheduler?.shutdownNow()
         scheduler = null
-        eventExecutor?.shutdownNow()
+        eventExecutor?.close()
         eventExecutor = null
         currentUsername = null
         currentRoomId = null

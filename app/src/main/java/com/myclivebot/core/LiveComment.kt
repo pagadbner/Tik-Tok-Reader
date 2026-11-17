@@ -13,5 +13,6 @@ data class LiveComment(
     val id: String = UUID.randomUUID().toString(),
     val replyToDisplayName: String? = null,
     val contentLanguage: String? = null,
-    val profileUsername: String = ""
+    val profileUsername: String = "",
+    val replyToProfileUsername: String? = null
 )

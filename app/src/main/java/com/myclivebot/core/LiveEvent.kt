@@ -8,5 +8,6 @@ data class LiveEvent(
     val detail: String = "",
     val receivedAt: Long = System.currentTimeMillis(),
     val userId: String = "",
-    val isFollower: Boolean? = null
+    val isFollower: Boolean? = null,
+    val giftGroupId: String = ""
 )

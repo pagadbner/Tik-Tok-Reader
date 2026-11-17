@@ -112,13 +112,20 @@ class CommentFilter {
         return true
     }
 
-    fun toSpeech(comment: LiveComment, settings: ReaderSettings): String {
-        val safeName = if (settings.useProfileUsername) {
-            sanitizeProfileUsername(comment.profileUsername.take(80))
-                .ifBlank { sanitizeUsername(comment.displayName.take(80)) }
+    fun usernameForSpeech(comment: LiveComment, settings: ReaderSettings): String =
+        usernameForSpeech(comment.displayName, comment.profileUsername, settings)
+
+    fun usernameForSpeech(displayName: String, profileUsername: String, settings: ReaderSettings): String {
+        val fallbackName = sanitizeUsername(displayName.take(80))
+        return if (settings.useProfileUsername) {
+            sanitizeProfileUsername(profileUsername.take(80)).ifBlank { fallbackName }
         } else {
-            sanitizeUsername(comment.displayName.take(80))
+            fallbackName
         }
+    }
+
+    fun toSpeech(comment: LiveComment, settings: ReaderSettings): String {
+        val safeName = usernameForSpeech(comment, settings)
         if (settings.onlyUsername) return safeName
 
         var safeText = comment.text.trim()

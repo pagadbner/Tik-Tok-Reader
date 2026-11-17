@@ -72,11 +72,15 @@ class WelcomeMessageTracker {
     private val welcomedUsers = HashSet<String>()
 
     @Synchronized
-    fun messageFor(comment: LiveComment, settings: ReaderSettings): String? {
+    fun messageFor(
+        comment: LiveComment,
+        settings: ReaderSettings,
+        selectedUsername: String = ChatCommandParser.spokenUsername(comment.displayName)
+    ): String? {
         if (!settings.welcomeEnabled) return null
         val key = comment.userId.ifBlank { comment.displayName }.trim().lowercase(Locale.ROOT)
         if (key.isBlank()) return null
-        val name = ChatCommandParser.spokenUsername(comment.displayName).ifBlank { "usuario" }
+        val name = selectedUsername.ifBlank { "usuario" }
         val message = settings.welcomeTemplate
             .replace("{user}", name, ignoreCase = true)
             .trim()
@@ -114,6 +118,52 @@ object GiftAlertRules {
             .takeIf { it.isNotBlank() }
     }
 
+    /** Renders one grouped announcement after the quiet window closes. */
+    fun renderBatch(
+        items: List<Pair<String, Long>>,
+        totalCount: Long,
+        additionalUsers: Int,
+        settings: ReaderSettings
+    ): String? {
+        if (!settings.readGifts || totalCount <= 0L) return null
+        val visibleItems = items.take(3)
+        val names = visibleItems.map { (rawName, count) ->
+            val name = ChatCommandParser.spokenUsername(rawName)
+            if (count > 1L) "$name (x$count)" else name
+        }.toMutableList()
+        val hiddenUsers = (items.size - visibleItems.size).coerceAtLeast(0) + additionalUsers
+        if (hiddenUsers == 1) names += "y otra persona"
+        else if (hiddenUsers > 1) names += "y otras $hiddenUsers personas"
+        val userSummary = names.joinToString(", ").ifBlank { "la comunidad" }
+        val defaultTemplate = if (totalCount == 1L) {
+            "Gracias {user} por tu regalo"
+        } else {
+            "Gracias {user} por los {count} regalos"
+        }
+        val template = settings.giftAlertTemplate.ifBlank { defaultTemplate }
+        return template
+            .replace("{user}", userSummary, ignoreCase = true)
+            .replace("{count}", totalCount.toString(), ignoreCase = true)
+            .trim()
+            .take(280)
+            .takeIf { it.isNotBlank() }
+    }
+
+}
+
+/** Produces one concise thank-you for the distinct followers in a quiet window. */
+object FollowAlertRules {
+    fun renderBatch(names: List<String>, totalCount: Int): String? {
+        if (totalCount <= 0) return null
+        val visibleNames = names.take(3).map { ChatCommandParser.spokenUsername(it) }
+        val hiddenCount = (totalCount - visibleNames.size).coerceAtLeast(0)
+        val summary = buildList {
+            addAll(visibleNames)
+            if (hiddenCount == 1) add("y otra persona")
+            else if (hiddenCount > 1) add("y otras $hiddenCount personas")
+        }.joinToString(", ").ifBlank { "nuevas personas" }
+        return "Gracias por seguirme, $summary"
+    }
 }
 
 /** Limits share announcements to two per user during one LIVE session. */
