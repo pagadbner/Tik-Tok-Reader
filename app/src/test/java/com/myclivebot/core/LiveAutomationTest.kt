@@ -10,6 +10,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import org.junit.Test
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class LiveAutomationTest {
     @Test fun parsesOnlyValidCommandLinesAndNormalizesNames() {
@@ -159,29 +162,118 @@ class LiveAutomationTest {
         )
     }
 
-    @Test fun followAndGiftAlertsUseSharedSpeechQueueWithSafeNames() {
-        val spoken = mutableListOf<String>()
+    @Test fun followAndGiftAlertsAreDebouncedAndUseSafeNames() {
+        val spoken = Collections.synchronizedList(mutableListOf<String>())
+        val spokenLatch = CountDownLatch(2)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val engine = object : SpeechEngine {
             override suspend fun initialize() = Unit
-            override suspend fun speak(text: String) { spoken += text }
+            override suspend fun speak(text: String) {
+                spoken += text
+                spokenLatch.countDown()
+            }
             override suspend fun stop() = Unit
         }
         val queue = SpeechQueueWorker(engine, scope, capacity = 4)
-        val pipeline = CommentPipeline(CommentFilter(), queue, ReaderSettings())
+        val pipeline = CommentPipeline(
+            CommentFilter(), queue, ReaderSettings(),
+            followBatchWindowMs = 30L,
+            giftBatchWindowMs = 30L
+        )
 
         try {
-            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "🔥Ana_99✨")))
-            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.GIFT, "♡", "")))
-            assertEquals(
-                listOf("Ana_99 te ha seguido", "usuario te envió un regalo"),
-                spoken
-            )
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "🔥Ana_99✨", userId = "follow-1")))
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.GIFT, "♡", userId = "gift-1")))
+            // Both alerts wait for their quiet window instead of speaking immediately.
+            assertTrue(spoken.isEmpty())
+            assertTrue(spokenLatch.await(2, TimeUnit.SECONDS))
+            assertTrue(spoken.contains("Gracias por seguirme, Ana_99"))
+            assertTrue(spoken.contains("Gracias usuario por tu regalo"))
         } finally {
+            pipeline.close()
             queue.close()
             scope.cancel()
         }
     }
+
+    @Test fun followEventsAreGroupedDeduplicatedAndLimitedToThreeNames() {
+        val spoken = Collections.synchronizedList(mutableListOf<String>())
+        val latch = CountDownLatch(1)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                spoken += text
+                latch.countDown()
+            }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(
+            CommentFilter(), queue, ReaderSettings(readFollows = true),
+            followBatchWindowMs = 40L
+        )
+        try {
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Ana", userId = "f1")))
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Luis", userId = "f2")))
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Mia", userId = "f3")))
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Noah", userId = "f4")))
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Ana repetida", userId = "f1")))
+            assertTrue(latch.await(2, TimeUnit.SECONDS))
+            assertEquals(
+                "Gracias por seguirme, Ana, Luis, Mia, y otras 1 personas",
+                spoken.single()
+            )
+        } finally {
+            pipeline.close()
+            queue.close()
+            scope.cancel()
+        }
+    }
+
+    @Test fun giftEventsFromSeveralUsersAreGroupedWithAggregatedRepeatCounts() {
+        val spoken = Collections.synchronizedList(mutableListOf<String>())
+        val latch = CountDownLatch(1)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                spoken += text
+                latch.countDown()
+            }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(
+            CommentFilter(), queue, ReaderSettings(readGifts = true),
+            giftBatchWindowMs = 40L
+        )
+        try {
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.GIFT, "Ana", "x2", userId = "g1")))
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.GIFT, "Ana", "x1", userId = "g1")))
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.GIFT, "Luis", "x1", userId = "g2")))
+            assertTrue(spoken.isEmpty())
+            assertTrue(latch.await(2, TimeUnit.SECONDS))
+            assertEquals("Gracias Ana (x3), Luis por los 4 regalos", spoken.single())
+        } finally {
+            pipeline.close()
+            queue.close()
+            scope.cancel()
+        }
+    }
+
+    @Test fun groupedGiftTemplateRetainsUserAndCountPlaceholders() {
+        assertEquals(
+            "Gracias Ana (x2), Luis por los 3 regalos",
+            GiftAlertRules.renderBatch(
+                listOf("Ana" to 2L, "Luis" to 1L),
+                totalCount = 3L,
+                additionalUsers = 0,
+                settings = ReaderSettings(giftAlertTemplate = "Gracias {user} por los {count} regalos")
+            )
+        )
+    }
+
 
     @Test fun giftAlertsRespectExistingMasterSwitchAndIgnoreNonGiftEvents() {
         val gift = LiveEvent(LiveEventType.GIFT, "Mia", "x10")
