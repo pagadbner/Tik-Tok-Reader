@@ -6,13 +6,15 @@ import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Serial LIVE frame processor with a bounded backlog.
+ * Serial LIVE frame processor with a bounded, freshness-oriented backlog.
  *
- * Submission never waits for queue capacity: when full, tryExecute returns false
- * so the WebSocket reader can close the overloaded session without blocking
- * OkHttp's frame reader, ping/pong handling, or heartbeat traffic.
+ * Submissions never wait for queue capacity. If the queue is full, the oldest
+ * waiting task is evicted and the newest frame is accepted. The task currently
+ * being processed is never interrupted. This keeps the WebSocket reader free
+ * while bounding memory and avoiding an overload-triggered disconnect.
  */
 internal class BoundedSerialEventExecutor(
     queueCapacity: Int = DEFAULT_QUEUE_CAPACITY,
@@ -22,10 +24,12 @@ internal class BoundedSerialEventExecutor(
         const val DEFAULT_QUEUE_CAPACITY = 256
     }
 
+    private val droppedTasks = AtomicLong()
     private val executor: ThreadPoolExecutor
 
     init {
         require(queueCapacity > 0) { "queueCapacity must be positive" }
+        val queue = DropOldestTaskQueue(queueCapacity) { droppedTasks.incrementAndGet() }
         val threadFactory = ThreadFactory { runnable ->
             Thread(runnable, threadName).apply { isDaemon = true }
         }
@@ -34,15 +38,16 @@ internal class BoundedSerialEventExecutor(
             1,
             0L,
             TimeUnit.MILLISECONDS,
-            ArrayBlockingQueue(queueCapacity),
+            queue,
             threadFactory,
             ThreadPoolExecutor.AbortPolicy()
         )
     }
 
     /**
-     * Returns false immediately if the bounded queue is full or the worker is closed.
-     * Accepted tasks remain serial and FIFO.
+     * Returns false only after shutdown. When full, the oldest waiting task is
+     * discarded so this new task can be accepted without blocking the caller.
+     * Tasks that remain queued execute serially in FIFO order.
      */
     fun tryExecute(task: Runnable): Boolean =
         try {
@@ -54,7 +59,35 @@ internal class BoundedSerialEventExecutor(
 
     fun queuedCount(): Int = executor.queue.size
 
+    fun droppedTaskCount(): Long = droppedTasks.get()
+
     override fun close() {
         executor.shutdownNow()
     }
+
+    private class DropOldestTaskQueue(
+        capacity: Int,
+        private val onDrop: () -> Unit
+    ) : ArrayBlockingQueue<Runnable>(capacity) {
+        override fun offer(element: Runnable): Boolean {
+            if (super.offer(element)) return true
+            // One WebSocket callback thread submits frames; the worker only removes.
+            if (super.poll() != null) onDrop()
+            return super.offer(element)
+        }
+    }
+}
+
+/**
+ * Enqueue first and acknowledge only after the bounded processor accepted the
+ * frame. The acknowledgement callback runs on the caller (OkHttp reader) thread.
+ */
+internal fun enqueueAndAcknowledge(
+    worker: BoundedSerialEventExecutor,
+    task: Runnable,
+    acknowledge: () -> Unit
+): Boolean {
+    val accepted = worker.tryExecute(task)
+    if (accepted) acknowledge()
+    return accepted
 }
