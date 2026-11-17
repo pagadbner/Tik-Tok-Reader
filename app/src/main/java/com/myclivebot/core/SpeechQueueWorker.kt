@@ -127,6 +127,35 @@ class SpeechQueueWorker(
         return accepted
     }
 
+    /**
+     * Atomically queues a welcome (when present) together with its originating
+     * comment so a welcome can never consume the final slot and strand the chat.
+     * Each pair is speech text to optional comment ID.
+     */
+    fun enqueueComments(items: List<Pair<String, String?>>): Boolean {
+        val validItems = items.filter { it.first.isNotBlank() }
+        if (validItems.isEmpty()) return false
+        var overflowNotice: Long? = null
+        val accepted = synchronized(lock) {
+            if (commentQueue.size + validItems.size > commentCapacity) {
+                rejectedComments++
+                if (!commentOverflowWarningActive) {
+                    commentOverflowWarningActive = true
+                    overflowNotice = rejectedComments
+                }
+                false
+            } else {
+                validItems.forEach { (text, itemId) ->
+                    commentQueue.addLast(QueuedSpeech(text, itemId))
+                }
+                true
+            }
+        }
+        if (accepted) wake.trySend(Unit)
+        overflowNotice?.let { count -> runCatching { onCommentQueueFull(count) } }
+        return accepted
+    }
+
     /** Removes one pending chat utterance by its originating LIVE comment ID. */
     fun skipComment(itemId: String): Boolean = synchronized(lock) {
         val queued = commentQueue.firstOrNull { it.itemId == itemId }
