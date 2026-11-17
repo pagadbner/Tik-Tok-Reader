@@ -15,7 +15,6 @@ import java.io.IOException
 import java.util.LinkedHashSet
 import java.util.Locale
 import java.util.TimeZone
-import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -52,7 +51,7 @@ class TikTokLiveConnector(
 
     @Volatile private var socket: WebSocket? = null
     @Volatile private var scheduler: ScheduledExecutorService? = null
-    @Volatile private var eventExecutor: ExecutorService? = null
+    @Volatile private var eventExecutor: BoundedSerialEventExecutor? = null
     @Volatile private var currentUsername: String? = null
     @Volatile private var currentRoomId: String? = null
     @Volatile private var currentTtwid: String? = null
@@ -68,9 +67,7 @@ class TikTokLiveConnector(
 
         stopConnection()
         stopped = false
-        eventExecutor = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "TikLBot-LIVE-Events").apply { isDaemon = true }
-        }
+        eventExecutor = BoundedSerialEventExecutor()
         currentUsername = username
         scheduler = Executors.newSingleThreadScheduledExecutor { runnable ->
             Thread(runnable, "TikLBot-Connection").apply { isDaemon = true }
@@ -370,6 +367,7 @@ class TikTokLiveConnector(
                 "WebcastChatMessage" -> {
                     val user = payloadMessage.message(2)
                     val identity = payloadMessage.message(18)
+                    val replyToUser = payloadMessage.message(12)
                     val comment = payloadMessage.string(3).trim()
                     if (comment.isBlank()) return@forEach
                     onComment(
@@ -387,8 +385,10 @@ class TikTokLiveConnector(
                             // TikTok exposes the addressed user on the chat payload (atUser).
                             // When present, announce the response target instead of reading
                             // the raw @mention in the message text.
-                            replyToDisplayName = payloadMessage.message(12)?.let(::displayName)
+                            replyToDisplayName = replyToUser?.let(::displayName)
                                 ?.takeUnless { it == "Usuario" },
+                            replyToProfileUsername = replyToUser?.string(38)?.trim()
+                                ?.takeIf { it.isNotBlank() },
                             contentLanguage = payloadMessage.string(14).takeIf { it.isNotBlank() },
                             // Current Webcast User exposes is_follower at field 1029 and
                             // follow_status at 1024. Older schemas may nest follow_status
@@ -492,7 +492,7 @@ class TikTokLiveConnector(
         socket = null
         scheduler?.shutdownNow()
         scheduler = null
-        eventExecutor?.shutdownNow()
+        eventExecutor?.close()
         eventExecutor = null
         currentUsername = null
         currentRoomId = null
