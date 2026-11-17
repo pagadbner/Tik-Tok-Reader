@@ -108,6 +108,18 @@ class CommentFilterTest {
             filter.toSpeech(comment, ReaderSettings(readUsername = true, useProfileUsername = true)))
     }
 
+    @Test fun usernameOnlyModeUsesAccountUsernameWhenEnabled() {
+        val comment = LiveComment(
+            userId = "123",
+            displayName = "Karina",
+            text = "Este comentario no debe leerse",
+            profileUsername = "karina_fu82"
+        )
+        val settings = ReaderSettings(onlyUsername = true, useProfileUsername = true)
+        assertTrue(CommentFilter().shouldRead(comment, settings))
+        assertEquals("karina_fu82", CommentFilter().toSpeech(comment, settings))
+    }
+
     @Test fun ignoredProfileHandleIsStillRespectedWithUnderscore() {
         val filter = CommentFilter()
         val comment = LiveComment(
