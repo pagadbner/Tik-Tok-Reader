@@ -24,12 +24,12 @@ internal class BoundedSerialEventExecutor(
         const val DEFAULT_QUEUE_CAPACITY = 256
     }
 
-    private val droppedTasks = AtomicLong()
+    private val rejectedTasks = AtomicLong()
     private val executor: ThreadPoolExecutor
 
     init {
         require(queueCapacity > 0) { "queueCapacity must be positive" }
-        val queue = DropOldestTaskQueue(queueCapacity) { droppedTasks.incrementAndGet() }
+        val queue = ArrayBlockingQueue<Runnable>(queueCapacity)
         val threadFactory = ThreadFactory { runnable ->
             Thread(runnable, threadName).apply { isDaemon = true }
         }
@@ -54,31 +54,20 @@ internal class BoundedSerialEventExecutor(
             executor.execute(task)
             true
         } catch (_: RejectedExecutionException) {
+            rejectedTasks.incrementAndGet()
             false
         }
 
     fun queuedCount(): Int = executor.queue.size
 
-    fun droppedTaskCount(): Long = droppedTasks.get()
+    /** Number of incoming frames rejected because the queue was full or closed. */
+    fun droppedTaskCount(): Long = rejectedTasks.get()
 
     override fun close() {
         executor.shutdownNow()
     }
 
-    private class DropOldestTaskQueue(
-        capacity: Int,
-        private val onDrop: () -> Unit
-    ) : ArrayBlockingQueue<Runnable>(capacity) {
-        override fun offer(element: Runnable): Boolean {
-            if (super.offer(element)) return true
-            // Recheck before evicting: the consumer may have freed a slot concurrently.
-            // One WebSocket callback thread submits frames; the worker only removes.
-            while (!super.offer(element)) {
-                if (super.poll() != null) onDrop()
-            }
-            return true
-        }
-    }
+
 }
 
 /**
