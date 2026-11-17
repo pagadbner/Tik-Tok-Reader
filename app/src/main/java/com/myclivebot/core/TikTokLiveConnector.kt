@@ -283,6 +283,10 @@ class TikTokLiveConnector(
                     overloadWarningActive.compareAndSet(false, true)
                 ) {
                     onStatus("Conectado al LIVE. Hay demasiados eventos por procesar; se priorizan los más recientes y algunos eventos antiguos podrían omitirse para mantener la conexión activa.")
+                    // The worker may have drained the backlog before this callback reports it.
+                    if (worker.queuedCount() <= BoundedSerialEventExecutor.DEFAULT_QUEUE_CAPACITY / 2) {
+                        overloadWarningActive.set(false)
+                    }
                 }
             }
 
