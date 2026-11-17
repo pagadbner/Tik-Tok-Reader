@@ -72,22 +72,42 @@ class WelcomeMessageTracker {
     private val welcomedUsers = HashSet<String>()
 
     @Synchronized
-    fun messageFor(
+    fun previewMessageFor(
         comment: LiveComment,
         settings: ReaderSettings,
         selectedUsername: String = ChatCommandParser.spokenUsername(comment.displayName)
     ): String? {
         if (!settings.welcomeEnabled) return null
-        val key = comment.userId.ifBlank { comment.displayName }.trim().lowercase(Locale.ROOT)
-        if (key.isBlank()) return null
+        val key = userKey(comment)
+        if (key.isBlank() || key in welcomedUsers) return null
         val name = selectedUsername.ifBlank { "usuario" }
-        val message = settings.welcomeTemplate
+        return settings.welcomeTemplate
             .replace("{user}", name, ignoreCase = true)
             .trim()
             .take(280)
-        if (message.isBlank() || !welcomedUsers.add(key)) return null
+            .takeIf { it.isNotBlank() }
+    }
+
+    /** Commits the welcome only after its speech and the first comment are both queued. */
+    @Synchronized
+    fun confirmQueued(comment: LiveComment) {
+        userKey(comment).takeIf { it.isNotBlank() }?.let { welcomedUsers.add(it) }
+    }
+
+    /** Backwards-compatible eager helper for existing callers and tests. */
+    @Synchronized
+    fun messageFor(
+        comment: LiveComment,
+        settings: ReaderSettings,
+        selectedUsername: String = ChatCommandParser.spokenUsername(comment.displayName)
+    ): String? {
+        val message = previewMessageFor(comment, settings, selectedUsername) ?: return null
+        confirmQueued(comment)
         return message
     }
+
+    private fun userKey(comment: LiveComment): String =
+        comment.userId.ifBlank { comment.displayName }.trim().lowercase(Locale.ROOT)
 }
 
 /**
