@@ -71,9 +71,12 @@ internal class BoundedSerialEventExecutor(
     ) : ArrayBlockingQueue<Runnable>(capacity) {
         override fun offer(element: Runnable): Boolean {
             if (super.offer(element)) return true
+            // Recheck before evicting: the consumer may have freed a slot concurrently.
             // One WebSocket callback thread submits frames; the worker only removes.
-            if (super.poll() != null) onDrop()
-            return super.offer(element)
+            while (!super.offer(element)) {
+                if (super.poll() != null) onDrop()
+            }
+            return true
         }
     }
 }
