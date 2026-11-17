@@ -377,7 +377,16 @@ class BotForegroundService : Service() {
         piper?.setMuted(voiceMuted)
         activeSpeed = settings.speed
         if (speechQueue == null) {
-            speechQueue = SpeechQueueWorker(piper!!, serviceScope, capacity = capacity)
+            speechQueue = SpeechQueueWorker(
+                piper!!,
+                serviceScope,
+                capacity = capacity,
+                onCommentQueueFull = { rejectedCount ->
+                    serviceScope.launch(Dispatchers.Main.immediate) {
+                        updateStatus("La cola de comentarios alcanzó su límite seguro. Se conservaron los mensajes ya encolados; no se aceptaron nuevos comentarios hasta liberar espacio (rechazados: $rejectedCount).")
+                    }
+                }
+            )
         }
     }
 
