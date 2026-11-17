@@ -184,7 +184,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                     }
                     Box {
                         OutlinedButton(onClick = { accessMenu = true }) {
-                            Text(if (state.followersOnly) "Seguidores" else "Todos")
+                            Text(when { state.moderatorsOnly -> "Moderadores"; state.followersOnly -> "Seguidores"; else -> "Todos" })
                         }
                         DropdownMenu(expanded = accessMenu, onDismissRequest = { accessMenu = false }) {
                             DropdownMenuItem(
@@ -194,6 +194,10 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                             DropdownMenuItem(
                                 text = { Text("Solo modo seguidores") },
                                 onClick = { DjMusicController.setFollowersOnly(true); accessMenu = false }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Solo Moderadores") },
+                                onClick = { DjMusicController.setModeratorsOnly(true); accessMenu = false }
                             )
                         }
                     }
