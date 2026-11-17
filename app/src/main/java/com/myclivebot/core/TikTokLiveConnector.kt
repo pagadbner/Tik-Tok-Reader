@@ -282,7 +282,7 @@ class TikTokLiveConnector(
                     worker,
                     Runnable {
                         if (isSessionActive(sessionId) && webSocketGeneration.get() == attemptId && socket === webSocket) {
-                            runCatching { processWebcastFrame(webSocket, frame, sessionId) }
+                            runCatching { processWebcastFrame(frame, sessionId) }
                                 .onFailure {
                                     if (isSessionActive(sessionId)) onStatus("Se recibió un paquete LIVE no válido; se omitió sin cerrar la conexión.")
                                 }
@@ -382,7 +382,7 @@ class TikTokLiveConnector(
             .build()
     }
 
-    private fun processWebcastFrame(webSocket: WebSocket, bytes: ByteArray, sessionId: Long) {
+    private fun processWebcastFrame(bytes: ByteArray, sessionId: Long) {
         val frame = ProtoMessage(bytes)
         if (frame.string(7) != "msg" || frame.string(6) != "pb") return
         val payload = frame.bytes(8)
