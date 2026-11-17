@@ -95,9 +95,12 @@ class LiveAutomationTest {
                     userId = "ana-id",
                     displayName = "Ana",
                     text = "@Karla gracias por el dato",
-                    replyToDisplayName = "Karla"
+                    replyToDisplayName = "Karla",
+                    profileUsername = "ana_handle",
+                    replyToProfileUsername = "karla_handle"
                 )
             )
+            // The option is off by default, so existing display-name speech is preserved.
             assertEquals(listOf("Ana le respondió a Karla: gracias por el dato"), spoken)
         } finally {
             queue.close()
@@ -444,11 +447,14 @@ class LiveAutomationTest {
         }
     }
 
-    @Test fun profileUsernameModeFallsBackToDisplayNameWhenHandleIsMissing() {
+    @Test fun profileUsernameSelectionAndDisplayNameFallbackAreConsistent() {
         val filter = CommentFilter()
-        val comment = LiveComment("fallback-1", "Karina", "hola", profileUsername = "")
-        assertEquals("Karina", filter.usernameForSpeech(comment, ReaderSettings(useProfileUsername = true)))
-        assertEquals("Karina", filter.usernameForSpeech(comment, ReaderSettings(useProfileUsername = false)))
+        val withHandle = LiveComment("fallback-1", "Karina", "hola", profileUsername = "karina_fu82")
+        assertEquals("karina_fu82", filter.usernameForSpeech(withHandle, ReaderSettings(useProfileUsername = true)))
+        assertEquals("Karina", filter.usernameForSpeech(withHandle, ReaderSettings(useProfileUsername = false)))
+
+        val withoutHandle = withHandle.copy(profileUsername = "")
+        assertEquals("Karina", filter.usernameForSpeech(withoutHandle, ReaderSettings(useProfileUsername = true)))
     }
 
 }
