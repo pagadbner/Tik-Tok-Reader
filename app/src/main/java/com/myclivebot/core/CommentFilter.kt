@@ -37,7 +37,8 @@ data class ReaderSettings(
     val welcomeEnabled: Boolean = false,
     val welcomeTemplate: String = "¡Bienvenido al LIVE, {user}!",
     val giftMinimumRepeatCount: Int = 1,
-    val giftAlertTemplate: String = ""
+    val giftAlertTemplate: String = "",
+    val useProfileUsername: Boolean = false
 )
 
 /**
@@ -109,8 +110,12 @@ class CommentFilter {
     }
 
     fun toSpeech(comment: LiveComment, settings: ReaderSettings): String {
-        val safeName = sanitizeProfileUsername(comment.profileUsername.take(80))
-            .ifBlank { sanitizeUsername(comment.displayName.take(80)) }
+        val safeName = if (settings.useProfileUsername) {
+            sanitizeProfileUsername(comment.profileUsername.take(80))
+                .ifBlank { sanitizeUsername(comment.displayName.take(80)) }
+        } else {
+            sanitizeUsername(comment.displayName.take(80))
+        }
         if (settings.onlyUsername) return safeName
 
         var safeText = comment.text.trim()
