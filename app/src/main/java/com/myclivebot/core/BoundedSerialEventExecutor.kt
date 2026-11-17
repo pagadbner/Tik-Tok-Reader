@@ -11,9 +11,10 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * Serial LIVE frame processor with a bounded FIFO backlog.
  *
- * Submissions never wait for queue capacity. If the queue is full, the incoming
- * frame is rejected and is not acknowledged; previously accepted frames remain
- * in FIFO order. The task currently being processed is never interrupted.
+ * Submissions are normally non-blocking. Under saturation, the caller waits
+ * briefly for a free slot rather than evicting an already accepted frame. If
+ * capacity still does not become available, the new frame is rejected and is
+ * not acknowledged. Accepted frames remain in FIFO order.
  */
 internal class BoundedSerialEventExecutor(
     queueCapacity: Int = DEFAULT_QUEUE_CAPACITY,
@@ -44,18 +45,35 @@ internal class BoundedSerialEventExecutor(
     }
 
     /**
-     * Returns false when the executor is shut down or its queue is full.
-     * Rejected frames are not acknowledged by enqueueAndAcknowledge; accepted
-     * tasks remain queued in FIFO order.
+     * Enqueues without waiting in the normal case. If full, briefly waits for
+     * a slot so accepted frames are not evicted and the WebSocket can be ACKed.
      */
-    fun tryExecute(task: Runnable): Boolean =
+    fun tryExecute(task: Runnable): Boolean {
         try {
             executor.execute(task)
-            true
+            return true
         } catch (_: RejectedExecutionException) {
+            if (executor.isShutdown) {
+                rejectedTasks.incrementAndGet()
+                return false
+            }
+        }
+
+        return try {
+            val accepted = executor.queue.offer(task, 500, TimeUnit.MILLISECONDS)
+            if (!accepted || executor.isShutdown) {
+                if (accepted) executor.remove(task)
+                rejectedTasks.incrementAndGet()
+                false
+            } else {
+                true
+            }
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
             rejectedTasks.incrementAndGet()
             false
         }
+    }
 
     fun queuedCount(): Int = executor.queue.size
 
