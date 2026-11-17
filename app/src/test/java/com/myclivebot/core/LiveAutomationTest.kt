@@ -636,4 +636,47 @@ class LiveAutomationTest {
         }
     }
 
+    @Test fun giftComboOverflowDoesNotCountUntrackedCumulativeUpdatesTwice() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) = Unit
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(
+            CommentFilter(), queue, ReaderSettings(readGifts = true),
+            giftBatchWindowMs = 60_000L
+        )
+        try {
+            repeat(512) { index ->
+                assertTrue(
+                    pipeline.onEvent(
+                        LiveEvent(
+                            LiveEventType.GIFT,
+                            "Ana",
+                            detail = "x2",
+                            userId = "gift-user",
+                            giftGroupId = "combo-$index"
+                        )
+                    )
+                )
+            }
+            val overflow = LiveEvent(
+                LiveEventType.GIFT,
+                "Ana",
+                detail = "x2",
+                userId = "gift-user",
+                giftGroupId = "combo-overflow"
+            )
+            assertFalse(pipeline.onEvent(overflow))
+            // A later cumulative update for an untracked combo must not be added either.
+            assertFalse(pipeline.onEvent(overflow.copy(detail = "x5")))
+        } finally {
+            pipeline.close()
+            queue.close()
+            scope.cancel()
+        }
+    }
+
 }
