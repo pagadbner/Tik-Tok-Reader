@@ -256,6 +256,11 @@ class TikTokLiveConnector(
                 // Copy and enqueue without waiting: the OkHttp reader must remain free
                 // to receive control frames and keep the WebSocket transport responsive.
                 val frame = bytes.toByteArray()
+                // Preserve the existing transport ACK behavior and payload.
+                runCatching {
+                    val logId = ProtoMessage(frame).long(2)
+                    if (logId != 0L) webSocket.send(ByteString.of(*encodeAck(logId)))
+                }
                 val worker = eventExecutor ?: return
                 val accepted = worker.tryExecute {
                     if (!stopped) {
@@ -275,11 +280,6 @@ class TikTokLiveConnector(
                     return
                 }
 
-                // ACK only after the frame has been accepted by the bounded worker.
-                runCatching {
-                    val logId = ProtoMessage(frame).long(2)
-                    if (logId != 0L) webSocket.send(ByteString.of(*encodeAck(logId)))
-                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
