@@ -2,8 +2,7 @@ package com.myclivebot.core
 
 import java.io.Closeable
 import java.util.LinkedHashMap
-import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -38,9 +37,12 @@ class CommentPipeline(
     private val eventsReceived = AtomicLong()
     private val eventsQueued = AtomicLong()
     private val alertLock = Any()
-    private val alertScheduler: ScheduledExecutorService =
-        Executors.newSingleThreadScheduledExecutor { runnable ->
+    private val alertScheduler =
+        ScheduledThreadPoolExecutor(1) { runnable ->
             Thread(runnable, "TikLBot-Alert-Batching").apply { isDaemon = true }
+        }.apply {
+            // Remove cancelled debounce tasks immediately during rapid event bursts.
+            removeOnCancelPolicy = true
         }
     private val pendingFollows = LinkedHashMap<String, String>()
     private val pendingGifts = LinkedHashMap<String, GiftBatchItem>()
