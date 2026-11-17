@@ -262,6 +262,42 @@ class LiveAutomationTest {
         }
     }
 
+    @Test fun cumulativeGiftComboUpdatesAreNotDoubleCounted() {
+        val spoken = Collections.synchronizedList(mutableListOf<String>())
+        val latch = CountDownLatch(1)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                spoken += text
+                latch.countDown()
+            }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(
+            CommentFilter(), queue, ReaderSettings(readGifts = true),
+            giftBatchWindowMs = 40L
+        )
+        try {
+            assertTrue(pipeline.onEvent(
+                LiveEvent(LiveEventType.GIFT, "Ana", "x1", userId = "g1", giftGroupId = "combo-1")
+            ))
+            assertTrue(pipeline.onEvent(
+                LiveEvent(LiveEventType.GIFT, "Ana", "x2", userId = "g1", giftGroupId = "combo-1")
+            ))
+            assertTrue(pipeline.onEvent(
+                LiveEvent(LiveEventType.GIFT, "Ana", "x3", userId = "g1", giftGroupId = "combo-1")
+            ))
+            assertTrue(latch.await(2, TimeUnit.SECONDS))
+            assertEquals("Gracias Ana (x3) por los 3 regalos", spoken.single())
+        } finally {
+            pipeline.close()
+            queue.close()
+            scope.cancel()
+        }
+    }
+
     @Test fun groupedGiftTemplateRetainsUserAndCountPlaceholders() {
         assertEquals(
             "Gracias Ana (x2), Luis por los 3 regalos",
