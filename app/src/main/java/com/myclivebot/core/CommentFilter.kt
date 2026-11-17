@@ -73,7 +73,9 @@ class CommentFilter {
         val userKey = comment.userId.ifBlank { comment.displayName }.trim().lowercase()
         val ignored = settings.ignoredUsers.map { it.trim().removePrefix("@").lowercase() }
             .filter { it.isNotEmpty() }.toSet()
-        if (userKey in ignored || comment.displayName.trim().removePrefix("@").lowercase() in ignored) return false
+        val displayKey = comment.displayName.trim().removePrefix("@").lowercase()
+        val profileKey = comment.profileUsername.trim().removePrefix("@").lowercase()
+        if (userKey in ignored || displayKey in ignored || profileKey in ignored) return false
         if (settings.ignoreModerators && comment.isModerator) return false
 
         val sourceToFilter = if (settings.onlyUsername) comment.displayName else comment.text
@@ -107,7 +109,8 @@ class CommentFilter {
     }
 
     fun toSpeech(comment: LiveComment, settings: ReaderSettings): String {
-        val safeName = sanitizeUsername(comment.displayName.take(80))
+        val safeName = sanitizeProfileUsername(comment.profileUsername.take(80))
+            .ifBlank { sanitizeUsername(comment.displayName.take(80)) }
         if (settings.onlyUsername) return safeName
 
         var safeText = comment.text.trim()
@@ -119,7 +122,19 @@ class CommentFilter {
         return spokenName + safeText
     }
 
-    /** Preserve decorated names; use "usuario" only when the name has no letters or digits. */
+    /** TikTok handles allow letters, digits, dots and underscores; discard other symbols. */
+    private fun sanitizeProfileUsername(input: String): String {
+        val safe = buildString(input.length) {
+            input.codePoints().forEach { codePoint ->
+                if (Character.isLetterOrDigit(codePoint) || codePoint == '_'.code || codePoint == '.'.code) {
+                    appendCodePoint(codePoint)
+                }
+            }
+        }.trim('.')
+        return if (safe.codePoints().anyMatch { Character.isLetterOrDigit(it) }) safe else ""
+    }
+
+    /** Preserve the display-name fallback; use "usuario" only when it has no words. */
     private fun sanitizeUsername(input: String): String =
         ChatCommandParser.spokenUsername(input)
 
