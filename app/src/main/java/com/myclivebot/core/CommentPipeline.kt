@@ -194,11 +194,10 @@ class CommentPipeline(
         val key = event.userId.trim().ifBlank { event.displayName.trim().lowercase() }
         if (key.isBlank()) return false
         synchronized(alertLock) {
-            if (closed) return false
-            if (!pendingFollows.containsKey(key)) {
-                if (pendingFollows.size < MAX_BATCH_USERS) pendingFollows[key] = name
-                else pendingFollowOverflow++
-            }
+            if (closed || pendingFollows.containsKey(key)) return false
+            if (pendingFollows.size < MAX_BATCH_USERS) pendingFollows[key] = name
+            else pendingFollowOverflow++
+            // Only a genuinely new follower extends the quiet window.
             scheduleFollowFlushLocked(followBatchWindowMs.coerceAtLeast(0L))
         }
         return true
@@ -214,9 +213,11 @@ class CommentPipeline(
             if (closed) return false
             val groupId = event.giftGroupId.trim()
             val existing = pendingGifts[key]
+            var added = false
             if (existing != null) {
                 if (groupId.isBlank()) {
                     existing.count = addGiftCounts(existing.count, count)
+                    added = true
                 } else {
                     val previousGroupCount = existing.groupCounts[groupId]
                     when {
@@ -225,10 +226,12 @@ class CommentPipeline(
                                 existing.groupCounts[groupId] = count
                             }
                             existing.count = addGiftCounts(existing.count, count)
+                            added = true
                         }
                         count > previousGroupCount -> {
                             existing.groupCounts[groupId] = count
                             existing.count = addGiftCounts(existing.count, count - previousGroupCount)
+                            added = true
                         }
                     }
                 }
@@ -236,12 +239,16 @@ class CommentPipeline(
                 val groupCounts: MutableMap<String, Long> = LinkedHashMap()
                 if (groupId.isNotBlank()) groupCounts[groupId] = count
                 pendingGifts[key] = GiftBatchItem(name, count, groupCounts)
+                added = true
             } else {
                 pendingGiftOverflowUsers++
                 pendingGiftOverflowCount = if (Long.MAX_VALUE - pendingGiftOverflowCount < count) {
                     Long.MAX_VALUE
                 } else pendingGiftOverflowCount + count
+                added = true
             }
+            if (!added) return false
+            // Duplicate cumulative updates for the same combo do not extend the quiet window.
             scheduleGiftFlushLocked(giftBatchWindowMs.coerceAtLeast(0L))
         }
         return true
