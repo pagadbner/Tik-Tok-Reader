@@ -17,6 +17,7 @@ import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -53,6 +54,7 @@ class TikTokLiveConnector(
 
     @Volatile private var socket: WebSocket? = null
     @Volatile private var scheduler: ScheduledExecutorService? = null
+    @Volatile private var heartbeatTask: ScheduledFuture<*>? = null
     @Volatile private var eventExecutor: BoundedSerialEventExecutor? = null
     @Volatile private var currentUsername: String? = null
     @Volatile private var currentRoomId: String? = null
@@ -218,6 +220,8 @@ class TikTokLiveConnector(
     @Synchronized
     private fun openWebSocket(hostIndex: Int, sessionId: Long) {
         if (!isSessionActive(sessionId)) return
+        heartbeatTask?.cancel(false)
+        heartbeatTask = null
         val username = currentUsername ?: return
         val roomId = currentRoomId ?: return
         val ttwid = currentTtwid ?: return
@@ -239,7 +243,7 @@ class TikTokLiveConnector(
         val overloadWarningActive = AtomicBoolean(false)
         socket = http.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                if (!isSessionActive(sessionId)) {
+                if (!isSessionActive(sessionId) || socket !== webSocket) {
                     webSocket.close(1000, "TikLBot stopped")
                     return
                 }
@@ -253,7 +257,7 @@ class TikTokLiveConnector(
                 scheduler?.schedule({
                     if (isSessionActive(sessionId) && socket === webSocket) reconnectAttempt = 0
                 }, 30, TimeUnit.SECONDS)
-                scheduler?.scheduleAtFixedRate({
+                heartbeatTask = scheduler?.scheduleAtFixedRate({
                     if (isSessionActive(sessionId) && socket === webSocket) runCatching {
                         webSocket.send(ByteString.of(*encodeHeartbeat(roomId)))
                     }
@@ -315,13 +319,17 @@ class TikTokLiveConnector(
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 if (isSessionActive(sessionId) && socket === webSocket) {
                     socket = null
+                    heartbeatTask?.cancel(false)
+                    heartbeatTask = null
                     scheduleReconnect(sessionId, "TikTok cerró la conexión (código $code).")
                 }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                if (!isSessionActive(sessionId)) return
-                if (socket === webSocket) socket = null
+                if (!isSessionActive(sessionId) || socket !== webSocket) return
+                socket = null
+                heartbeatTask?.cancel(false)
+                heartbeatTask = null
                 if (hostIndex + 1 < WS_HOSTS.size) {
                     onStatus("Probando el servidor alternativo de TikTok…")
                     openWebSocket(hostIndex + 1, sessionId)
@@ -553,6 +561,8 @@ class TikTokLiveConnector(
         stopped = true
         socket?.close(1000, "TikLBot disconnect")
         socket = null
+        heartbeatTask?.cancel(false)
+        heartbeatTask = null
         scheduler?.shutdownNow()
         scheduler = null
         eventExecutor?.close()
