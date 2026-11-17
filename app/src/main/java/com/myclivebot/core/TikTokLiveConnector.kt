@@ -62,6 +62,7 @@ class TikTokLiveConnector(
     @Volatile private var stopped = true
     private val seenIds = LinkedHashSet<String>()
     private val sessionGeneration = AtomicLong(0L)
+    private val webSocketGeneration = AtomicLong(0L)
     @Volatile private var reconnectAttempt = 0
 
     @Synchronized
@@ -222,6 +223,7 @@ class TikTokLiveConnector(
         if (!isSessionActive(sessionId)) return
         heartbeatTask?.cancel(false)
         heartbeatTask = null
+        val attemptId = webSocketGeneration.incrementAndGet()
         val username = currentUsername ?: return
         val roomId = currentRoomId ?: return
         val ttwid = currentTtwid ?: return
@@ -243,7 +245,7 @@ class TikTokLiveConnector(
         val overloadWarningActive = AtomicBoolean(false)
         socket = http.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                if (!isSessionActive(sessionId) || socket !== webSocket) {
+                if (!isSessionActive(sessionId) || webSocketGeneration.get() != attemptId) {
                     webSocket.close(1000, "TikLBot stopped")
                     return
                 }
@@ -265,7 +267,7 @@ class TikTokLiveConnector(
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                if (!isSessionActive(sessionId) || socket !== webSocket) return
+                if (!isSessionActive(sessionId) || webSocketGeneration.get() != attemptId || socket !== webSocket) return
                 // Copy and enqueue without waiting: the OkHttp reader must remain free
                 // to receive control frames and keep the WebSocket transport responsive.
                 val frame = bytes.toByteArray()
@@ -275,7 +277,7 @@ class TikTokLiveConnector(
                 val accepted = enqueueAndAcknowledge(
                     worker,
                     Runnable {
-                        if (isSessionActive(sessionId) && socket === webSocket) {
+                        if (isSessionActive(sessionId) && webSocketGeneration.get() == attemptId && socket === webSocket) {
                             runCatching { processWebcastFrame(webSocket, frame, sessionId) }
                                 .onFailure {
                                     if (isSessionActive(sessionId)) onStatus("Se recibió un paquete LIVE no válido; se omitió sin cerrar la conexión.")
@@ -326,7 +328,7 @@ class TikTokLiveConnector(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                if (!isSessionActive(sessionId) || socket !== webSocket) return
+                if (!isSessionActive(sessionId) || webSocketGeneration.get() != attemptId || socket !== webSocket) return
                 socket = null
                 heartbeatTask?.cancel(false)
                 heartbeatTask = null
@@ -558,6 +560,7 @@ class TikTokLiveConnector(
     @Synchronized
     private fun stopConnection() {
         sessionGeneration.incrementAndGet()
+        webSocketGeneration.incrementAndGet()
         stopped = true
         socket?.close(1000, "TikLBot disconnect")
         socket = null
