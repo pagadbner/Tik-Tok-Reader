@@ -82,7 +82,18 @@ class CommentFilterTest {
         )
         assertTrue(filter.shouldRead(comment, ReaderSettings(readUsername = true)))
         assertEquals("karina_fu82 dice: Hola, este es mi comentario",
-            filter.toSpeech(comment, ReaderSettings(readUsername = true)))
+            filter.toSpeech(comment, ReaderSettings(readUsername = true, useProfileUsername = true)))
+    }
+
+    @Test fun displayNameRemainsDefaultWhenAccountUsernameSettingIsOff() {
+        val comment = LiveComment(
+            userId = "123",
+            displayName = "Karina",
+            text = "Hola",
+            profileUsername = "karina_fu82"
+        )
+        assertEquals("Karina dice: Hola",
+            CommentFilter().toSpeech(comment, ReaderSettings(readUsername = true)))
     }
 
     @Test fun profileUsernameDropsSymbolsOtherThanTikTokHandleCharacters() {
@@ -94,7 +105,7 @@ class CommentFilterTest {
             profileUsername = "karina!_fu82✨"
         )
         assertEquals("karina_fu82 dice: Hola",
-            filter.toSpeech(comment, ReaderSettings(readUsername = true)))
+            filter.toSpeech(comment, ReaderSettings(readUsername = true, useProfileUsername = true)))
     }
 
     @Test fun ignoredProfileHandleIsStillRespectedWithUnderscore() {
