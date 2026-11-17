@@ -72,11 +72,15 @@ class WelcomeMessageTracker {
     private val welcomedUsers = HashSet<String>()
 
     @Synchronized
-    fun messageFor(comment: LiveComment, settings: ReaderSettings): String? {
+    fun messageFor(
+        comment: LiveComment,
+        settings: ReaderSettings,
+        selectedUsername: String = ChatCommandParser.spokenUsername(comment.displayName)
+    ): String? {
         if (!settings.welcomeEnabled) return null
         val key = comment.userId.ifBlank { comment.displayName }.trim().lowercase(Locale.ROOT)
         if (key.isBlank()) return null
-        val name = ChatCommandParser.spokenUsername(comment.displayName).ifBlank { "usuario" }
+        val name = selectedUsername.ifBlank { "usuario" }
         val message = settings.welcomeTemplate
             .replace("{user}", name, ignoreCase = true)
             .trim()
