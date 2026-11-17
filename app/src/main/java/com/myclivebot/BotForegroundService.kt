@@ -52,6 +52,8 @@ class BotForegroundService : Service() {
         const val EXTRA_COMMENT_AVATAR = "comment_avatar"
         const val EXTRA_COMMENT_ID = "comment_id"
         const val EXTRA_REPLY_TO = "reply_to_username"
+        const val EXTRA_COMMENT_IS_MODERATOR = "comment_is_moderator"
+        const val EXTRA_COMMENT_IS_FOLLOWER = "comment_is_follower"
         const val EXTRA_STATUS = "reader_status"
         const val EXTRA_USERNAME = "username"
         const val EXTRA_READ_USERNAME = "read_username"
@@ -422,6 +424,8 @@ class BotForegroundService : Service() {
                 .putExtra(EXTRA_COMMENT_TEXT, comment.text)
                 .putExtra(EXTRA_COMMENT_AVATAR, comment.avatarUrl.orEmpty())
                 .putExtra(EXTRA_REPLY_TO, comment.replyToDisplayName.orEmpty())
+                .putExtra(EXTRA_COMMENT_IS_MODERATOR, comment.isModerator)
+                .putExtra(EXTRA_COMMENT_IS_FOLLOWER, comment.isFollower == true)
                 .putExtra(EXTRA_COMMENT_TIME, timestamp)
         )
         localBridge?.publish(
