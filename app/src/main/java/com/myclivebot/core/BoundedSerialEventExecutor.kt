@@ -9,19 +9,18 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Serial LIVE frame processor with a bounded, freshness-oriented backlog.
+ * Serial LIVE frame processor with a bounded FIFO backlog.
  *
- * Submissions never wait for queue capacity. If the queue is full, the oldest
- * waiting task is evicted and the newest frame is accepted. The task currently
- * being processed is never interrupted. This keeps the WebSocket reader free
- * while bounding memory and avoiding an overload-triggered disconnect.
+ * Submissions never wait for queue capacity. If the queue is full, the incoming
+ * frame is rejected and is not acknowledged; previously accepted frames remain
+ * in FIFO order. The task currently being processed is never interrupted.
  */
 internal class BoundedSerialEventExecutor(
     queueCapacity: Int = DEFAULT_QUEUE_CAPACITY,
     threadName: String = "TikLBot-LIVE-Events"
 ) : Closeable {
     companion object {
-        const val DEFAULT_QUEUE_CAPACITY = 256
+        const val DEFAULT_QUEUE_CAPACITY = 1_024
     }
 
     private val rejectedTasks = AtomicLong()
@@ -45,9 +44,9 @@ internal class BoundedSerialEventExecutor(
     }
 
     /**
-     * Returns false only after shutdown. When full, the oldest waiting task is
-     * discarded so this new task can be accepted without blocking the caller.
-     * Tasks that remain queued execute serially in FIFO order.
+     * Returns false when the executor is shut down or its queue is full.
+     * Rejected frames are not acknowledged by enqueueAndAcknowledge; accepted
+     * tasks remain queued in FIFO order.
      */
     fun tryExecute(task: Runnable): Boolean =
         try {
@@ -66,7 +65,6 @@ internal class BoundedSerialEventExecutor(
     override fun close() {
         executor.shutdownNow()
     }
-
 
 }
 
