@@ -132,7 +132,8 @@ object GiftAlertRules {
             if (count > 1L) "$name (x$count)" else name
         }.toMutableList()
         val hiddenUsers = (items.size - visibleItems.size).coerceAtLeast(0) + additionalUsers
-        if (hiddenUsers > 0) names += "y otros $hiddenUsers usuarios"
+        if (hiddenUsers == 1) names += "y otra persona"
+        else if (hiddenUsers > 1) names += "y otras $hiddenUsers personas"
         val userSummary = names.joinToString(", ").ifBlank { "la comunidad" }
         val defaultTemplate = if (totalCount == 1L) {
             "Gracias {user} por tu regalo"
@@ -158,7 +159,8 @@ object FollowAlertRules {
         val hiddenCount = (totalCount - visibleNames.size).coerceAtLeast(0)
         val summary = buildList {
             addAll(visibleNames)
-            if (hiddenCount > 0) add("y otras $hiddenCount personas")
+            if (hiddenCount == 1) add("y otra persona")
+            else if (hiddenCount > 1) add("y otras $hiddenCount personas")
         }.joinToString(", ").ifBlank { "nuevas personas" }
         return "Gracias por seguirme, $summary"
     }
