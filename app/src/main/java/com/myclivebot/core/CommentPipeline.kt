@@ -206,7 +206,7 @@ class CommentPipeline(
     private fun queueGift(event: LiveEvent, current: ReaderSettings): Boolean {
         if (!GiftAlertRules.shouldAnnounce(event, current)) return false
         val name = ChatCommandParser.spokenUsername(event.displayName)
-        val key = event.userId.trim().ifBlank { name.lowercase() }
+        val key = event.userId.trim().ifBlank { event.displayName.trim().lowercase() }
         if (key.isBlank()) return false
         val count = GiftAlertRules.repeatCount(event).toLong()
         synchronized(alertLock) {
