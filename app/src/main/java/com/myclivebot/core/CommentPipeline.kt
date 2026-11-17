@@ -62,6 +62,7 @@ class CommentPipeline(
         const val DEFAULT_GIFT_BATCH_WINDOW_MS = 3_000L
         const val DEFAULT_ALERT_RETRY_DELAY_MS = 500L
         private const val MAX_BATCH_USERS = 1_000
+        private const val MAX_GIFT_GROUPS_PER_USER = 64
         private const val MAX_NAMES_IN_ALERT = 3
     }
 
@@ -220,7 +221,9 @@ class CommentPipeline(
                     val previousGroupCount = existing.groupCounts[groupId]
                     when {
                         previousGroupCount == null -> {
-                            existing.groupCounts[groupId] = count
+                            if (existing.groupCounts.size < MAX_GIFT_GROUPS_PER_USER) {
+                                existing.groupCounts[groupId] = count
+                            }
                             existing.count = addGiftCounts(existing.count, count)
                         }
                         count > previousGroupCount -> {
