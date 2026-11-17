@@ -12,8 +12,8 @@ android {
         applicationId = "com.myclivebot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 26
-        versionName = "0.13.9"
+        versionCode = 27
+        versionName = "0.13.10"
     }
 
     signingConfigs {
