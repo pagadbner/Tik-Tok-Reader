@@ -9,7 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BoundedSerialEventExecutorTest {
-    @Test fun rejectsImmediatelyWhenQueueIsFullWithoutReorderingAcceptedFrames() {
+    @Test fun keepsNewestFramesWhenQueueIsFullWithoutBlockingOrReorderingRemainingFrames() {
         val executor = BoundedSerialEventExecutor(queueCapacity = 1, threadName = "test-live-events")
         val firstStarted = CountDownLatch(1)
         val releaseFirst = CountDownLatch(1)
@@ -20,7 +20,8 @@ class BoundedSerialEventExecutorTest {
             assertTrue(executor.tryExecute(Runnable {
                 firstStarted.countDown()
                 try {
-                    if (releaseFirst.await(2, TimeUnit.SECONDS)) order += 1
+                    releaseFirst.await(2, TimeUnit.SECONDS)
+                    order += 1
                 } finally {
                     completed.countDown()
                 }
@@ -33,21 +34,65 @@ class BoundedSerialEventExecutorTest {
             }))
             assertEquals(1, executor.queuedCount())
 
-            // Saturation is reported immediately; the producer never waits for capacity.
+            // A saturated queue evicts its oldest waiting task and accepts the new frame.
             val startedAt = System.nanoTime()
-            assertFalse(executor.tryExecute(Runnable { order += 3 }))
+            assertTrue(executor.tryExecute(Runnable {
+                order += 3
+                completed.countDown()
+            }))
             val elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
-            assertTrue("Queue rejection must be non-blocking (elapsed=$elapsedMs ms)", elapsedMs < 100)
+            assertTrue("Queue submission must be non-blocking (elapsed=$elapsedMs ms)", elapsedMs < 100)
             assertEquals(1, executor.queuedCount())
+            assertEquals(1L, executor.droppedTaskCount())
 
             releaseFirst.countDown()
             assertTrue(completed.await(2, TimeUnit.SECONDS))
-            assertEquals(listOf(1, 2), order)
+            assertEquals(listOf(1, 3), order)
             assertTrue(executor.queuedCount() <= 1)
         } finally {
             releaseFirst.countDown()
             executor.close()
         }
+    }
+
+    @Test fun acknowledgesOnlyAfterFrameWasAcceptedByTheWorker() {
+        val executor = BoundedSerialEventExecutor(queueCapacity = 1, threadName = "test-live-ack")
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val ackCount = java.util.concurrent.atomic.AtomicInteger()
+
+        try {
+            assertTrue(executor.tryExecute(Runnable {
+                started.countDown()
+                release.await(2, TimeUnit.SECONDS)
+            }))
+            assertTrue(started.await(2, TimeUnit.SECONDS))
+
+            assertTrue(enqueueAndAcknowledge(executor, Runnable { }) {
+                ackCount.incrementAndGet()
+            })
+            assertEquals(1, ackCount.get())
+            // Queue overflow still accepts the latest frame, then acknowledges it.
+            assertTrue(enqueueAndAcknowledge(executor, Runnable { }) {
+                ackCount.incrementAndGet()
+            })
+            assertEquals(2, ackCount.get())
+            assertEquals(1L, executor.droppedTaskCount())
+        } finally {
+            release.countDown()
+            executor.close()
+        }
+    }
+
+    @Test fun doesNotAcknowledgeWhenWorkerHasAlreadyClosed() {
+        val executor = BoundedSerialEventExecutor(queueCapacity = 1, threadName = "test-live-closed")
+        val ackCount = java.util.concurrent.atomic.AtomicInteger()
+        executor.close()
+
+        assertFalse(enqueueAndAcknowledge(executor, Runnable { }) {
+            ackCount.incrementAndGet()
+        })
+        assertEquals(0, ackCount.get())
     }
 
     @Test fun rejectsInvalidQueueCapacity() {
