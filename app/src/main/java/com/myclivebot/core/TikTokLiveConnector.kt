@@ -19,6 +19,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.GZIPInputStream
 
 /**
@@ -58,6 +59,8 @@ class TikTokLiveConnector(
     @Volatile private var currentTtwid: String? = null
     @Volatile private var stopped = true
     private val seenIds = LinkedHashSet<String>()
+    private val sessionGeneration = AtomicLong(0L)
+    @Volatile private var reconnectAttempt = 0
 
     @Synchronized
     fun connect(rawUsername: String) {
@@ -67,7 +70,9 @@ class TikTokLiveConnector(
         }
 
         stopConnection()
+        val sessionId = sessionGeneration.get()
         stopped = false
+        reconnectAttempt = 0
         eventExecutor = BoundedSerialEventExecutor()
         currentUsername = username
         scheduler = Executors.newSingleThreadScheduledExecutor { runnable ->
@@ -78,7 +83,7 @@ class TikTokLiveConnector(
         scheduler?.execute {
             try {
                 val roomId = resolveLiveRoom(username)
-                if (stopped) return@execute
+                if (!isSessionActive(sessionId)) return@execute
                 currentRoomId = roomId
                 onStatus("LIVE encontrado. Preparando conexión segura…")
 
@@ -93,12 +98,13 @@ class TikTokLiveConnector(
                     validateTtwid(recovered)
                         ?: throw IOException("WebView terminó la carga, pero TikTok no entregó una cookie ttwid válida.", httpError)
                 }
-                if (stopped) return@execute
+                if (!isSessionActive(sessionId)) return@execute
                 currentTtwid = ttwid
-                openWebSocket(0)
+                openWebSocket(0, sessionId)
             } catch (error: Exception) {
-                if (!stopped) {
+                if (isSessionActive(sessionId)) {
                     onStatus("No se pudo preparar la conexión: ${error.message ?: "error de red"}")
+                    scheduleReconnect(sessionId, error.message ?: "error de preparación")
                 }
             }
         }
@@ -210,8 +216,8 @@ class TikTokLiveConnector(
     }
 
     @Synchronized
-    private fun openWebSocket(hostIndex: Int) {
-        if (stopped) return
+    private fun openWebSocket(hostIndex: Int, sessionId: Long) {
+        if (!isSessionActive(sessionId)) return
         val username = currentUsername ?: return
         val roomId = currentRoomId ?: return
         val ttwid = currentTtwid ?: return
@@ -233,7 +239,7 @@ class TikTokLiveConnector(
         val overloadWarningActive = AtomicBoolean(false)
         socket = http.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                if (stopped) {
+                if (!isSessionActive(sessionId)) {
                     webSocket.close(1000, "TikLBot stopped")
                     return
                 }
@@ -243,16 +249,17 @@ class TikTokLiveConnector(
                     onStatus("No se pudo entrar a la sala LIVE.")
                     return
                 }
+                reconnectAttempt = 0
                 onStatus("Conectado al LIVE de @$username. Esperando comentarios…")
                 scheduler?.scheduleAtFixedRate({
-                    if (!stopped) runCatching {
+                    if (isSessionActive(sessionId) && socket === webSocket) runCatching {
                         webSocket.send(ByteString.of(*encodeHeartbeat(roomId)))
                     }
                 }, HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS)
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                if (stopped) return
+                if (!isSessionActive(sessionId) || socket !== webSocket) return
                 // Copy and enqueue without waiting: the OkHttp reader must remain free
                 // to receive control frames and keep the WebSocket transport responsive.
                 val frame = bytes.toByteArray()
@@ -262,10 +269,10 @@ class TikTokLiveConnector(
                 val accepted = enqueueAndAcknowledge(
                     worker,
                     Runnable {
-                        if (!stopped) {
-                            runCatching { processWebcastFrame(webSocket, frame) }
+                        if (isSessionActive(sessionId) && socket === webSocket) {
+                            runCatching { processWebcastFrame(webSocket, frame, sessionId) }
                                 .onFailure {
-                                    if (!stopped) onStatus("Se recibió un paquete LIVE no válido; se omitió sin cerrar la conexión.")
+                                    if (isSessionActive(sessionId)) onStatus("Se recibió un paquete LIVE no válido; se omitió sin cerrar la conexión.")
                                 }
                         }
                         // Permit another overload notice after the backlog has recovered.
@@ -278,11 +285,16 @@ class TikTokLiveConnector(
                         runCatching { webSocket.send(ByteString.of(*encodeAck(logId))) }
                     }
                 }
-                if (!accepted) return
+                if (!accepted) {
+                    if (worker.droppedTaskCount() > droppedBefore && overloadWarningActive.compareAndSet(false, true)) {
+                        onStatus("Conectado al LIVE, pero la cola de recepción está saturada. Se conservaron los paquetes anteriores y este paquete no fue aceptado; reduciendo carga para proteger los comentarios pendientes.")
+                    }
+                    return
+                }
                 if (worker.droppedTaskCount() > droppedBefore &&
                     overloadWarningActive.compareAndSet(false, true)
                 ) {
-                    onStatus("Conectado al LIVE. Hay demasiados eventos por procesar; se priorizan los más recientes y algunos eventos antiguos podrían omitirse para mantener la conexión activa.")
+                    onStatus("Conectado al LIVE. La cola de recepción está saturada; se conservan los paquetes ya aceptados para evitar perder comentarios pendientes.")
                     // The worker may have drained the backlog before this callback reports it.
                     if (worker.queuedCount() <= BoundedSerialEventExecutor.DEFAULT_QUEUE_CAPACITY / 2) {
                         overloadWarningActive.set(false)
@@ -299,21 +311,21 @@ class TikTokLiveConnector(
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                if (!stopped && socket === webSocket) {
+                if (isSessionActive(sessionId) && socket === webSocket) {
                     socket = null
-                    onStatus("TikTok cerró la conexión (código $code). Pulsa Conectar para volver a intentarlo.")
+                    scheduleReconnect(sessionId, "TikTok cerró la conexión (código $code).")
                 }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                if (stopped) return
+                if (!isSessionActive(sessionId)) return
                 if (socket === webSocket) socket = null
                 if (hostIndex + 1 < WS_HOSTS.size) {
                     onStatus("Probando el servidor alternativo de TikTok…")
-                    openWebSocket(hostIndex + 1)
+                    openWebSocket(hostIndex + 1, sessionId)
                 } else {
                     val detail = response?.code?.let { "HTTP $it" } ?: (t.message ?: "error de red")
-                    onStatus("No se pudo conectar con TikTok LIVE: $detail")
+                    scheduleReconnect(sessionId, "No se pudo conectar con TikTok LIVE: $detail")
                 }
             }
         })
@@ -354,7 +366,7 @@ class TikTokLiveConnector(
             .build()
     }
 
-    private fun processWebcastFrame(webSocket: WebSocket, bytes: ByteArray) {
+    private fun processWebcastFrame(webSocket: WebSocket, bytes: ByteArray, sessionId: Long) {
         val frame = ProtoMessage(bytes)
         if (frame.string(7) != "msg" || frame.string(6) != "pb") return
         val payload = frame.bytes(8)
@@ -377,6 +389,7 @@ class TikTokLiveConnector(
             val messageId = raw.long(3).toString()
             if (messageId != "0" && !rememberMessage(messageId)) return@forEach
 
+            if (!isSessionActive(sessionId)) return@forEach
             when (type) {
                 "WebcastChatMessage" -> {
                     val user = payloadMessage.message(2)
@@ -499,8 +512,41 @@ class TikTokLiveConnector(
         onStatus("Desconectado")
     }
 
+    private fun isSessionActive(sessionId: Long): Boolean =
+        !stopped && sessionGeneration.get() == sessionId
+
+    private fun scheduleReconnect(sessionId: Long, reason: String) {
+        if (!isSessionActive(sessionId)) return
+        val executor = scheduler ?: return
+        val attempt = reconnectAttempt.coerceAtMost(4)
+        reconnectAttempt = (reconnectAttempt + 1).coerceAtMost(5)
+        val delaySeconds = (2L shl attempt).coerceAtMost(30L)
+        onStatus("$reason Se reintentará la conexión LIVE en $delaySeconds segundos…")
+        runCatching {
+            executor.schedule({
+                if (!isSessionActive(sessionId)) return@schedule
+                try {
+                    val username = currentUsername ?: return@schedule
+                    val roomId = resolveLiveRoom(username)
+                    if (!isSessionActive(sessionId)) return@schedule
+                    currentRoomId = roomId
+                    if (currentTtwid.isNullOrBlank()) currentTtwid = fetchAnonymousDeviceCookie()
+                    if (!isSessionActive(sessionId)) return@schedule
+                    openWebSocket(0, sessionId)
+                } catch (error: Exception) {
+                    if (isSessionActive(sessionId)) {
+                        scheduleReconnect(sessionId, error.message ?: "No se pudo recuperar la conexión")
+                    }
+                }
+            }, delaySeconds, TimeUnit.SECONDS)
+        }.onFailure {
+            if (isSessionActive(sessionId)) onStatus("No se pudo programar la reconexión LIVE: ${it.message ?: "error"}")
+        }
+    }
+
     @Synchronized
     private fun stopConnection() {
+        sessionGeneration.incrementAndGet()
         stopped = true
         socket?.close(1000, "TikLBot disconnect")
         socket = null
