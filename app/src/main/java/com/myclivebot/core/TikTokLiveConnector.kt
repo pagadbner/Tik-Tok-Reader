@@ -282,7 +282,7 @@ class TikTokLiveConnector(
                 if (worker.droppedTaskCount() > droppedBefore &&
                     overloadWarningActive.compareAndSet(false, true)
                 ) {
-                    onStatus("Hay demasiados eventos LIVE por procesar. Se priorizan los más recientes para mantener la conexión activa; algunos eventos antiguos podrían omitirse.")
+                    onStatus("Conectado al LIVE. Hay demasiados eventos por procesar; se priorizan los más recientes y algunos eventos antiguos podrían omitirse para mantener la conexión activa.")
                 }
             }
 
