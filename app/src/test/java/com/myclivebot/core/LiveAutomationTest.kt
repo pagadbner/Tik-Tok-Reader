@@ -354,4 +354,101 @@ class LiveAutomationTest {
             }
         }
     }
+    @Test fun welcomeUsesProfileUsernameWhenTheSettingIsEnabled() {
+        val spoken = mutableListOf<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) { spoken += text }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val settings = ReaderSettings(
+            readUsername = false,
+            welcomeEnabled = true,
+            welcomeTemplate = "¡Bienvenido {user}!",
+            useProfileUsername = true
+        )
+        val pipeline = CommentPipeline(CommentFilter(), queue, settings)
+        try {
+            assertTrue(pipeline.onComment(
+                LiveComment("welcome-1", "Karina", "hola", profileUsername = "karina_fu82")
+            ))
+            assertEquals(listOf("¡Bienvenido karina_fu82!", "hola"), spoken)
+        } finally {
+            queue.close()
+            scope.cancel()
+        }
+    }
+
+    @Test fun customCommandUserPlaceholderUsesSelectedProfileUsername() {
+        val spoken = mutableListOf<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) { spoken += text }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(
+            CommentFilter(), queue,
+            ReaderSettings(
+                readUsername = false,
+                customCommandsEnabled = true,
+                customCommands = mapOf("!hola" to "Hola {user}"),
+                useProfileUsername = true
+            )
+        )
+        try {
+            assertTrue(pipeline.onComment(
+                LiveComment("command-1", "Karina", "!hola", isModerator = true, profileUsername = "karina_fu82")
+            ))
+            assertEquals(listOf("Hola karina_fu82"), spoken)
+        } finally {
+            queue.close()
+            scope.cancel()
+        }
+    }
+
+    @Test fun replyUsesSelectedProfileUsernamesForBothParticipants() {
+        val spoken = mutableListOf<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) { spoken += text }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(
+            CommentFilter(), queue,
+            ReaderSettings(readUsername = true, useProfileUsername = true)
+        )
+        try {
+            assertTrue(pipeline.onComment(
+                LiveComment(
+                    userId = "reply-author",
+                    displayName = "Karina",
+                    text = "@luis_01 gracias por el dato",
+                    profileUsername = "karina_fu82",
+                    replyToDisplayName = "Luis",
+                    replyToProfileUsername = "luis_01"
+                )
+            ))
+            assertEquals(
+                listOf("karina_fu82 le respondió a luis_01: gracias por el dato"),
+                spoken
+            )
+        } finally {
+            queue.close()
+            scope.cancel()
+        }
+    }
+
+    @Test fun profileUsernameModeFallsBackToDisplayNameWhenHandleIsMissing() {
+        val filter = CommentFilter()
+        val comment = LiveComment("fallback-1", "Karina", "hola", profileUsername = "")
+        assertEquals("Karina", filter.usernameForSpeech(comment, ReaderSettings(useProfileUsername = true)))
+        assertEquals("Karina", filter.usernameForSpeech(comment, ReaderSettings(useProfileUsername = false)))
+    }
+
 }
