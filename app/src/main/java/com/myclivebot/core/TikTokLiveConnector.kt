@@ -15,7 +15,6 @@ import java.io.IOException
 import java.util.LinkedHashSet
 import java.util.Locale
 import java.util.TimeZone
-import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -52,7 +51,7 @@ class TikTokLiveConnector(
 
     @Volatile private var socket: WebSocket? = null
     @Volatile private var scheduler: ScheduledExecutorService? = null
-    @Volatile private var eventExecutor: ExecutorService? = null
+    @Volatile private var eventExecutor: BoundedSerialEventExecutor? = null
     @Volatile private var currentUsername: String? = null
     @Volatile private var currentRoomId: String? = null
     @Volatile private var currentTtwid: String? = null
@@ -68,9 +67,7 @@ class TikTokLiveConnector(
 
         stopConnection()
         stopped = false
-        eventExecutor = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "TikLBot-LIVE-Events").apply { isDaemon = true }
-        }
+        eventExecutor = BoundedSerialEventExecutor()
         currentUsername = username
         scheduler = Executors.newSingleThreadScheduledExecutor { runnable ->
             Thread(runnable, "TikLBot-Connection").apply { isDaemon = true }
@@ -492,7 +489,7 @@ class TikTokLiveConnector(
         socket = null
         scheduler?.shutdownNow()
         scheduler = null
-        eventExecutor?.shutdownNow()
+        eventExecutor?.close()
         eventExecutor = null
         currentUsername = null
         currentRoomId = null

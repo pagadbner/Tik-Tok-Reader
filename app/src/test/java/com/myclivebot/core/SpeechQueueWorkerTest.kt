@@ -98,4 +98,56 @@ class SpeechQueueWorkerTest {
             scope.cancel()
         }
     }
+    @Test fun priorityQueueRejectsOverflowWithoutDuplicatingAcceptedAlerts() {
+        val gate = CompletableDeferred<Unit>()
+        val spoken = mutableListOf<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                spoken += text
+                if (text == "playing") gate.await()
+            }
+            override suspend fun stop() = Unit
+        }
+        val worker = SpeechQueueWorker(engine, scope, capacity = 2, priorityCapacity = 2)
+
+        try {
+            assertTrue(worker.enqueue("playing", priority = true))
+            assertTrue(worker.enqueue("alert 1", priority = true))
+            assertTrue(worker.enqueue("alert 2", priority = true))
+            assertEquals(false, worker.enqueue("alert 3", priority = true))
+            assertEquals(2, worker.queuedCount())
+
+            gate.complete(Unit)
+            assertEquals(listOf("playing", "alert 1", "alert 2"), spoken)
+        } finally {
+            worker.close()
+            scope.cancel()
+        }
+    }
+
+    @Test fun failedSpeechDoesNotPreventFollowingLiveEvents() {
+        val spoken = mutableListOf<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                spoken += text
+                if (text == "broken alert") throw IllegalStateException("synthetic TTS failure")
+            }
+            override suspend fun stop() = Unit
+        }
+        val worker = SpeechQueueWorker(engine, scope, priorityCapacity = 4)
+
+        try {
+            assertTrue(worker.enqueue("broken alert", priority = true))
+            assertTrue(worker.enqueue("next alert", priority = true))
+            assertEquals(listOf("broken alert", "next alert"), spoken)
+        } finally {
+            worker.close()
+            scope.cancel()
+        }
+    }
+
 }
