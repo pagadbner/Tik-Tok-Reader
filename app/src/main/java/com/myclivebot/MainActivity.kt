@@ -1567,7 +1567,8 @@ private fun LiveChatPanel(
                                             Surface(color = Color(0xFF7657D8).copy(alpha = .22f), shape = RoundedCornerShape(6.dp)) {
                                                 Text("Moderador", modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = Color(0xFFC6B5FF), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
                                             }
-                                        } else if (comment.isFollower) {
+                                        }
+                                        if (comment.isFollower) {
                                             Surface(color = Color(0xFF168C91).copy(alpha = .22f), shape = RoundedCornerShape(6.dp)) {
                                                 Text("Follower", modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = Color(0xFF77E3E0), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
                                             }
