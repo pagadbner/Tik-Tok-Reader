@@ -41,7 +41,7 @@ class BoundedSerialEventExecutorTest {
                 completed.countDown()
             }))
             val elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
-            assertTrue("Queue submission must be non-blocking (elapsed=$elapsedMs ms)", elapsedMs < 100)
+            assertTrue("Backpressure must remain bounded (elapsed=$elapsedMs ms)", elapsedMs < 1_500)
             assertEquals(1, executor.queuedCount())
             assertEquals(1L, executor.droppedTaskCount())
 
@@ -103,4 +103,42 @@ class BoundedSerialEventExecutorTest {
             // Expected.
         }
     }
+    @Test fun waitsBrieflyForCapacityInsteadOfEvictingAnAcceptedFrame() {
+        val executor = BoundedSerialEventExecutor(queueCapacity = 1, threadName = "test-live-backpressure")
+        val firstStarted = CountDownLatch(1)
+        val releaseFirst = CountDownLatch(1)
+        val completed = CountDownLatch(3)
+        val order = Collections.synchronizedList(mutableListOf<Int>())
+
+        try {
+            assertTrue(executor.tryExecute(Runnable {
+                firstStarted.countDown()
+                releaseFirst.await(2, TimeUnit.SECONDS)
+                order += 1
+                completed.countDown()
+            }))
+            assertTrue(firstStarted.await(2, TimeUnit.SECONDS))
+            assertTrue(executor.tryExecute(Runnable {
+                order += 2
+                completed.countDown()
+            }))
+
+            Thread {
+                Thread.sleep(75)
+                releaseFirst.countDown()
+            }.apply { isDaemon = true }.start()
+
+            assertTrue(executor.tryExecute(Runnable {
+                order += 3
+                completed.countDown()
+            }))
+            assertTrue(completed.await(2, TimeUnit.SECONDS))
+            assertEquals(listOf(1, 2, 3), order)
+            assertEquals(0L, executor.droppedTaskCount())
+        } finally {
+            releaseFirst.countDown()
+            executor.close()
+        }
+    }
+
 }
