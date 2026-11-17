@@ -16,7 +16,8 @@ class SpeechQueueWorker(
     scope: CoroutineScope,
     capacity: Int = 30,
     private val priorityCapacity: Int = 16,
-    private val onSpoken: (String) -> Unit = {}
+    private val onSpoken: (String) -> Unit = {},
+    private val onCommentQueueFull: (Long) -> Unit = {}
 ) {
     private val lock = Any()
     private data class QueuedSpeech(val text: String, val itemId: String?)
@@ -33,6 +34,7 @@ class SpeechQueueWorker(
     private var consecutivePriority = 0
     private var consecutiveComments = 0
     private var rejectedComments = 0L
+    private var commentOverflowWarningActive = false
     private val wake = Channel<Unit>(Channel.CONFLATED)
 
     init {
@@ -44,7 +46,9 @@ class SpeechQueueWorker(
                             (priorityQueue.isEmpty() || consecutiveComments < commentBurstLimit) -> {
                             consecutivePriority = 0
                             consecutiveComments++
-                            commentQueue.removeFirst()
+                            commentQueue.removeFirst().also {
+                                if (commentQueue.size <= commentCapacity / 2) commentOverflowWarningActive = false
+                            }
                         }
                         normalQueue.isNotEmpty() &&
                             (priorityQueue.isEmpty() || consecutivePriority >= priorityBurstLimit) -> {
@@ -89,11 +93,16 @@ class SpeechQueueWorker(
         comment: Boolean = false
     ): Boolean {
         if (text.isBlank()) return false
+        var overflowNotice: Long? = null
         val accepted = synchronized(lock) {
             when {
                 comment -> {
                     if (commentQueue.size >= commentCapacity) {
                         rejectedComments++
+                        if (!commentOverflowWarningActive) {
+                            commentOverflowWarningActive = true
+                            overflowNotice = rejectedComments
+                        }
                         false
                     } else {
                         commentQueue.addLast(QueuedSpeech(text, itemId))
@@ -114,6 +123,7 @@ class SpeechQueueWorker(
             }
         }
         if (accepted) wake.trySend(Unit)
+        overflowNotice?.let { count -> runCatching { onCommentQueueFull(count) } }
         return accepted
     }
 
