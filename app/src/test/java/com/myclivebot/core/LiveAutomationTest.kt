@@ -221,7 +221,7 @@ class LiveAutomationTest {
             assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Ana repetida", userId = "f1")))
             assertTrue(latch.await(2, TimeUnit.SECONDS))
             assertEquals(
-                "Gracias por seguirme, Ana, Luis, Mia, y otras 1 personas",
+                "Gracias por seguirme, Ana, Luis, Mia, y otra persona",
                 spoken.single()
             )
         } finally {
