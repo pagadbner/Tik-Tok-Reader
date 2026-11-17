@@ -219,7 +219,7 @@ class LiveAutomationTest {
             assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Luis", userId = "f2")))
             assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Mia", userId = "f3")))
             assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Noah", userId = "f4")))
-            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Ana repetida", userId = "f1")))
+            assertFalse(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Ana repetida", userId = "f1")))
             assertTrue(latch.await(3, TimeUnit.SECONDS))
             assertEquals(
                 "Gracias por seguirme, Ana, Luis, Mia, y otra persona",
