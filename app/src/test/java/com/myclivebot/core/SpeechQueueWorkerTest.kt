@@ -96,7 +96,42 @@ class SpeechQueueWorkerTest {
         }
     }
 
-    @Test fun dropsOldestPendingChatToKeepQueueFresh() {
+    @Test fun rejectsOverflowWithoutEvictingAcceptedChatComments() {
+        val gate = CompletableDeferred<Unit>()
+        val spoken = mutableListOf<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                spoken += text
+                if (text == "currently speaking") gate.await()
+            }
+            override suspend fun stop() = Unit
+        }
+        val worker = SpeechQueueWorker(engine, scope, capacity = 1)
+
+        try {
+            assertTrue(worker.enqueue("currently speaking"))
+            repeat(20) { index ->
+                assertTrue(worker.enqueue("comment-${index + 1}", comment = true, itemId = "c-${index + 1}"))
+            }
+            assertEquals(20, worker.queuedCount())
+            assertTrue(!worker.enqueue("overflow", comment = true, itemId = "overflow"))
+            assertEquals(1L, worker.rejectedCommentCount())
+            assertEquals(20, worker.queuedCount())
+
+            gate.complete(Unit)
+            assertEquals(
+                listOf("currently speaking") + (1..20).map { "comment-$it" },
+                spoken
+            )
+        } finally {
+            worker.close()
+            scope.cancel()
+        }
+    }
+
+    @Test fun eventAlertsGetAChanceAfterTenConsecutiveComments() {
         val gate = CompletableDeferred<Unit>()
         val spoken = mutableListOf<String>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
@@ -112,14 +147,13 @@ class SpeechQueueWorkerTest {
 
         try {
             assertTrue(worker.enqueue("currently speaking"))
-            assertTrue(worker.enqueue("older pending"))
-            assertTrue(worker.enqueue("newer pending"))
-            assertTrue(worker.enqueue("latest comment"))
-            assertEquals(2, worker.queuedCount())
-
+            repeat(11) { assertTrue(worker.enqueue("chat-${it + 1}", comment = true)) }
+            assertTrue(worker.enqueue("follow alert", priority = true))
             gate.complete(Unit)
             assertEquals(
-                listOf("currently speaking", "newer pending", "latest comment"),
+                listOf("currently speaking") +
+                    (1..10).map { "chat-$it" } +
+                    listOf("follow alert", "chat-11"),
                 spoken
             )
         } finally {
