@@ -1,5 +1,11 @@
 package com.myclivebot.core
 
+import java.io.Closeable
+import java.util.LinkedHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -16,8 +22,11 @@ data class LivePipelineStats(
 class CommentPipeline(
     private val filter: CommentFilter,
     private val speechQueue: SpeechQueueWorker,
-    initialSettings: ReaderSettings
-) {
+    initialSettings: ReaderSettings,
+    private val followBatchWindowMs: Long = DEFAULT_FOLLOW_BATCH_WINDOW_MS,
+    private val giftBatchWindowMs: Long = DEFAULT_GIFT_BATCH_WINDOW_MS,
+    private val alertRetryDelayMs: Long = DEFAULT_ALERT_RETRY_DELAY_MS
+) : Closeable {
     private val settings = AtomicReference(initialSettings)
     private val welcomeTracker = WelcomeMessageTracker()
     private val shareAlertTracker = ShareAlertTracker()
@@ -28,6 +37,29 @@ class CommentPipeline(
     private val commentsQueued = AtomicLong()
     private val eventsReceived = AtomicLong()
     private val eventsQueued = AtomicLong()
+    private val alertLock = Any()
+    private val alertScheduler: ScheduledExecutorService =
+        Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "TikLBot-Alert-Batching").apply { isDaemon = true }
+        }
+    private val pendingFollows = LinkedHashMap<String, String>()
+    private val pendingGifts = LinkedHashMap<String, GiftBatchItem>()
+    private var pendingFollowOverflow = 0
+    private var pendingGiftOverflowUsers = 0
+    private var pendingGiftOverflowCount = 0L
+    private var followFlush: ScheduledFuture<*>? = null
+    private var giftFlush: ScheduledFuture<*>? = null
+    @Volatile private var closed = false
+
+    private data class GiftBatchItem(val displayName: String, var count: Long)
+
+    companion object {
+        const val DEFAULT_FOLLOW_BATCH_WINDOW_MS = 4_000L
+        const val DEFAULT_GIFT_BATCH_WINDOW_MS = 3_000L
+        const val DEFAULT_ALERT_RETRY_DELAY_MS = 500L
+        private const val MAX_BATCH_USERS = 1_000
+        private const val MAX_NAMES_IN_ALERT = 3
+    }
 
     fun updateSettings(next: ReaderSettings) {
         settings.set(next)
@@ -50,7 +82,7 @@ class CommentPipeline(
                 comment.copy(text = welcome),
                 current.copy(readUsername = false, onlyUsername = false)
             )
-            speechQueue.enqueue(welcomeSpeech)
+            speechQueue.enqueue(welcomeSpeech, comment = true)
         }
 
         // A speaker is named once when they take the floor. Consecutive comments
@@ -108,44 +140,169 @@ class CommentPipeline(
             readUsername = current.readUsername && announceSpeaker && replyTarget == null
         )
         val speech = filter.toSpeech(speechComment, speechSettings)
-        val queued = speechQueue.enqueue(speech, itemId = comment.id)
+        val queued = speechQueue.enqueue(speech, itemId = comment.id, comment = true)
         if (queued) commentsQueued.incrementAndGet()
         return queued
     }
 
     fun onEvent(event: LiveEvent): Boolean {
         eventsReceived.incrementAndGet()
+        if (closed) return false
         val current = settings.get()
-        val speech = when (event.type) {
-            LiveEventType.FOLLOW -> if (current.readFollows) {
-                "${ChatCommandParser.spokenUsername(event.displayName)} te ha seguido"
-            } else ""
-            LiveEventType.GIFT -> GiftAlertRules.render(event, current).orEmpty()
-            LiveEventType.SHARE -> shareAlertTracker.render(event, current).orEmpty()
-            LiveEventType.JOIN -> if (current.readJoins &&
-                (!current.joinFollowerOnly || event.isFollower == true)
-            ) {
-                "@${ChatCommandParser.spokenUsername(event.displayName).removePrefix("@")} se ha unido al live"
-            } else ""
-            LiveEventType.LIKE -> likeAlertTracker.render(event, current).orEmpty()
-        }
-        // Ignore disabled/empty alerts instead of passing blank utterances to any provider.
-        if (speech.isBlank()) return false
-        // Alerts use the priority lane so they are not buried under chat backlog.
-        val queued = speechQueue.enqueue(speech, priority = true)
-        when (event.type) {
-            LiveEventType.LIKE -> {
-                if (queued) likeAlertTracker.confirmQueued(event)
-                else likeAlertTracker.rollbackIfNotQueued(event)
-            }
+        val queued = when (event.type) {
+            LiveEventType.FOLLOW -> queueFollow(event, current)
+            LiveEventType.GIFT -> queueGift(event, current)
             LiveEventType.SHARE -> {
-                if (queued) shareAlertTracker.confirmQueued(event)
-                else shareAlertTracker.rollbackIfNotQueued(event)
+                val speech = shareAlertTracker.render(event, current).orEmpty()
+                if (speech.isBlank()) false else {
+                    val accepted = speechQueue.enqueue(speech, priority = true)
+                    if (accepted) shareAlertTracker.confirmQueued(event)
+                    else shareAlertTracker.rollbackIfNotQueued(event)
+                    accepted
+                }
             }
-            else -> Unit
+            LiveEventType.JOIN -> {
+                val speech = if (current.readJoins &&
+                    (!current.joinFollowerOnly || event.isFollower == true)
+                ) {
+                    "@${ChatCommandParser.spokenUsername(event.displayName).removePrefix("@")} se ha unido al live"
+                } else ""
+                speech.isNotBlank() && speechQueue.enqueue(speech, priority = true)
+            }
+            LiveEventType.LIKE -> {
+                val speech = likeAlertTracker.render(event, current).orEmpty()
+                if (speech.isBlank()) false else {
+                    val accepted = speechQueue.enqueue(speech, priority = true)
+                    if (accepted) likeAlertTracker.confirmQueued(event)
+                    else likeAlertTracker.rollbackIfNotQueued(event)
+                    accepted
+                }
+            }
         }
         if (queued) eventsQueued.incrementAndGet()
         return queued
+    }
+
+    private fun queueFollow(event: LiveEvent, current: ReaderSettings): Boolean {
+        if (!current.readFollows) return false
+        val name = ChatCommandParser.spokenUsername(event.displayName)
+        val key = event.userId.trim().ifBlank { name.lowercase() }
+        if (key.isBlank()) return false
+        synchronized(alertLock) {
+            if (closed) return false
+            if (!pendingFollows.containsKey(key)) {
+                if (pendingFollows.size < MAX_BATCH_USERS) pendingFollows[key] = name
+                else pendingFollowOverflow++
+            }
+            scheduleFollowFlushLocked(followBatchWindowMs.coerceAtLeast(0L))
+        }
+        return true
+    }
+
+    private fun queueGift(event: LiveEvent, current: ReaderSettings): Boolean {
+        if (!GiftAlertRules.shouldAnnounce(event, current)) return false
+        val name = ChatCommandParser.spokenUsername(event.displayName)
+        val key = event.userId.trim().ifBlank { name.lowercase() }
+        if (key.isBlank()) return false
+        val count = GiftAlertRules.repeatCount(event).toLong()
+        synchronized(alertLock) {
+            if (closed) return false
+            val existing = pendingGifts[key]
+            if (existing != null) {
+                existing.count = if (Long.MAX_VALUE - existing.count < count) Long.MAX_VALUE else existing.count + count
+            } else if (pendingGifts.size < MAX_BATCH_USERS) {
+                pendingGifts[key] = GiftBatchItem(name, count)
+            } else {
+                pendingGiftOverflowUsers++
+                pendingGiftOverflowCount = if (Long.MAX_VALUE - pendingGiftOverflowCount < count) {
+                    Long.MAX_VALUE
+                } else pendingGiftOverflowCount + count
+            }
+            scheduleGiftFlushLocked(giftBatchWindowMs.coerceAtLeast(0L))
+        }
+        return true
+    }
+
+    private fun scheduleFollowFlushLocked(delayMs: Long) {
+        followFlush?.cancel(false)
+        followFlush = alertScheduler.schedule(
+            { flushFollowBatch() }, delayMs, TimeUnit.MILLISECONDS
+        )
+    }
+
+    private fun scheduleGiftFlushLocked(delayMs: Long) {
+        giftFlush?.cancel(false)
+        giftFlush = alertScheduler.schedule(
+            { flushGiftBatch() }, delayMs, TimeUnit.MILLISECONDS
+        )
+    }
+
+    private fun flushFollowBatch() {
+        synchronized(alertLock) {
+            followFlush = null
+            if (closed || pendingFollows.isEmpty() && pendingFollowOverflow == 0) return
+            if (!settings.get().readFollows) {
+                pendingFollows.clear()
+                pendingFollowOverflow = 0
+                return
+            }
+            val total = pendingFollows.size + pendingFollowOverflow
+            val names = pendingFollows.values.take(MAX_NAMES_IN_ALERT)
+            val speech = FollowAlertRules.renderBatch(names, total)
+            if (speech != null && speechQueue.enqueue(speech, priority = true)) {
+                pendingFollows.clear()
+                pendingFollowOverflow = 0
+            } else {
+                scheduleFollowFlushLocked(alertRetryDelayMs.coerceAtLeast(100L))
+            }
+        }
+    }
+
+    private fun flushGiftBatch() {
+        synchronized(alertLock) {
+            giftFlush = null
+            if (closed || pendingGifts.isEmpty() && pendingGiftOverflowUsers == 0) return
+            if (!settings.get().readGifts) {
+                pendingGifts.clear()
+                pendingGiftOverflowUsers = 0
+                pendingGiftOverflowCount = 0L
+                return
+            }
+            val items = pendingGifts.values.map { it.displayName to it.count }
+            val totalCount = pendingGifts.values.fold(pendingGiftOverflowCount) { total, item ->
+                if (Long.MAX_VALUE - total < item.count) Long.MAX_VALUE else total + item.count
+            }
+            val speech = GiftAlertRules.renderBatch(
+                items,
+                totalCount,
+                pendingGiftOverflowUsers,
+                settings.get()
+            )
+            if (speech != null && speechQueue.enqueue(speech, priority = true)) {
+                pendingGifts.clear()
+                pendingGiftOverflowUsers = 0
+                pendingGiftOverflowCount = 0L
+            } else {
+                scheduleGiftFlushLocked(alertRetryDelayMs.coerceAtLeast(100L))
+            }
+        }
+    }
+
+    override fun close() {
+        synchronized(alertLock) {
+            if (closed) return
+            closed = true
+            followFlush?.cancel(false)
+            giftFlush?.cancel(false)
+            followFlush = null
+            giftFlush = null
+            pendingFollows.clear()
+            pendingGifts.clear()
+            pendingFollowOverflow = 0
+            pendingGiftOverflowUsers = 0
+            pendingGiftOverflowCount = 0L
+        }
+        alertScheduler.shutdownNow()
     }
 
     fun stats(): LivePipelineStats = LivePipelineStats(
