@@ -9,7 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BoundedSerialEventExecutorTest {
-    @Test fun keepsNewestFramesWhenQueueIsFullWithoutBlockingOrReorderingRemainingFrames() {
+    @Test fun preservesAcceptedFramesAndRejectsIncomingFrameWhenQueueIsFull() {
         val executor = BoundedSerialEventExecutor(queueCapacity = 1, threadName = "test-live-events")
         val firstStarted = CountDownLatch(1)
         val releaseFirst = CountDownLatch(1)
@@ -34,9 +34,9 @@ class BoundedSerialEventExecutorTest {
             }))
             assertEquals(1, executor.queuedCount())
 
-            // A saturated queue evicts its oldest waiting task and accepts the new frame.
+            // A saturated queue preserves the accepted frame and rejects the new one.
             val startedAt = System.nanoTime()
-            assertTrue(executor.tryExecute(Runnable {
+            assertFalse(executor.tryExecute(Runnable {
                 order += 3
                 completed.countDown()
             }))
@@ -47,7 +47,7 @@ class BoundedSerialEventExecutorTest {
 
             releaseFirst.countDown()
             assertTrue(completed.await(2, TimeUnit.SECONDS))
-            assertEquals(listOf(1, 3), order)
+            assertEquals(listOf(1, 2), order)
             assertTrue(executor.queuedCount() <= 1)
         } finally {
             releaseFirst.countDown()
@@ -72,11 +72,11 @@ class BoundedSerialEventExecutorTest {
                 ackCount.incrementAndGet()
             })
             assertEquals(1, ackCount.get())
-            // Queue overflow still accepts the latest frame, then acknowledges it.
-            assertTrue(enqueueAndAcknowledge(executor, Runnable { }) {
+            // A full queue rejects the incoming frame and must not acknowledge it.
+            assertFalse(enqueueAndAcknowledge(executor, Runnable { }) {
                 ackCount.incrementAndGet()
             })
-            assertEquals(2, ackCount.get())
+            assertEquals(1, ackCount.get())
             assertEquals(1L, executor.droppedTaskCount())
         } finally {
             release.countDown()
