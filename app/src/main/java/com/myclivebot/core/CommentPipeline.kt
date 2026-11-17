@@ -41,7 +41,11 @@ class CommentPipeline(
             return false
         }
         // A welcome is emitted once per accepted commenter in this connection.
-        welcomeTracker.messageFor(comment, current)?.let { welcome ->
+        welcomeTracker.messageFor(
+            comment,
+            current,
+            filter.usernameForSpeech(comment, current)
+        )?.let { welcome ->
             val welcomeSpeech = filter.toSpeech(
                 comment.copy(text = welcome),
                 current.copy(readUsername = false, onlyUsername = false)
@@ -55,24 +59,46 @@ class CommentPipeline(
 
         // Commands are local speech responses only; this app does not send chat messages.
         val commandResponse = if (current.customCommandsEnabled) {
-            ChatCommandParser.responseFor(comment.text, comment.displayName, current.customCommands, comment.isModerator)
+            ChatCommandParser.responseFor(
+                comment.text,
+                filter.usernameForSpeech(comment, current),
+                current.customCommands,
+                comment.isModerator
+            )
         } else null
-        val replyTarget = comment.replyToDisplayName?.takeIf { it.isNotBlank() }
+        val replyDisplayName = comment.replyToDisplayName?.takeIf { it.isNotBlank() }
+        val replyProfileUsername = comment.replyToProfileUsername?.takeIf { it.isNotBlank() }
+        val replyTarget = if (current.useProfileUsername) {
+            replyProfileUsername ?: replyDisplayName
+        } else {
+            replyDisplayName ?: replyProfileUsername
+        }
+        val replyTargetNames = listOfNotNull(replyDisplayName, replyProfileUsername).distinct()
         val speechComment = when {
-            commandResponse != null -> comment.copy(text = commandResponse, replyToDisplayName = null)
+            commandResponse != null -> comment.copy(
+                text = commandResponse,
+                replyToDisplayName = null,
+                replyToProfileUsername = null
+            )
             replyTarget != null -> {
-                val replyMention = Regex("(?i)@${Regex.escape(replyTarget)}(?![\\p{L}\\p{N}_])")
-                val cleanReplyText = comment.text.replace(replyMention, "")
-                    .replace(Regex("\\s+"), " ").trim()
-                val safeSpeaker = ChatCommandParser.spokenUsername(comment.displayName)
-                val safeTarget = ChatCommandParser.spokenUsername(replyTarget)
+                val cleanReplyText = replyTargetNames.fold(comment.text) { text, targetName ->
+                    val replyMention = Regex("(?i)@${Regex.escape(targetName)}(?![\\p{L}\\p{N}_])")
+                    text.replace(replyMention, "")
+                }.replace(Regex("\\s+"), " ").trim()
+                val safeSpeaker = filter.usernameForSpeech(comment, current)
+                val safeTarget = filter.usernameForSpeech(
+                    replyDisplayName ?: replyProfileUsername.orEmpty(),
+                    replyProfileUsername.orEmpty(),
+                    current
+                )
                 comment.copy(
                     text = if (cleanReplyText.isBlank()) {
                         "${safeSpeaker} le respondió a ${safeTarget}"
                     } else {
                         "${safeSpeaker} le respondió a ${safeTarget}: ${cleanReplyText}"
                     },
-                    replyToDisplayName = null
+                    replyToDisplayName = null,
+                    replyToProfileUsername = null
                 )
             }
             else -> comment
