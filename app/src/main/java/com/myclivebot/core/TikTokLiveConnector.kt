@@ -453,7 +453,7 @@ class TikTokLiveConnector(
                     val user = payloadMessage.message(7)
                     val repeatCount = payloadMessage.long(5).coerceAtLeast(1L)
                     val detail = if (repeatCount > 1L) "x$repeatCount" else ""
-                    onEvent(LiveEvent(LiveEventType.GIFT, displayName(user), detail, userId = user?.long(1)?.takeIf { it != 0L }?.toString().orEmpty()))
+                    onEvent(LiveEvent(LiveEventType.GIFT, displayName(user), detail, userId = user?.long(1)?.takeIf { it != 0L }?.toString().orEmpty(), giftGroupId = payloadMessage.long(3).takeIf { it != 0L }?.toString().orEmpty()))
                 }
             }
         }
