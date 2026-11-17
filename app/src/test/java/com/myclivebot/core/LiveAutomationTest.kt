@@ -679,4 +679,51 @@ class LiveAutomationTest {
         }
     }
 
+    @Test fun welcomeCannotTakeTheOnlyRemainingSlotAndDropItsComment() {
+        val gate = CompletableDeferred<Unit>()
+        val started = CountDownLatch(1)
+        val spoken = Collections.synchronizedList(mutableListOf<String>())
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                spoken += text
+                if (text == "hold") {
+                    started.countDown()
+                    gate.await()
+                }
+            }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 1)
+        val pipeline = CommentPipeline(
+            CommentFilter(),
+            queue,
+            ReaderSettings(
+                readUsername = true,
+                welcomeEnabled = true,
+                welcomeTemplate = "¡Bienvenido {user}!"
+            )
+        )
+        try {
+            assertTrue(queue.enqueue("hold"))
+            assertTrue(started.await(2, TimeUnit.SECONDS))
+            repeat(19) { index ->
+                assertTrue(queue.enqueue("pending-$index", comment = true, itemId = "pending-$index"))
+            }
+
+            assertFalse(pipeline.onComment(LiveComment("ana", "Ana", "primer mensaje", id = "first")))
+            assertTrue(queue.skipComment("pending-0"))
+            assertTrue(queue.skipComment("pending-1"))
+            assertTrue(pipeline.onComment(LiveComment("ana", "Ana", "segundo mensaje", id = "second")))
+            assertEquals(19, queue.queuedCount())
+            assertEquals(19, queue.clearPendingComments())
+        } finally {
+            pipeline.close()
+            gate.complete(Unit)
+            queue.close()
+            scope.cancel()
+        }
+    }
+
 }
