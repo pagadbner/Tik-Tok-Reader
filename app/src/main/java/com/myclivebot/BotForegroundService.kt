@@ -140,6 +140,7 @@ class BotForegroundService : Service() {
                 connector?.disconnect()
                 connector = null
                 releaseLiveWakeLock()
+                pipeline?.close()
                 pipeline = null
                 activeSettings = null
                 updateStatus("Detenido")
@@ -329,6 +330,8 @@ class BotForegroundService : Service() {
         connector?.disconnect()
         connector = null
         releaseLiveWakeLock()
+        pipeline?.close()
+        pipeline = null
         speechQueue?.close()
         speechQueue = null
         activeSettings = settings
@@ -527,9 +530,10 @@ class BotForegroundService : Service() {
     override fun onDestroy() {
         connector?.disconnect()
         connector = null
+        pipeline?.close()
+        pipeline = null
         speechQueue?.close()
         speechQueue = null
-        pipeline = null
         activeSettings = null
         stopLocalBridge()
         releaseLiveWakeLock()
