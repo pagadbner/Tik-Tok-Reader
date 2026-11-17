@@ -23,11 +23,16 @@ class SpeechQueueWorker(
     private val commentQueue = ArrayDeque<QueuedSpeech>()
     private val priorityQueue = ArrayDeque<QueuedSpeech>()
     private val normalQueue = ArrayDeque<QueuedSpeech>()
-    private val commentCapacity = capacity.coerceAtLeast(1)
+    // Chat can arrive in bursts much faster than speech playback. Keep a larger,
+    // still bounded backlog and never evict an already accepted comment.
+    private val commentCapacity = (capacity.coerceIn(1, 100) * 20).coerceAtMost(2_000)
     private val normalCapacity = capacity.coerceAtLeast(1)
     private val importantCapacity = priorityCapacity.coerceAtLeast(1)
     private val priorityBurstLimit = 3
+    private val commentBurstLimit = 10
     private var consecutivePriority = 0
+    private var consecutiveComments = 0
+    private var rejectedComments = 0L
     private val wake = Channel<Unit>(Channel.CONFLATED)
 
     init {
@@ -35,8 +40,10 @@ class SpeechQueueWorker(
             while (isActive) {
                 val next = synchronized(lock) {
                     when {
-                        commentQueue.isNotEmpty() -> {
+                        commentQueue.isNotEmpty() &&
+                            (priorityQueue.isEmpty() || consecutiveComments < commentBurstLimit) -> {
                             consecutivePriority = 0
+                            consecutiveComments++
                             commentQueue.removeFirst()
                         }
                         normalQueue.isNotEmpty() &&
@@ -45,11 +52,13 @@ class SpeechQueueWorker(
                             normalQueue.removeFirst()
                         }
                         priorityQueue.isNotEmpty() -> {
+                            consecutiveComments = 0
                             consecutivePriority++
                             priorityQueue.removeFirst()
                         }
                         normalQueue.isNotEmpty() -> {
                             consecutivePriority = 0
+                            consecutiveComments = 0
                             normalQueue.removeFirst()
                         }
                         else -> null
@@ -83,9 +92,13 @@ class SpeechQueueWorker(
         val accepted = synchronized(lock) {
             when {
                 comment -> {
-                    if (commentQueue.size >= commentCapacity) commentQueue.removeFirst()
-                    commentQueue.addLast(QueuedSpeech(text, itemId))
-                    true
+                    if (commentQueue.size >= commentCapacity) {
+                        rejectedComments++
+                        false
+                    } else {
+                        commentQueue.addLast(QueuedSpeech(text, itemId))
+                        true
+                    }
                 }
                 priority -> {
                     if (priorityQueue.size >= importantCapacity) false else {
@@ -122,6 +135,9 @@ class SpeechQueueWorker(
     fun queuedCount(): Int = synchronized(lock) {
         commentQueue.size + priorityQueue.size + normalQueue.size
     }
+
+    /** Number of new comments rejected at the hard backlog limit; accepted comments are never evicted. */
+    fun rejectedCommentCount(): Long = synchronized(lock) { rejectedComments }
 
     fun close() {
         synchronized(lock) {
