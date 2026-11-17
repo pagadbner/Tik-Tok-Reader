@@ -233,7 +233,8 @@ class CommentPipeline(
                     }
                 }
             } else if (pendingGifts.size < MAX_BATCH_USERS) {
-                val groupCounts = if (groupId.isBlank()) LinkedHashMap() else linkedMapOf(groupId to count)
+                val groupCounts: MutableMap<String, Long> = LinkedHashMap()
+                if (groupId.isNotBlank()) groupCounts[groupId] = count
                 pendingGifts[key] = GiftBatchItem(name, count, groupCounts)
             } else {
                 pendingGiftOverflowUsers++
