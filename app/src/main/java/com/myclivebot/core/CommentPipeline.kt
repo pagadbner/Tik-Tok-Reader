@@ -83,17 +83,17 @@ class CommentPipeline(
             commentsFiltered.incrementAndGet()
             return false
         }
-        // A welcome is emitted once per accepted commenter in this connection.
-        welcomeTracker.messageFor(
+        // Preview the welcome without consuming it. The welcome and comment
+        // are committed together only if the speech queue accepts both.
+        val welcomeSpeech = welcomeTracker.previewMessageFor(
             comment,
             current,
             filter.usernameForSpeech(comment, current)
         )?.let { welcome ->
-            val welcomeSpeech = filter.toSpeech(
+            filter.toSpeech(
                 comment.copy(text = welcome),
                 current.copy(readUsername = false, onlyUsername = false)
             )
-            speechQueue.enqueue(welcomeSpeech, comment = true)
         }
 
         // A speaker is named once when they take the floor. Consecutive comments
@@ -151,8 +151,13 @@ class CommentPipeline(
             readUsername = current.readUsername && announceSpeaker && replyTarget == null
         )
         val speech = filter.toSpeech(speechComment, speechSettings)
-        val queued = speechQueue.enqueue(speech, itemId = comment.id, comment = true)
+        val queueItems = buildList {
+            welcomeSpeech?.let { add(it to null) }
+            add(speech to comment.id)
+        }
+        val queued = speechQueue.enqueueComments(queueItems)
         if (queued) {
+            if (welcomeSpeech != null) welcomeTracker.confirmQueued(comment)
             speakerTracker.markQueued(comment)
             commentsQueued.incrementAndGet()
         }
