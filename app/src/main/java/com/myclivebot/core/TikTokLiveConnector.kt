@@ -90,17 +90,7 @@ class TikTokLiveConnector(
                 currentRoomId = roomId
                 onStatus("LIVE encontrado. Preparando conexión segura…")
 
-                val ttwid = try {
-                    fetchAnonymousDeviceCookie()
-                } catch (httpError: Exception) {
-                    // Do not switch transports after an explicit platform rate-limit/deny response.
-                    if (httpError.message.orEmpty().contains("limitó")) throw httpError
-                    onStatus("La petición HTTP no obtuvo ttwid. Probando recuperación WebView oculta…")
-                    val recovered = cookieFallback?.invoke()
-                        ?: throw httpError
-                    validateTtwid(recovered)
-                        ?: throw IOException("WebView terminó la carga, pero TikTok no entregó una cookie ttwid válida.", httpError)
-                }
+                val ttwid = obtainTtwid()
                 if (!isSessionActive(sessionId)) return@execute
                 currentTtwid = ttwid
                 openWebSocket(0, sessionId)
@@ -159,6 +149,20 @@ class TikTokLiveConnector(
 
     private fun validateTtwid(value: String): String? =
         TtwidCookieParser.validate(value)
+
+    /** Reuses the same validated HTTP/WebView cookie recovery path for initial and retry connections. */
+    private fun obtainTtwid(): String {
+        return try {
+            fetchAnonymousDeviceCookie()
+        } catch (httpError: Exception) {
+            // Do not switch transports after an explicit platform rate-limit/deny response.
+            if (httpError.message.orEmpty().contains("limitó")) throw httpError
+            onStatus("La petición HTTP no obtuvo ttwid. Probando recuperación WebView oculta…")
+            val recovered = cookieFallback?.invoke() ?: throw httpError
+            validateTtwid(recovered)
+                ?: throw IOException("WebView terminó la carga, pero TikTok no entregó una cookie ttwid válida.", httpError)
+        }
+    }
 
     private fun fetchAnonymousDeviceCookie(): String {
         val now = System.currentTimeMillis()
@@ -542,7 +546,7 @@ class TikTokLiveConnector(
                     val roomId = resolveLiveRoom(username)
                     if (!isSessionActive(sessionId)) return@schedule
                     currentRoomId = roomId
-                    val refreshedTtwid = fetchAnonymousDeviceCookie()
+                    val refreshedTtwid = obtainTtwid()
                     if (!isSessionActive(sessionId)) return@schedule
                     currentTtwid = refreshedTtwid
                     openWebSocket(0, sessionId)
