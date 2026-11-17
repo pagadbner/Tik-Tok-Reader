@@ -79,7 +79,10 @@ class CommentFilter {
         if (userKey in ignored || displayKey in ignored || profileKey in ignored) return false
         if (settings.ignoreModerators && comment.isModerator) return false
 
-        val sourceToFilter = if (settings.onlyUsername) comment.displayName else comment.text
+        val sourceToFilter = if (settings.onlyUsername) {
+            if (settings.useProfileUsername) comment.profileUsername.ifBlank { comment.displayName }
+            else comment.displayName
+        } else comment.text
         val cleanText = sourceToFilter.trim().replace(Regex("\\s+"), " ")
         if (cleanText.isBlank() || cleanText.length > settings.maxCommentLength.coerceAtLeast(1)) return false
         val normalized = cleanText.lowercase(java.util.Locale.ROOT)
