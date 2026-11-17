@@ -230,7 +230,7 @@ class TikTokLiveConnector(
             .build()
 
         onStatus("Conectando con TikTok LIVE de @$username…")
-        val queueSaturated = AtomicBoolean(false)
+        val overloadWarningActive = AtomicBoolean(false)
         socket = http.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 if (stopped) {
@@ -269,13 +269,17 @@ class TikTokLiveConnector(
                                 if (!stopped) onStatus("Se recibió un paquete LIVE no válido; se omitió sin cerrar la conexión.")
                             }
                     }
+                    // Once the backlog has drained below half capacity, allow a new
+                    // overload warning if another independent burst occurs.
+                    if (worker.queuedCount() <= BoundedSerialEventExecutor.DEFAULT_QUEUE_CAPACITY / 2) {
+                        overloadWarningActive.set(false)
+                    }
                 }
                 if (!accepted) {
-                    if (queueSaturated.compareAndSet(false, true)) {
-                        onStatus("La cola de eventos LIVE alcanzó su límite. Se cerrará esta sesión para proteger la conexión; pulsa Conectar para reanudar.")
-                        // 1013 = try again later. Do not block the reader or fail over
-                        // automatically: this is local processing overload, not a host failure.
-                        webSocket.close(1013, "LIVE event queue saturated")
+                    // Keep the WebSocket connected and its reader non-blocking.
+                    // Only this incoming frame is skipped when the bounded queue is full.
+                    if (overloadWarningActive.compareAndSet(false, true)) {
+                        onStatus("La cola de eventos LIVE está llena. Algunos eventos podrían omitirse mientras se recupera el procesamiento; la conexión permanece activa.")
                     }
                     return
                 }
@@ -293,21 +297,13 @@ class TikTokLiveConnector(
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 if (!stopped && socket === webSocket) {
                     socket = null
-                    if (queueSaturated.get()) {
-                        onStatus("Sesión LIVE detenida por saturación de la cola. Deja que termine el procesamiento pendiente y pulsa Conectar para reanudar.")
-                    } else {
-                        onStatus("TikTok cerró la conexión (código $code). Pulsa Conectar para volver a intentarlo.")
-                    }
+                    onStatus("TikTok cerró la conexión (código $code). Pulsa Conectar para volver a intentarlo.")
                 }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 if (stopped) return
                 if (socket === webSocket) socket = null
-                if (queueSaturated.get()) {
-                    onStatus("Sesión LIVE detenida por saturación de la cola. Pulsa Conectar cuando el procesamiento pendiente haya terminado.")
-                    return
-                }
                 if (hostIndex + 1 < WS_HOSTS.size) {
                     onStatus("Probando el servidor alternativo de TikTok…")
                     openWebSocket(hostIndex + 1)
