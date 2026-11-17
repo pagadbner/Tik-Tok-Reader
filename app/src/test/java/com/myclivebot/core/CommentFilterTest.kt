@@ -72,6 +72,42 @@ class CommentFilterTest {
         assertTrue(jarvis.testPhrase.startsWith("Hello"))
     }
 
+    @Test fun profileUsernameKeepsUnderscoreAndIsSpokenInsteadOfDisplayName() {
+        val filter = CommentFilter()
+        val comment = LiveComment(
+            userId = "123",
+            displayName = "Karina",
+            text = "Hola, este es mi comentario",
+            profileUsername = "karina_fu82"
+        )
+        assertTrue(filter.shouldRead(comment, ReaderSettings(readUsername = true)))
+        assertEquals("karina_fu82 dice: Hola, este es mi comentario",
+            filter.toSpeech(comment, ReaderSettings(readUsername = true)))
+    }
+
+    @Test fun profileUsernameDropsSymbolsOtherThanTikTokHandleCharacters() {
+        val filter = CommentFilter()
+        val comment = LiveComment(
+            userId = "123",
+            displayName = "Karina",
+            text = "Hola",
+            profileUsername = "karina!_fu82✨"
+        )
+        assertEquals("karina_fu82 dice: Hola",
+            filter.toSpeech(comment, ReaderSettings(readUsername = true)))
+    }
+
+    @Test fun ignoredProfileHandleIsStillRespectedWithUnderscore() {
+        val filter = CommentFilter()
+        val comment = LiveComment(
+            userId = "123",
+            displayName = "Karina",
+            text = "Hola",
+            profileUsername = "karina_fu82"
+        )
+        assertFalse(filter.shouldRead(comment, ReaderSettings(ignoredUsers = setOf("@karina_fu82"))))
+    }
+
     @Test fun canReadOnlyTheUsername() {
         val filter = CommentFilter()
         val result = filter.toSpeech(
