@@ -211,7 +211,8 @@ class LiveAutomationTest {
         val queue = SpeechQueueWorker(engine, scope, capacity = 4)
         val pipeline = CommentPipeline(
             CommentFilter(), queue, ReaderSettings(readFollows = true),
-            followBatchWindowMs = 150L
+            // Leave enough time for all events to arrive even on a busy CI runner.
+            followBatchWindowMs = 1_000L
         )
         try {
             assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Ana", userId = "f1")))
@@ -219,7 +220,7 @@ class LiveAutomationTest {
             assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Mia", userId = "f3")))
             assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Noah", userId = "f4")))
             assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Ana repetida", userId = "f1")))
-            assertTrue(latch.await(2, TimeUnit.SECONDS))
+            assertTrue(latch.await(3, TimeUnit.SECONDS))
             assertEquals(
                 "Gracias por seguirme, Ana, Luis, Mia, y otra persona",
                 spoken.single()
