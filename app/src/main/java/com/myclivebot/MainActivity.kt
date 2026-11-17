@@ -209,6 +209,7 @@ class MainActivity : ComponentActivity() {
                     val intent = Intent(this@MainActivity, BotForegroundService::class.java)
                         .setAction(BotForegroundService.ACTION_UPDATE_SETTINGS)
                         .putExtra(BotForegroundService.EXTRA_READ_USERNAME, settings.readUsername)
+                        .putExtra(BotForegroundService.EXTRA_USE_PROFILE_USERNAME, settings.useProfileUsername)
                         .putStringArrayListExtra(BotForegroundService.EXTRA_BLOCKED_WORDS, ArrayList(settings.blockedWords))
                         .putStringArrayListExtra(BotForegroundService.EXTRA_IGNORED_USERS, ArrayList(settings.ignoredUsers))
                         .putExtra(BotForegroundService.EXTRA_MAX_QUEUE, settings.maxQueueSize)
@@ -710,7 +711,7 @@ private fun BotApp(
     val selectedApiVoiceName = apiVoiceItems.firstOrNull { it.first == selectedApiVoiceId }?.second ?: apiVoiceItems.first().second
     val connected = status.contains("Conectado", true) && !status.contains("no se pudo", true)
     LaunchedEffect(
-        connected, readUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat,
+        connected, readUsername, readAccountUsername, onlyUsername, ignoreEmojis, ignoreSymbols, followerOnlyChat,
         readFollows, readGifts, readShares, shareFollowerOnly, readJoins, joinFollowerOnly, readLikes,
         randomVoices, maxQueue, blockedWords, ignoredUsers,
         speed, voiceId, voiceInstalled, speechProvider, apiVoiceId, apiRandomVoice, tikFinityChannelId, edgeVoiceId, tikTokVoiceId, customCommandsEnabled, customCommandsText,
