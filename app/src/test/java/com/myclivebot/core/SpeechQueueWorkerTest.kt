@@ -67,6 +67,35 @@ class SpeechQueueWorkerTest {
         }
     }
 
+    @Test fun liveCommentsAreSpokenBeforeQueuedEventAlerts() {
+        val gate = CompletableDeferred<Unit>()
+        val spoken = mutableListOf<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                spoken += text
+                if (text == "currently speaking") gate.await()
+            }
+            override suspend fun stop() = Unit
+        }
+        val worker = SpeechQueueWorker(engine, scope, capacity = 4, priorityCapacity = 4)
+
+        try {
+            assertTrue(worker.enqueue("currently speaking"))
+            assertTrue(worker.enqueue("follow batch", priority = true))
+            assertTrue(worker.enqueue("new LIVE comment", comment = true, itemId = "comment-1"))
+            gate.complete(Unit)
+            assertEquals(
+                listOf("currently speaking", "new LIVE comment", "follow batch"),
+                spoken
+            )
+        } finally {
+            worker.close()
+            scope.cancel()
+        }
+    }
+
     @Test fun dropsOldestPendingChatToKeepQueueFresh() {
         val gate = CompletableDeferred<Unit>()
         val spoken = mutableListOf<String>()
