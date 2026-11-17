@@ -249,8 +249,10 @@ class TikTokLiveConnector(
                     onStatus("No se pudo entrar a la sala LIVE.")
                     return
                 }
-                reconnectAttempt = 0
                 onStatus("Conectado al LIVE de @$username. Esperando comentarios…")
+                scheduler?.schedule({
+                    if (isSessionActive(sessionId) && socket === webSocket) reconnectAttempt = 0
+                }, 30, TimeUnit.SECONDS)
                 scheduler?.scheduleAtFixedRate({
                     if (isSessionActive(sessionId) && socket === webSocket) runCatching {
                         webSocket.send(ByteString.of(*encodeHeartbeat(roomId)))
@@ -530,8 +532,9 @@ class TikTokLiveConnector(
                     val roomId = resolveLiveRoom(username)
                     if (!isSessionActive(sessionId)) return@schedule
                     currentRoomId = roomId
-                    if (currentTtwid.isNullOrBlank()) currentTtwid = fetchAnonymousDeviceCookie()
+                    val refreshedTtwid = fetchAnonymousDeviceCookie()
                     if (!isSessionActive(sessionId)) return@schedule
+                    currentTtwid = refreshedTtwid
                     openWebSocket(0, sessionId)
                 } catch (error: Exception) {
                     if (isSessionActive(sessionId)) {
