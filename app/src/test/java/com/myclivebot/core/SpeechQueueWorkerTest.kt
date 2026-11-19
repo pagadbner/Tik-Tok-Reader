@@ -235,8 +235,7 @@ class SpeechQueueWorkerTest {
             assertTrue(worker.skipComment("skip-1"))
             assertTrue(worker.skipComment("skip-2"))
             assertTrue(worker.skipComment("skip-3"))
-            assertTrue(worker.enqueue("after-skip-1", comment = true))
-            assertTrue(worker.enqueue("after-skip-2", comment = true))
+            repeat(4) { assertTrue(worker.enqueue("after-skip-$it", comment = true)) }
             assertTrue(!worker.enqueue("overflow-2", comment = true))
             assertEquals(2, warnings.size)
             gate.complete(Unit)
