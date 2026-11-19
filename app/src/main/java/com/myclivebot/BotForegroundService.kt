@@ -521,6 +521,9 @@ class BotForegroundService : Service() {
                 .put("events_received", stats.eventsReceived)
                 .put("events_queued", stats.eventsQueued)
                 .put("speech_queue_size", stats.speechQueueSize)
+                .put("comment_queue_wait_last_ms", stats.commentQueueWaitLastMs)
+                .put("comment_queue_wait_max_ms", stats.commentQueueWaitMaxMs)
+                .put("comments_started", stats.commentsStarted)
         )
     }
 
