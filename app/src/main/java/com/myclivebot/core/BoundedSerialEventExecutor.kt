@@ -5,15 +5,15 @@ import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Serial LIVE frame processor with a bounded FIFO backlog.
  *
- * Submissions are normally non-blocking. Under saturation, the caller waits
- * briefly for a free slot rather than evicting an already accepted frame. If
- * capacity still does not become available, the new frame is rejected and is
- * not acknowledged. Accepted frames remain in FIFO order.
+ * Submissions are non-blocking. Under saturation, the new frame is rejected
+ * immediately rather than evicting an accepted frame or blocking OkHttp's reader.
+ * Rejected frames are not acknowledged; accepted frames remain FIFO.
  */
 internal class BoundedSerialEventExecutor(
     queueCapacity: Int = DEFAULT_QUEUE_CAPACITY,
