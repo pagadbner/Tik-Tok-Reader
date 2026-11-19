@@ -1,6 +1,7 @@
 package com.myclivebot.core
 
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /** User-configurable reading, moderation and speech settings. */
 data class ReaderSettings(
@@ -66,14 +67,59 @@ object CommentLanguageFilter {
 }
 
 class CommentFilter {
+    private data class FilterRules(
+        val sourceBlockedWords: Set<String>,
+        val sourceIgnoredUsers: Set<String>,
+        val ignoredUsers: Set<String>,
+        val blockedWords: List<Regex>
+    )
+
     private val lastByUser = ConcurrentHashMap<String, Pair<String, Long>>()
+    private val lastCleanupAt = AtomicLong(0L)
+    @Volatile private var cachedRules: FilterRules? = null
+    private val whitespaceRegex = Regex("\\s+")
+
+    private fun rulesFor(settings: ReaderSettings): FilterRules {
+        cachedRules?.let { cached ->
+            if (cached.sourceBlockedWords == settings.blockedWords &&
+                cached.sourceIgnoredUsers == settings.ignoredUsers
+            ) return cached
+        }
+        return synchronized(this) {
+            cachedRules?.takeIf {
+                it.sourceBlockedWords == settings.blockedWords &&
+                    it.sourceIgnoredUsers == settings.ignoredUsers
+            } ?: FilterRules(
+                sourceBlockedWords = settings.blockedWords.toSet(),
+                sourceIgnoredUsers = settings.ignoredUsers.toSet(),
+                ignoredUsers = settings.ignoredUsers.map {
+                    it.trim().removePrefix("@").lowercase(java.util.Locale.ROOT)
+                }.filter { it.isNotEmpty() }.toSet(),
+                blockedWords = settings.blockedWords.mapNotNull { word ->
+                    val needle = word.trim().lowercase(java.util.Locale.ROOT)
+                    needle.takeIf { it.isNotEmpty() }?.let {
+                        Regex("(?<![\\p{L}\\p{N}_])${Regex.escape(it)}(?![\\p{L}\\p{N}_])")
+                    }
+                }
+            ).also { cachedRules = it }
+        }
+    }
+
+    private fun cleanupDuplicatesIfNeeded() {
+        if (lastByUser.size <= 2_000) return
+        val now = System.currentTimeMillis()
+        val previous = lastCleanupAt.get()
+        if (now - previous < 30_000L || !lastCleanupAt.compareAndSet(previous, now)) return
+        val cutoff = now - 60_000L
+        lastByUser.entries.removeIf { it.value.second < cutoff }
+    }
 
     fun shouldRead(comment: LiveComment, settings: ReaderSettings): Boolean {
         if (!CommentLanguageFilter.isSupported(comment.text, comment.contentLanguage)) return false
         if (settings.followerOnlyChat && comment.isFollower != true) return false
         val userKey = comment.userId.ifBlank { comment.displayName }.trim().lowercase()
-        val ignored = settings.ignoredUsers.map { it.trim().removePrefix("@").lowercase() }
-            .filter { it.isNotEmpty() }.toSet()
+        val rules = rulesFor(settings)
+        val ignored = rules.ignoredUsers
         val displayKey = comment.displayName.trim().removePrefix("@").lowercase()
         val profileKey = comment.profileUsername.trim().removePrefix("@").lowercase()
         if (userKey in ignored || displayKey in ignored || profileKey in ignored) return false
@@ -83,15 +129,10 @@ class CommentFilter {
             if (settings.useProfileUsername) comment.profileUsername.ifBlank { comment.displayName }
             else comment.displayName
         } else comment.text
-        val cleanText = sourceToFilter.trim().replace(Regex("\\s+"), " ")
+        val cleanText = sourceToFilter.trim().replace(whitespaceRegex, " ")
         if (cleanText.isBlank() || cleanText.length > settings.maxCommentLength.coerceAtLeast(1)) return false
         val normalized = cleanText.lowercase(java.util.Locale.ROOT)
-        if (settings.blockedWords.any { word ->
-                val needle = word.trim().lowercase(java.util.Locale.ROOT)
-                needle.isNotEmpty() && Regex(
-                    "(?<![\\p{L}\\p{N}_])${Regex.escape(needle)}(?![\\p{L}\\p{N}_])"
-                ).containsMatchIn(normalized)
-            }) return false
+        if (rules.blockedWords.any { it.containsMatchIn(normalized) }) return false
 
         val now = comment.receivedAt
         val duplicateWindow = settings.suppressDuplicatesSeconds.coerceAtLeast(0) * 1_000
@@ -105,10 +146,7 @@ class CommentFilter {
             } else normalized to now
         }
         if (isDuplicate) return false
-        if (lastByUser.size > 2_000) {
-            val cutoff = now - 60_000
-            lastByUser.entries.removeIf { it.value.second < cutoff }
-        }
+        cleanupDuplicatesIfNeeded()
         return true
     }
 
@@ -129,7 +167,7 @@ class CommentFilter {
         if (settings.onlyUsername) return safeName
 
         var safeText = comment.text.trim()
-            .replace(Regex("\\s+"), " ")
+            .replace(whitespaceRegex, " ")
             .replace(Regex("https?://\\S+", RegexOption.IGNORE_CASE), " enlace ")
         safeText = sanitize(safeText, settings)
         if (safeText.isBlank()) return if (settings.readUsername && safeName.isNotBlank()) "$safeName dice" else ""
