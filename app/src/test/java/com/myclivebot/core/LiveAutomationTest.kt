@@ -700,7 +700,7 @@ class LiveAutomationTest {
             }
             override suspend fun stop() = Unit
         }
-        val queue = SpeechQueueWorker(engine, scope, capacity = 1)
+        val queue = SpeechQueueWorker(engine, scope, capacity = 20)
         val pipeline = CommentPipeline(
             CommentFilter(),
             queue,
