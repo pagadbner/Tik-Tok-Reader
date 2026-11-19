@@ -193,4 +193,21 @@ class CommentFilterTest {
         assertEquals("Ana", filter.toSpeech(comment, settings))
     }
 
+
+    @Test fun cachedFilterRulesRefreshWhenSettingsChange() {
+        val filter = CommentFilter()
+        val comment = LiveComment("cache-user", "CacheUser", "this is harmless")
+
+        assertTrue(filter.shouldRead(comment, ReaderSettings()))
+        assertFalse(filter.shouldRead(comment, ReaderSettings(blockedWords = setOf("harmless"))))
+        assertFalse(filter.shouldRead(comment, ReaderSettings(ignoredUsers = setOf("@cacheuser"))))
+    }
+
+    @Test fun blockedWordRulesKeepWholeWordBoundariesAfterCaching() {
+        val filter = CommentFilter()
+        val settings = ReaderSettings(blockedWords = setOf("art"))
+        assertTrue(filter.shouldRead(LiveComment("cache-1", "A", "party"), settings))
+        assertFalse(filter.shouldRead(LiveComment("cache-2", "B", "ART!"), settings))
+    }
+
 }
