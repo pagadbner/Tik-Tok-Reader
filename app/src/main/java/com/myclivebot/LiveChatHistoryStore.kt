@@ -53,10 +53,12 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
     }
 
     private fun <T> afterPendingWrites(block: () -> T): T {
+        if (writer.isShutdown) return block()
         val task = FutureTask(Callable { block() })
         try {
             writer.execute(task)
         } catch (_: RejectedExecutionException) {
+            if (writer.isShutdown) return block()
             // A full bounded queue must not make clear/read race with earlier writes.
             writer.queue.put(task)
         }
