@@ -365,9 +365,12 @@ class BotForegroundService : Service() {
                     if (firstDelivery && liveSessionGeneration.get() == sessionToken) {
                         runCatching { DjMusicController.handleLiveComment(comment) }
                     }
-                    val outcome = livePipeline.onComment(comment)
-                    if (firstDelivery && liveSessionGeneration.get() == sessionToken) {
-                        runCatching { publishLiveComment(comment, sessionToken) }
+                    val outcome = try {
+                        livePipeline.onComment(comment)
+                    } finally {
+                        if (firstDelivery && liveSessionGeneration.get() == sessionToken) {
+                            runCatching { publishLiveComment(comment, sessionToken) }
+                        }
                     }
                     if (liveSessionGeneration.get() == sessionToken) {
                         runCatching { publishLiveStatsIfDue() }
