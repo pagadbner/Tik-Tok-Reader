@@ -156,6 +156,12 @@ class CommentPipeline(
             readUsername = current.readUsername && announceSpeaker && replyTarget == null
         )
         val speech = filter.toSpeech(speechComment, speechSettings)
+        if (speech.isBlank() && welcomeSpeech == null) {
+            // The filter accepted the source text, but sanitization left nothing
+            // to say. Treat it as intentionally handled so the frame can be ACKed.
+            commentsFiltered.incrementAndGet()
+            return CommentHandlingResult.FILTERED
+        }
         val queueItems = buildList {
             welcomeSpeech?.let { add(it to null) }
             add(speech to comment.id)
