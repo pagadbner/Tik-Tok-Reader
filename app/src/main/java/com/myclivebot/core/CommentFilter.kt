@@ -78,6 +78,7 @@ class CommentFilter {
     private val lastCleanupAt = AtomicLong(0L)
     @Volatile private var cachedRules: FilterRules? = null
     private val whitespaceRegex = Regex("\\s+")
+    private val urlRegex = Regex("https?://\\S+", RegexOption.IGNORE_CASE)
 
     private fun rulesFor(settings: ReaderSettings): FilterRules {
         cachedRules?.let { cached ->
@@ -168,7 +169,7 @@ class CommentFilter {
 
         var safeText = comment.text.trim()
             .replace(whitespaceRegex, " ")
-            .replace(Regex("https?://\\S+", RegexOption.IGNORE_CASE), " enlace ")
+            .replace(urlRegex, " enlace ")
         safeText = sanitize(safeText, settings)
         if (safeText.isBlank()) return if (settings.readUsername && safeName.isNotBlank()) "$safeName dice" else ""
         val spokenName = if (settings.readUsername && safeName.isNotBlank()) "$safeName dice: " else ""
