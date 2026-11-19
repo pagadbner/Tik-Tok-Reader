@@ -33,7 +33,7 @@ class SpeechQueueWorker(
     private val normalQueue = ArrayDeque<QueuedSpeech>()
     // Keep the visible queue-size setting meaningful: accepted comments are
     // retained FIFO, but stale chat cannot accumulate an oversized hidden backlog.
-    private val commentCapacity = capacity.coerceIn(5, 100)
+    private val commentCapacity = capacity.coerceIn(1, 100)
     private val normalCapacity = capacity.coerceAtLeast(1)
     private val importantCapacity = priorityCapacity.coerceAtLeast(1)
     private val priorityBurstLimit = 3
