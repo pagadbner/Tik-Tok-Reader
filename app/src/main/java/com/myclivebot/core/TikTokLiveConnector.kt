@@ -13,12 +13,15 @@ import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.IOException
 import java.util.LinkedHashSet
+import java.util.UUID
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.GZIPInputStream
 
 /**
@@ -27,7 +30,7 @@ import java.util.zip.GZIPInputStream
  * a third-party signing service, or logged-in TikTok credentials.
  */
 class TikTokLiveConnector(
-    private val onComment: (LiveComment) -> Unit,
+    private val onComment: (LiveComment) -> CommentHandlingResult,
     private val onStatus: (String) -> Unit,
     private val onEvent: (LiveEvent) -> Unit = {},
     private val cookieFallback: (() -> String)? = null
@@ -41,6 +44,7 @@ class TikTokLiveConnector(
         @Volatile private var cachedTtwid: String? = null
         @Volatile private var cachedTtwidAt: Long = 0L
         private const val TTWID_CACHE_TTL_MS = 4 * 60 * 60 * 1_000L
+        private const val MAX_SEEN_MESSAGE_IDS = 10_000
     }
 
     private val http = OkHttpClient.Builder()
@@ -52,12 +56,16 @@ class TikTokLiveConnector(
 
     @Volatile private var socket: WebSocket? = null
     @Volatile private var scheduler: ScheduledExecutorService? = null
+    @Volatile private var heartbeatTask: ScheduledFuture<*>? = null
     @Volatile private var eventExecutor: BoundedSerialEventExecutor? = null
     @Volatile private var currentUsername: String? = null
     @Volatile private var currentRoomId: String? = null
     @Volatile private var currentTtwid: String? = null
     @Volatile private var stopped = true
     private val seenIds = LinkedHashSet<String>()
+    private val sessionGeneration = AtomicLong(0L)
+    private val webSocketGeneration = AtomicLong(0L)
+    @Volatile private var reconnectAttempt = 0
 
     @Synchronized
     fun connect(rawUsername: String) {
@@ -67,7 +75,9 @@ class TikTokLiveConnector(
         }
 
         stopConnection()
+        val sessionId = sessionGeneration.get()
         stopped = false
+        reconnectAttempt = 0
         eventExecutor = BoundedSerialEventExecutor()
         currentUsername = username
         scheduler = Executors.newSingleThreadScheduledExecutor { runnable ->
@@ -78,27 +88,18 @@ class TikTokLiveConnector(
         scheduler?.execute {
             try {
                 val roomId = resolveLiveRoom(username)
-                if (stopped) return@execute
+                if (!isSessionActive(sessionId)) return@execute
                 currentRoomId = roomId
                 onStatus("LIVE encontrado. Preparando conexión segura…")
 
-                val ttwid = try {
-                    fetchAnonymousDeviceCookie()
-                } catch (httpError: Exception) {
-                    // Do not switch transports after an explicit platform rate-limit/deny response.
-                    if (httpError.message.orEmpty().contains("limitó")) throw httpError
-                    onStatus("La petición HTTP no obtuvo ttwid. Probando recuperación WebView oculta…")
-                    val recovered = cookieFallback?.invoke()
-                        ?: throw httpError
-                    validateTtwid(recovered)
-                        ?: throw IOException("WebView terminó la carga, pero TikTok no entregó una cookie ttwid válida.", httpError)
-                }
-                if (stopped) return@execute
+                val ttwid = obtainTtwid()
+                if (!isSessionActive(sessionId)) return@execute
                 currentTtwid = ttwid
-                openWebSocket(0)
+                openWebSocket(0, sessionId)
             } catch (error: Exception) {
-                if (!stopped) {
+                if (isSessionActive(sessionId)) {
                     onStatus("No se pudo preparar la conexión: ${error.message ?: "error de red"}")
+                    scheduleReconnect(sessionId, error.message ?: "error de preparación")
                 }
             }
         }
@@ -150,6 +151,20 @@ class TikTokLiveConnector(
 
     private fun validateTtwid(value: String): String? =
         TtwidCookieParser.validate(value)
+
+    /** Reuses the same validated HTTP/WebView cookie recovery path for initial and retry connections. */
+    private fun obtainTtwid(): String {
+        return try {
+            fetchAnonymousDeviceCookie()
+        } catch (httpError: Exception) {
+            // Do not switch transports after an explicit platform rate-limit/deny response.
+            if (httpError.message.orEmpty().contains("limitó")) throw httpError
+            onStatus("La petición HTTP no obtuvo ttwid. Probando recuperación WebView oculta…")
+            val recovered = cookieFallback?.invoke() ?: throw httpError
+            validateTtwid(recovered)
+                ?: throw IOException("WebView terminó la carga, pero TikTok no entregó una cookie ttwid válida.", httpError)
+        }
+    }
 
     private fun fetchAnonymousDeviceCookie(): String {
         val now = System.currentTimeMillis()
@@ -210,8 +225,11 @@ class TikTokLiveConnector(
     }
 
     @Synchronized
-    private fun openWebSocket(hostIndex: Int) {
-        if (stopped) return
+    private fun openWebSocket(hostIndex: Int, sessionId: Long) {
+        if (!isSessionActive(sessionId)) return
+        heartbeatTask?.cancel(false)
+        heartbeatTask = null
+        val attemptId = webSocketGeneration.incrementAndGet()
         val username = currentUsername ?: return
         val roomId = currentRoomId ?: return
         val ttwid = currentTtwid ?: return
@@ -233,7 +251,7 @@ class TikTokLiveConnector(
         val overloadWarningActive = AtomicBoolean(false)
         socket = http.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                if (stopped) {
+                if (!isSessionActive(sessionId) || webSocketGeneration.get() != attemptId) {
                     webSocket.close(1000, "TikLBot stopped")
                     return
                 }
@@ -244,45 +262,69 @@ class TikTokLiveConnector(
                     return
                 }
                 onStatus("Conectado al LIVE de @$username. Esperando comentarios…")
-                scheduler?.scheduleAtFixedRate({
-                    if (!stopped) runCatching {
+                scheduler?.schedule({
+                    if (isSessionActive(sessionId) && socket === webSocket) reconnectAttempt = 0
+                }, 30, TimeUnit.SECONDS)
+                heartbeatTask = scheduler?.scheduleAtFixedRate({
+                    if (isSessionActive(sessionId) && socket === webSocket) runCatching {
                         webSocket.send(ByteString.of(*encodeHeartbeat(roomId)))
                     }
                 }, HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS)
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                if (stopped) return
+                if (!isSessionActive(sessionId) || webSocketGeneration.get() != attemptId || socket !== webSocket) return
                 // Copy and enqueue without waiting: the OkHttp reader must remain free
                 // to receive control frames and keep the WebSocket transport responsive.
-                val frame = bytes.toByteArray()
+                // Decode the outer protobuf envelope once. The parsed frame is immutable
+                // and can be safely handed to the serial worker for payload processing.
+                val parsedFrame = runCatching { ProtoMessage(bytes.toByteArray()) }.getOrNull()
                 val worker = eventExecutor ?: return
-                val logId = runCatching { ProtoMessage(frame).long(2) }.getOrDefault(0L)
+                val logId = parsedFrame?.long(2) ?: 0L
                 val droppedBefore = worker.droppedTaskCount()
                 val accepted = enqueueAndAcknowledge(
                     worker,
-                    Runnable {
-                        if (!stopped) {
-                            runCatching { processWebcastFrame(webSocket, frame) }
-                                .onFailure {
-                                    if (!stopped) onStatus("Se recibió un paquete LIVE no válido; se omitió sin cerrar la conexión.")
+                    {
+                        val canProcess = isSessionActive(sessionId) &&
+                            webSocketGeneration.get() == attemptId && socket === webSocket
+                        val shouldAcknowledge = if (canProcess) {
+                            runCatching {
+                                processWebcastFrame(
+                                    parsedFrame ?: throw IOException("Invalid LIVE frame envelope"),
+                                    sessionId
+                                )
+                            }.getOrElse {
+                                if (isSessionActive(sessionId)) {
+                                    onStatus("Se recibió un paquete LIVE no válido; se omitió sin cerrar la conexión.")
                                 }
-                        }
+                                // Do not loop forever on malformed protobuf payloads.
+                                true
+                            }
+                        } else false
                         // Permit another overload notice after the backlog has recovered.
                         if (worker.queuedCount() <= BoundedSerialEventExecutor.DEFAULT_QUEUE_CAPACITY / 2) {
                             overloadWarningActive.set(false)
                         }
+                        shouldAcknowledge
                     }
                 ) {
-                    if (logId != 0L) {
+                    if (isSessionActive(sessionId) &&
+                        webSocketGeneration.get() == attemptId && socket === webSocket &&
+                        logId != 0L
+                    ) {
                         runCatching { webSocket.send(ByteString.of(*encodeAck(logId))) }
                     }
                 }
-                if (!accepted) return
+                if (!accepted) {
+                    if (isSessionActive(sessionId) && worker.droppedTaskCount() > droppedBefore && overloadWarningActive.compareAndSet(false, true)) {
+                        onStatus("Conectado al LIVE, pero la cola de recepción está saturada. Se conservaron los paquetes anteriores y este paquete no fue aceptado; reduciendo carga para proteger los comentarios pendientes.")
+                    }
+                    return
+                }
                 if (worker.droppedTaskCount() > droppedBefore &&
                     overloadWarningActive.compareAndSet(false, true)
                 ) {
-                    onStatus("Conectado al LIVE. Hay demasiados eventos por procesar; se priorizan los más recientes y algunos eventos antiguos podrían omitirse para mantener la conexión activa.")
+                    onStatus("Conectado al LIVE. La cola de recepción está saturada; se conservan los paquetes ya aceptados para evitar perder comentarios pendientes.")
                     // The worker may have drained the backlog before this callback reports it.
                     if (worker.queuedCount() <= BoundedSerialEventExecutor.DEFAULT_QUEUE_CAPACITY / 2) {
                         overloadWarningActive.set(false)
@@ -299,21 +341,25 @@ class TikTokLiveConnector(
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                if (!stopped && socket === webSocket) {
+                if (isSessionActive(sessionId) && socket === webSocket) {
                     socket = null
-                    onStatus("TikTok cerró la conexión (código $code). Pulsa Conectar para volver a intentarlo.")
+                    heartbeatTask?.cancel(false)
+                    heartbeatTask = null
+                    scheduleReconnect(sessionId, "TikTok cerró la conexión (código $code).")
                 }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                if (stopped) return
-                if (socket === webSocket) socket = null
+                if (!isSessionActive(sessionId) || webSocketGeneration.get() != attemptId || socket !== webSocket) return
+                socket = null
+                heartbeatTask?.cancel(false)
+                heartbeatTask = null
                 if (hostIndex + 1 < WS_HOSTS.size) {
                     onStatus("Probando el servidor alternativo de TikTok…")
-                    openWebSocket(hostIndex + 1)
+                    openWebSocket(hostIndex + 1, sessionId)
                 } else {
                     val detail = response?.code?.let { "HTTP $it" } ?: (t.message ?: "error de red")
-                    onStatus("No se pudo conectar con TikTok LIVE: $detail")
+                    scheduleReconnect(sessionId, "No se pudo conectar con TikTok LIVE: $detail")
                 }
             }
         })
@@ -354,11 +400,10 @@ class TikTokLiveConnector(
             .build()
     }
 
-    private fun processWebcastFrame(webSocket: WebSocket, bytes: ByteArray) {
-        val frame = ProtoMessage(bytes)
-        if (frame.string(7) != "msg" || frame.string(6) != "pb") return
+    private fun processWebcastFrame(frame: ProtoMessage, sessionId: Long): Boolean {
+        if (frame.string(7) != "msg" || frame.string(6) != "pb") return true
         val payload = frame.bytes(8)
-        if (payload.isEmpty()) return
+        if (payload.isEmpty()) return true
 
         val decodedPayload = if (
             payload.size >= 3 &&
@@ -370,12 +415,14 @@ class TikTokLiveConnector(
         } else payload
 
         val result = ProtoMessage(decodedPayload)
+        var shouldAcknowledge = true
         result.messages(1).forEach { raw ->
             if (raw.bool(6)) return@forEach
             val type = raw.string(1)
             val payloadMessage = ProtoMessage(raw.bytes(2))
             val messageId = raw.long(3).toString()
-            if (messageId != "0" && !rememberMessage(messageId)) return@forEach
+            if (messageId != "0" && isMessageRemembered(messageId)) return@forEach
+            if (!isSessionActive(sessionId)) return@forEach
 
             when (type) {
                 "WebcastChatMessage" -> {
@@ -383,65 +430,70 @@ class TikTokLiveConnector(
                     val identity = payloadMessage.message(18)
                     val replyToUser = payloadMessage.message(12)
                     val comment = payloadMessage.string(3).trim()
-                    if (comment.isBlank()) return@forEach
-                    onComment(
-                        LiveComment(
-                            userId = user?.long(1)?.toString().orEmpty(),
-                            displayName = displayName(user),
-                            text = comment,
-                            profileUsername = user?.string(38)?.trim().orEmpty(),
-                            avatarUrl = user?.let { sender ->
-                                sender.message(9)?.strings(1)?.firstOrNull()
-                                    ?: sender.message(16)?.strings(1)?.firstOrNull()
-                                    ?: sender.message(17)?.strings(1)?.firstOrNull()
-                            },
-                            isModerator = identity?.bool(5) == true,
-                            // TikTok exposes the addressed user on the chat payload (atUser).
-                            // When present, announce the response target instead of reading
-                            // the raw @mention in the message text.
-                            replyToDisplayName = replyToUser?.let(::displayName)
-                                ?.takeUnless { it == "Usuario" },
-                            replyToProfileUsername = replyToUser?.string(38)?.trim()
-                                ?.takeIf { it.isNotBlank() },
-                            contentLanguage = payloadMessage.string(14).takeIf { it.isNotBlank() },
-                            // Current Webcast User exposes is_follower at field 1029 and
-                            // follow_status at 1024. Older schemas may nest follow_status
-                            // under follow_info (field 22 / subfield 3).
-                            isFollower = followerStatus(user)
-                        )
-                    )
+                    if (comment.isNotBlank()) {
+                        val outcome = runCatching {
+                            onComment(
+                                LiveComment(
+                                    userId = user?.long(1)?.toString().orEmpty(),
+                                    displayName = displayName(user),
+                                    text = comment,
+                                    id = messageId.takeIf { it != "0" } ?: UUID.randomUUID().toString(),
+                                    profileUsername = user?.string(38)?.trim().orEmpty(),
+                                    avatarUrl = user?.let { sender ->
+                                        sender.message(9)?.strings(1)?.firstOrNull()
+                                            ?: sender.message(16)?.strings(1)?.firstOrNull()
+                                            ?: sender.message(17)?.strings(1)?.firstOrNull()
+                                    },
+                                    isModerator = identity?.bool(5) == true,
+                                    replyToDisplayName = replyToUser?.let(::displayName)
+                                        ?.takeUnless { it == "Usuario" },
+                                    replyToProfileUsername = replyToUser?.string(38)?.trim()
+                                        ?.takeIf { it.isNotBlank() },
+                                    contentLanguage = payloadMessage.string(14).takeIf { it.isNotBlank() },
+                                    isFollower = followerStatus(user)
+                                )
+                            )
+                        }.getOrElse {
+                            shouldAcknowledge = false
+                            return@forEach
+                        }
+                        if (outcome == CommentHandlingResult.RETRY) {
+                            // Keep this message ID unseen and withhold the frame ACK.
+                            // If TikTok retransmits the frame, already accepted sibling
+                            // events are deduplicated while this comment gets another try.
+                            shouldAcknowledge = false
+                            return@forEach
+                        }
+                    }
                 }
                 "WebcastSocialMessage" -> {
                     val user = payloadMessage.message(2)
-                    // Current public webcast schema: action=1 is follow; action=3 is share.
                     val userName = displayName(user)
                     val userId = user?.long(1)?.takeIf { it != 0L }?.toString().orEmpty()
                     val follower = followerStatus(user)
                     when (payloadMessage.long(4)) {
-                        1L -> onEvent(
+                        1L -> if (isSessionActive(sessionId)) onEvent(
                             LiveEvent(LiveEventType.FOLLOW, userName, userId = userId, isFollower = follower)
                         )
-                        3L -> onEvent(
+                        3L -> if (isSessionActive(sessionId)) onEvent(
                             LiveEvent(LiveEventType.SHARE, userName, userId = userId, isFollower = follower)
                         )
                     }
                 }
                 "WebcastMemberMessage" -> {
                     val user = payloadMessage.message(2)
-                    if (user != null) {
-                        onEvent(
-                            LiveEvent(
-                                LiveEventType.JOIN,
-                                displayName(user),
-                                userId = user.long(1).takeIf { it != 0L }?.toString().orEmpty(),
-                                isFollower = followerStatus(user)
-                            )
+                    if (user != null && isSessionActive(sessionId)) onEvent(
+                        LiveEvent(
+                            LiveEventType.JOIN,
+                            displayName(user),
+                            userId = user.long(1).takeIf { it != 0L }?.toString().orEmpty(),
+                            isFollower = followerStatus(user)
                         )
-                    }
+                    )
                 }
                 "WebcastLikeMessage" -> {
                     val user = payloadMessage.message(5)
-                    if (user != null) {
+                    if (user != null && isSessionActive(sessionId)) {
                         val likesInEvent = payloadMessage.long(2).coerceAtLeast(1L)
                         onEvent(
                             LiveEvent(
@@ -457,9 +509,36 @@ class TikTokLiveConnector(
                     val user = payloadMessage.message(7)
                     val repeatCount = payloadMessage.long(5).coerceAtLeast(1L)
                     val detail = if (repeatCount > 1L) "x$repeatCount" else ""
-                    onEvent(LiveEvent(LiveEventType.GIFT, displayName(user), detail, userId = user?.long(1)?.takeIf { it != 0L }?.toString().orEmpty(), giftGroupId = payloadMessage.long(3).takeIf { it != 0L }?.toString().orEmpty()))
+                    if (isSessionActive(sessionId)) onEvent(
+                        LiveEvent(
+                            LiveEventType.GIFT,
+                            displayName(user),
+                            detail,
+                            userId = user?.long(1)?.takeIf { it != 0L }?.toString().orEmpty(),
+                            giftGroupId = payloadMessage.long(3).takeIf { it != 0L }?.toString().orEmpty()
+                        )
+                    )
                 }
             }
+
+            // Only mark a message after its processing outcome is durable/accepted.
+            if (messageId != "0") rememberMessage(messageId)
+        }
+        return shouldAcknowledge
+    }
+
+    @Synchronized
+    private fun isMessageRemembered(id: String): Boolean = seenIds.contains(id)
+
+    @Synchronized
+    private fun rememberMessage(id: String) {
+        seenIds.add(id)
+        while (seenIds.size > MAX_SEEN_MESSAGE_IDS) {
+            val iterator = seenIds.iterator()
+            if (iterator.hasNext()) {
+                iterator.next()
+                iterator.remove()
+            } else break
         }
     }
 
@@ -479,19 +558,7 @@ class TikTokLiveConnector(
         return FollowerStatusParser.isFollower(explicitFlag, status)
     }
 
-    @Synchronized
-    private fun rememberMessage(id: String): Boolean {
-        if (seenIds.contains(id)) return false
-        seenIds.add(id)
-        while (seenIds.size > 500) {
-            val iterator = seenIds.iterator()
-            if (iterator.hasNext()) {
-                iterator.next()
-                iterator.remove()
-            } else break
-        }
-        return true
-    }
+
 
     @Synchronized
     fun disconnect() {
@@ -499,11 +566,48 @@ class TikTokLiveConnector(
         onStatus("Desconectado")
     }
 
+    private fun isSessionActive(sessionId: Long): Boolean =
+        !stopped && sessionGeneration.get() == sessionId
+
+    private fun scheduleReconnect(sessionId: Long, reason: String) {
+        if (!isSessionActive(sessionId)) return
+        val executor = scheduler ?: return
+        val attempt = reconnectAttempt.coerceAtMost(4)
+        reconnectAttempt = (reconnectAttempt + 1).coerceAtMost(5)
+        val delaySeconds = (2L shl attempt).coerceAtMost(30L)
+        onStatus("$reason Se reintentará la conexión LIVE en $delaySeconds segundos…")
+        runCatching {
+            executor.schedule({
+                if (!isSessionActive(sessionId)) return@schedule
+                try {
+                    val username = currentUsername ?: return@schedule
+                    val roomId = resolveLiveRoom(username)
+                    if (!isSessionActive(sessionId)) return@schedule
+                    currentRoomId = roomId
+                    val refreshedTtwid = obtainTtwid()
+                    if (!isSessionActive(sessionId)) return@schedule
+                    currentTtwid = refreshedTtwid
+                    openWebSocket(0, sessionId)
+                } catch (error: Exception) {
+                    if (isSessionActive(sessionId)) {
+                        scheduleReconnect(sessionId, error.message ?: "No se pudo recuperar la conexión")
+                    }
+                }
+            }, delaySeconds, TimeUnit.SECONDS)
+        }.onFailure {
+            if (isSessionActive(sessionId)) onStatus("No se pudo programar la reconexión LIVE: ${it.message ?: "error"}")
+        }
+    }
+
     @Synchronized
     private fun stopConnection() {
+        sessionGeneration.incrementAndGet()
+        webSocketGeneration.incrementAndGet()
         stopped = true
         socket?.close(1000, "TikLBot disconnect")
         socket = null
+        heartbeatTask?.cancel(false)
+        heartbeatTask = null
         scheduler?.shutdownNow()
         scheduler = null
         eventExecutor?.close()

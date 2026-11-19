@@ -9,27 +9,26 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Serial LIVE frame processor with a bounded, freshness-oriented backlog.
+ * Serial LIVE frame processor with a bounded FIFO backlog.
  *
- * Submissions never wait for queue capacity. If the queue is full, the oldest
- * waiting task is evicted and the newest frame is accepted. The task currently
- * being processed is never interrupted. This keeps the WebSocket reader free
- * while bounding memory and avoiding an overload-triggered disconnect.
+ * Submissions are non-blocking. Under saturation, the new frame is rejected
+ * immediately rather than evicting an accepted frame or blocking OkHttp's reader.
+ * Rejected frames are not acknowledged; accepted frames remain FIFO.
  */
 internal class BoundedSerialEventExecutor(
     queueCapacity: Int = DEFAULT_QUEUE_CAPACITY,
     threadName: String = "TikLBot-LIVE-Events"
 ) : Closeable {
     companion object {
-        const val DEFAULT_QUEUE_CAPACITY = 256
+        const val DEFAULT_QUEUE_CAPACITY = 1_024
     }
 
-    private val droppedTasks = AtomicLong()
+    private val rejectedTasks = AtomicLong()
     private val executor: ThreadPoolExecutor
 
     init {
         require(queueCapacity > 0) { "queueCapacity must be positive" }
-        val queue = DropOldestTaskQueue(queueCapacity) { droppedTasks.incrementAndGet() }
+        val queue = ArrayBlockingQueue<Runnable>(queueCapacity)
         val threadFactory = ThreadFactory { runnable ->
             Thread(runnable, threadName).apply { isDaemon = true }
         }
@@ -44,53 +43,40 @@ internal class BoundedSerialEventExecutor(
         )
     }
 
-    /**
-     * Returns false only after shutdown. When full, the oldest waiting task is
-     * discarded so this new task can be accepted without blocking the caller.
-     * Tasks that remain queued execute serially in FIFO order.
-     */
-    fun tryExecute(task: Runnable): Boolean =
-        try {
+    /** Non-blocking enqueue. A saturated or closed queue rejects the new frame immediately. */
+    fun tryExecute(task: Runnable): Boolean {
+        return try {
             executor.execute(task)
             true
         } catch (_: RejectedExecutionException) {
+            rejectedTasks.incrementAndGet()
             false
         }
+    }
 
     fun queuedCount(): Int = executor.queue.size
 
-    fun droppedTaskCount(): Long = droppedTasks.get()
+    /** Number of incoming frames rejected because the queue was full or closed. */
+    fun droppedTaskCount(): Long = rejectedTasks.get()
 
     override fun close() {
         executor.shutdownNow()
     }
 
-    private class DropOldestTaskQueue(
-        capacity: Int,
-        private val onDrop: () -> Unit
-    ) : ArrayBlockingQueue<Runnable>(capacity) {
-        override fun offer(element: Runnable): Boolean {
-            if (super.offer(element)) return true
-            // Recheck before evicting: the consumer may have freed a slot concurrently.
-            // One WebSocket callback thread submits frames; the worker only removes.
-            while (!super.offer(element)) {
-                if (super.poll() != null) onDrop()
-            }
-            return true
-        }
-    }
 }
 
 /**
- * Enqueue first and acknowledge only after the bounded processor accepted the
- * frame. The acknowledgement callback runs on the caller (OkHttp reader) thread.
+ * Enqueue without blocking the OkHttp reader. Acknowledge only after the
+ * serial worker has finished processing the frame and explicitly permits it.
+ * Returning false keeps a rejected comment frame eligible for server retry.
  */
 internal fun enqueueAndAcknowledge(
     worker: BoundedSerialEventExecutor,
-    task: Runnable,
+    processFrame: () -> Boolean,
     acknowledge: () -> Unit
 ): Boolean {
-    val accepted = worker.tryExecute(task)
-    if (accepted) acknowledge()
-    return accepted
+    return worker.tryExecute(Runnable {
+        val processed = runCatching { processFrame() }.getOrDefault(false)
+        if (processed) runCatching { acknowledge() }
+    })
 }

@@ -11,6 +11,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import com.myclivebot.core.CommentFilter
 import com.myclivebot.core.CommentPipeline
+import com.myclivebot.core.CommentHandlingResult
 import com.myclivebot.core.ChatCommandParser
 import com.myclivebot.core.SelectableSpeechEngine
 import com.myclivebot.core.TikFinityVoiceCatalog
@@ -32,6 +33,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.util.LinkedHashSet
+import java.util.concurrent.atomic.AtomicLong
 
 class BotForegroundService : Service() {
     companion object {
@@ -108,6 +111,9 @@ class BotForegroundService : Service() {
     @Volatile private var lastKnownStatus: String = "Detenido"
     @Volatile private var lastStatsPublishAt: Long = 0L
     private var isolatedVoiceTests = 0
+    private val liveSessionGeneration = AtomicLong(0L)
+    private val commentSideEffectLock = Any()
+    private val processedCommentSideEffects = LinkedHashSet<String>()
 
     override fun onCreate() {
         super.onCreate()
@@ -137,6 +143,7 @@ class BotForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                liveSessionGeneration.incrementAndGet()
                 connector?.disconnect()
                 connector = null
                 releaseLiveWakeLock()
@@ -327,6 +334,8 @@ class BotForegroundService : Service() {
     }
 
     private fun startReader(username: String, settings: ReaderSettings) {
+        val sessionToken = liveSessionGeneration.incrementAndGet()
+        synchronized(commentSideEffectLock) { processedCommentSideEffects.clear() }
         connector?.disconnect()
         connector = null
         releaseLiveWakeLock()
@@ -335,7 +344,6 @@ class BotForegroundService : Service() {
         speechQueue?.close()
         speechQueue = null
         activeSettings = settings
-        liveChatHistoryStore.clear()
         acquireLiveWakeLock()
         ensureSpeechQueue(settings.maxQueueSize, settings)
         // Warm the selected native voice before the first LIVE comment arrives.
@@ -347,10 +355,28 @@ class BotForegroundService : Service() {
         pipeline = livePipeline
         val liveConnector = TikTokLiveConnector(
             onComment = { comment ->
-                DjMusicController.handleLiveComment(comment)
-                publishLiveComment(comment)
-                livePipeline.onComment(comment)
-                publishLiveStatsIfDue()
+                if (liveSessionGeneration.get() != sessionToken) {
+                    CommentHandlingResult.RETRY
+                } else {
+                    // Keep DJ command handling ahead of the speech pipeline as before.
+                    // Publish history/UI only after the comment has had first chance to
+                    // enter the speech queue, and never repeat either side effect on retry.
+                    val firstDelivery = claimCommentSideEffects(comment, sessionToken)
+                    if (firstDelivery && liveSessionGeneration.get() == sessionToken) {
+                        runCatching { DjMusicController.handleLiveComment(comment) }
+                    }
+                    val outcome = try {
+                        livePipeline.onComment(comment)
+                    } finally {
+                        if (firstDelivery && liveSessionGeneration.get() == sessionToken) {
+                            runCatching { publishLiveComment(comment, sessionToken) }
+                        }
+                    }
+                    if (liveSessionGeneration.get() == sessionToken) {
+                        runCatching { publishLiveStatsIfDue() }
+                    }
+                    outcome
+                }
             },
             onStatus = ::updateStatus,
             onEvent = { event ->
@@ -361,8 +387,13 @@ class BotForegroundService : Service() {
         )
         connector = liveConnector
         serviceScope.launch(Dispatchers.IO) {
-            runCatching { liveConnector.connect(username) }
-                .onFailure { updateStatus("No se pudo conectar: ${it.message ?: "error desconocido"}") }
+            // Drain previous-session history writes and clear the database before
+            // allowing the new LIVE session to publish any comments.
+            runCatching { liveChatHistoryStore.clear() }
+            if (liveSessionGeneration.get() == sessionToken) {
+                runCatching { liveConnector.connect(username) }
+                    .onFailure { updateStatus("No se pudo conectar: ${it.message ?: "error desconocido"}") }
+            }
         }
     }
 
@@ -377,7 +408,16 @@ class BotForegroundService : Service() {
         piper?.setMuted(voiceMuted)
         activeSpeed = settings.speed
         if (speechQueue == null) {
-            speechQueue = SpeechQueueWorker(piper!!, serviceScope, capacity = capacity)
+            speechQueue = SpeechQueueWorker(
+                piper!!,
+                serviceScope,
+                capacity = capacity,
+                onCommentQueueFull = { rejectedCount ->
+                    serviceScope.launch(Dispatchers.Main.immediate) {
+                        updateStatus("La cola de comentarios alcanzó su límite seguro. Se conservaron los mensajes ya encolados; no se aceptaron nuevos comentarios hasta liberar espacio (rechazados: $rejectedCount).")
+                    }
+                }
+            )
         }
     }
 
@@ -418,9 +458,27 @@ class BotForegroundService : Service() {
         giftAlertTemplate = intent.getStringExtra(EXTRA_GIFT_TEMPLATE).orEmpty()
     )
 
-    private fun publishLiveComment(comment: LiveComment) {
+    private fun claimCommentSideEffects(comment: LiveComment, sessionToken: Long): Boolean =
+        synchronized(commentSideEffectLock) {
+            if (liveSessionGeneration.get() != sessionToken || comment.id.isBlank()) {
+                return@synchronized false
+            }
+            if (!processedCommentSideEffects.add(comment.id)) return@synchronized false
+            while (processedCommentSideEffects.size > 10_000) {
+                val iterator = processedCommentSideEffects.iterator()
+                if (iterator.hasNext()) {
+                    iterator.next()
+                    iterator.remove()
+                } else break
+            }
+            true
+        }
+
+    private fun publishLiveComment(comment: LiveComment, sessionToken: Long) {
         val timestamp = comment.receivedAt
-        runCatching { liveChatHistoryStore.add(comment) }
+        if (liveSessionGeneration.get() == sessionToken) {
+            runCatching { liveChatHistoryStore.addAsync(comment) }
+        }
         sendBroadcast(
             Intent(ACTION_COMMENT)
                 .setPackage(packageName)
@@ -493,6 +551,9 @@ class BotForegroundService : Service() {
                 .put("events_received", stats.eventsReceived)
                 .put("events_queued", stats.eventsQueued)
                 .put("speech_queue_size", stats.speechQueueSize)
+                .put("comment_queue_wait_last_ms", stats.commentQueueWaitLastMs)
+                .put("comment_queue_wait_max_ms", stats.commentQueueWaitMaxMs)
+                .put("comments_started", stats.commentsStarted)
         )
     }
 
@@ -528,6 +589,7 @@ class BotForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        liveSessionGeneration.incrementAndGet()
         connector?.disconnect()
         connector = null
         pipeline?.close()

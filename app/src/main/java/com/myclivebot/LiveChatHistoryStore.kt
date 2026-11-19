@@ -5,6 +5,13 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import com.myclivebot.core.LiveComment
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.Callable
+import java.util.concurrent.FutureTask
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadFactory
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 /**
  * Session chat history survives Activity stop/start while the foreground LIVE
@@ -16,8 +23,52 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
     null,
     2
 ) {
+    private val writerLock = Any()
+    private val writer = ThreadPoolExecutor(
+        1,
+        1,
+        0L,
+        TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue(2_048),
+        ThreadFactory { runnable ->
+            Thread(runnable, "TikLBot-Chat-History").apply { isDaemon = true }
+        },
+        ThreadPoolExecutor.AbortPolicy()
+    )
+
     init {
         setWriteAheadLoggingEnabled(true)
+    }
+
+    /**
+     * Persist history away from the serial LIVE event thread. The bounded
+     * writer queue prevents storage lag from becoming an unbounded memory queue.
+     */
+    fun addAsync(comment: LiveComment): Boolean = synchronized(writerLock) {
+        if (writer.isShutdown) return@synchronized false
+        try {
+            writer.execute { runCatching { add(comment) } }
+            true
+        } catch (_: RejectedExecutionException) {
+            false
+        }
+    }
+
+    private fun <T> afterPendingWrites(block: () -> T): T {
+        val task = FutureTask(Callable { block() })
+        synchronized(writerLock) {
+            if (writer.isShutdown) {
+                writer.awaitTermination(5, TimeUnit.SECONDS)
+                return block()
+            }
+            try {
+                writer.execute(task)
+            } catch (_: RejectedExecutionException) {
+                // A full bounded queue must not make clear/read race with earlier writes.
+                writer.queue.put(task)
+            }
+        }
+        return task.get()
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -64,7 +115,7 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
         )
     }
 
-    fun getAll(): List<LiveComment> {
+    fun getAll(): List<LiveComment> = afterPendingWrites {
         val comments = ArrayList<LiveComment>()
         readableDatabase.query(
             "live_comments",
@@ -89,10 +140,19 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
                 )
             }
         }
-        return comments
+        comments
     }
 
     fun clear() {
-        writableDatabase.delete("live_comments", null, null)
+        afterPendingWrites { writableDatabase.delete("live_comments", null, null) }
+    }
+
+    override fun close() {
+        synchronized(writerLock) { writer.shutdown() }
+        if (!runCatching { writer.awaitTermination(5, TimeUnit.SECONDS) }.getOrDefault(false)) {
+            writer.shutdownNow()
+            runCatching { writer.awaitTermination(2, TimeUnit.SECONDS) }
+        }
+        super.close()
     }
 }

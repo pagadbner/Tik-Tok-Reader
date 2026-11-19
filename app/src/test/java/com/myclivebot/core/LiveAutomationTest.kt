@@ -503,9 +503,10 @@ class LiveAutomationTest {
         )
         val pipeline = CommentPipeline(CommentFilter(), queue, settings)
         try {
-            assertTrue(pipeline.onComment(
-                LiveComment("welcome-1", "Karina", "hola", profileUsername = "karina_fu82")
-            ))
+            assertEquals(
+                CommentHandlingResult.ACCEPTED,
+                pipeline.onComment(LiveComment("welcome-1", "Karina", "hola", profileUsername = "karina_fu82"))
+            )
             assertEquals(listOf("¡Bienvenido karina_fu82!", "hola"), spoken)
         } finally {
             queue.close()
@@ -532,9 +533,10 @@ class LiveAutomationTest {
             )
         )
         try {
-            assertTrue(pipeline.onComment(
-                LiveComment("command-1", "Karina", "!hola", isModerator = true, profileUsername = "karina_fu82")
-            ))
+            assertEquals(
+                CommentHandlingResult.ACCEPTED,
+                pipeline.onComment(LiveComment("command-1", "Karina", "!hola", isModerator = true, profileUsername = "karina_fu82"))
+            )
             assertEquals(listOf("Hola karina_fu82"), spoken)
         } finally {
             queue.close()
@@ -556,16 +558,19 @@ class LiveAutomationTest {
             ReaderSettings(readUsername = true, useProfileUsername = true)
         )
         try {
-            assertTrue(pipeline.onComment(
-                LiveComment(
-                    userId = "reply-author",
-                    displayName = "Karina",
-                    text = "@luis_01 gracias por el dato",
-                    profileUsername = "karina_fu82",
-                    replyToDisplayName = "Luis",
-                    replyToProfileUsername = "luis_01"
+            assertEquals(
+                CommentHandlingResult.ACCEPTED,
+                pipeline.onComment(
+                    LiveComment(
+                        userId = "reply-author",
+                        displayName = "Karina",
+                        text = "@luis_01 gracias por el dato",
+                        profileUsername = "karina_fu82",
+                        replyToDisplayName = "Luis",
+                        replyToProfileUsername = "luis_01"
+                    )
                 )
-            ))
+            )
             assertEquals(
                 listOf("karina_fu82 le respondió a luis_01: gracias por el dato"),
                 spoken
@@ -584,6 +589,152 @@ class LiveAutomationTest {
 
         val withoutHandle = withHandle.copy(profileUsername = "")
         assertEquals("Karina", filter.usernameForSpeech(withoutHandle, ReaderSettings(useProfileUsername = true)))
+    }
+
+    @Test fun speakerTurnIsCommittedOnlyAfterQueueAcceptance() {
+        val tracker = CommentSpeakerTracker()
+        val ana = LiveComment("user-1", "Ana", "hola")
+
+        assertTrue(tracker.shouldAnnounce(ana))
+        // A rejected comment must not consume the speaker turn.
+        assertTrue(tracker.shouldAnnounce(ana.copy(text = "segundo mensaje")))
+        tracker.markQueued(ana.copy(text = "segundo mensaje"))
+        assertFalse(tracker.shouldAnnounce(ana.copy(text = "tercer mensaje")))
+    }
+
+    @Test fun followerIsDeduplicatedAcrossSeparateAnnouncementBatches() {
+        val spoken = Collections.synchronizedList(mutableListOf<String>())
+        val latch = CountDownLatch(2)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                spoken += text
+                latch.countDown()
+            }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(
+            CommentFilter(), queue, ReaderSettings(readFollows = true),
+            followBatchWindowMs = 40L
+        )
+        try {
+            val ana = LiveEvent(LiveEventType.FOLLOW, "Ana", userId = "follow-ana")
+            assertTrue(pipeline.onEvent(ana))
+            // Wait for the first batch to be accepted and spoken.
+            val firstDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (spoken.isEmpty() && System.nanoTime() < firstDeadline) Thread.sleep(5)
+            assertEquals(listOf("Gracias por seguirme, Ana"), spoken.toList())
+
+            assertFalse(pipeline.onEvent(ana.copy(receivedAt = ana.receivedAt + 1)))
+            assertTrue(pipeline.onEvent(LiveEvent(LiveEventType.FOLLOW, "Luis", userId = "follow-luis")))
+            assertTrue(latch.await(2, TimeUnit.SECONDS))
+            assertEquals(
+                listOf("Gracias por seguirme, Ana", "Gracias por seguirme, Luis"),
+                spoken.toList()
+            )
+        } finally {
+            pipeline.close()
+            queue.close()
+            scope.cancel()
+        }
+    }
+
+    @Test fun giftComboOverflowDoesNotCountUntrackedCumulativeUpdatesTwice() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) = Unit
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 4)
+        val pipeline = CommentPipeline(
+            CommentFilter(), queue, ReaderSettings(readGifts = true),
+            giftBatchWindowMs = 60_000L
+        )
+        try {
+            repeat(512) { index ->
+                assertTrue(
+                    pipeline.onEvent(
+                        LiveEvent(
+                            LiveEventType.GIFT,
+                            "Ana",
+                            detail = "x2",
+                            userId = "gift-user",
+                            giftGroupId = "combo-$index"
+                        )
+                    )
+                )
+            }
+            val overflow = LiveEvent(
+                LiveEventType.GIFT,
+                "Ana",
+                detail = "x2",
+                userId = "gift-user",
+                giftGroupId = "combo-overflow"
+            )
+            assertFalse(pipeline.onEvent(overflow))
+            // A later cumulative update for an untracked combo must not be added either.
+            assertFalse(pipeline.onEvent(overflow.copy(detail = "x5")))
+        } finally {
+            pipeline.close()
+            queue.close()
+            scope.cancel()
+        }
+    }
+
+    @Test fun welcomeCannotTakeTheOnlyRemainingSlotAndDropItsComment() {
+        val gate = CompletableDeferred<Unit>()
+        val started = CountDownLatch(1)
+        val spoken = Collections.synchronizedList(mutableListOf<String>())
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                spoken += text
+                if (text == "hold") {
+                    started.countDown()
+                    gate.await()
+                }
+            }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 20)
+        val pipeline = CommentPipeline(
+            CommentFilter(),
+            queue,
+            ReaderSettings(
+                readUsername = true,
+                welcomeEnabled = true,
+                welcomeTemplate = "¡Bienvenido {user}!"
+            )
+        )
+        try {
+            assertTrue(queue.enqueue("hold"))
+            assertTrue(started.await(2, TimeUnit.SECONDS))
+            repeat(19) { index ->
+                assertTrue(queue.enqueue("pending-$index", comment = true, itemId = "pending-$index"))
+            }
+
+            assertEquals(
+                CommentHandlingResult.RETRY,
+                pipeline.onComment(LiveComment("ana", "Ana", "primer mensaje", id = "first"))
+            )
+            assertTrue(queue.skipComment("pending-0"))
+            assertTrue(queue.skipComment("pending-1"))
+            assertEquals(
+                CommentHandlingResult.ACCEPTED,
+                pipeline.onComment(LiveComment("ana", "Ana", "segundo mensaje", id = "second"))
+            )
+            assertEquals(19, queue.queuedCount())
+            assertEquals(19, queue.clearPendingComments())
+        } finally {
+            pipeline.close()
+            gate.complete(Unit)
+            queue.close()
+            scope.cancel()
+        }
     }
 
 }

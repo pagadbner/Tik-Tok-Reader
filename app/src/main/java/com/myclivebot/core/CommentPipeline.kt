@@ -2,11 +2,14 @@ package com.myclivebot.core
 
 import java.io.Closeable
 import java.util.LinkedHashMap
+import java.util.LinkedHashSet
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+
+enum class CommentHandlingResult { ACCEPTED, FILTERED, RETRY }
 
 data class LivePipelineStats(
     val commentsReceived: Long,
@@ -14,7 +17,10 @@ data class LivePipelineStats(
     val commentsQueued: Long,
     val eventsReceived: Long,
     val eventsQueued: Long,
-    val speechQueueSize: Int
+    val speechQueueSize: Int,
+    val commentQueueWaitLastMs: Long = 0L,
+    val commentQueueWaitMaxMs: Long = 0L,
+    val commentsStarted: Long = 0L
 )
 
 /** Incoming TikTok events are filtered against the latest settings without reconnecting. */
@@ -45,8 +51,9 @@ class CommentPipeline(
             removeOnCancelPolicy = true
         }
     private val pendingFollows = LinkedHashMap<String, String>()
+    // A follower is announced at most once during this LIVE session, even across batches.
+    private val announcedFollows = LinkedHashSet<String>()
     private val pendingGifts = LinkedHashMap<String, GiftBatchItem>()
-    private var pendingFollowOverflow = 0
     private var pendingGiftOverflowUsers = 0
     private var pendingGiftOverflowCount = 0L
     private var followFlush: ScheduledFuture<*>? = null
@@ -64,7 +71,8 @@ class CommentPipeline(
         const val DEFAULT_GIFT_BATCH_WINDOW_MS = 3_000L
         const val DEFAULT_ALERT_RETRY_DELAY_MS = 500L
         private const val MAX_BATCH_USERS = 1_000
-        private const val MAX_GIFT_GROUPS_PER_USER = 64
+        private const val MAX_GIFT_GROUPS_PER_USER = 512
+        private const val MAX_ANNOUNCED_FOLLOWERS = 10_000
         private const val MAX_NAMES_IN_ALERT = 3
     }
 
@@ -72,29 +80,30 @@ class CommentPipeline(
         settings.set(next)
     }
 
-    fun onComment(comment: LiveComment): Boolean {
+    fun onComment(comment: LiveComment): CommentHandlingResult {
+        if (closed) return CommentHandlingResult.RETRY
         commentsReceived.incrementAndGet()
         val current = settings.get()
-        if (!filter.shouldRead(comment, current)) {
+        if (!filter.shouldRead(comment, current, recordDuplicate = false)) {
             commentsFiltered.incrementAndGet()
-            return false
+            return CommentHandlingResult.FILTERED
         }
-        // A welcome is emitted once per accepted commenter in this connection.
-        welcomeTracker.messageFor(
+        // Preview the welcome without consuming it. The welcome and comment
+        // are committed together only if the speech queue accepts both.
+        val welcomeSpeech = welcomeTracker.previewMessageFor(
             comment,
             current,
             filter.usernameForSpeech(comment, current)
         )?.let { welcome ->
-            val welcomeSpeech = filter.toSpeech(
+            filter.toSpeech(
                 comment.copy(text = welcome),
                 current.copy(readUsername = false, onlyUsername = false)
             )
-            speechQueue.enqueue(welcomeSpeech, comment = true)
         }
 
         // A speaker is named once when they take the floor. Consecutive comments
         // from that same person omit the name until another accepted speaker appears.
-        val announceSpeaker = speakerTracker.isNewSpeaker(comment)
+        val announceSpeaker = speakerTracker.shouldAnnounce(comment)
 
         // Commands are local speech responses only; this app does not send chat messages.
         val commandResponse = if (current.customCommandsEnabled) {
@@ -147,9 +156,24 @@ class CommentPipeline(
             readUsername = current.readUsername && announceSpeaker && replyTarget == null
         )
         val speech = filter.toSpeech(speechComment, speechSettings)
-        val queued = speechQueue.enqueue(speech, itemId = comment.id, comment = true)
-        if (queued) commentsQueued.incrementAndGet()
-        return queued
+        if (speech.isBlank() && welcomeSpeech == null) {
+            // The filter accepted the source text, but sanitization left nothing
+            // to say. Treat it as intentionally handled so the frame can be ACKed.
+            commentsFiltered.incrementAndGet()
+            return CommentHandlingResult.FILTERED
+        }
+        val queueItems = buildList {
+            welcomeSpeech?.let { add(it to null) }
+            add(speech to comment.id)
+        }
+        if (closed) return CommentHandlingResult.RETRY
+        val queued = speechQueue.enqueueComments(queueItems)
+        if (!queued || closed) return CommentHandlingResult.RETRY
+        filter.confirmRead(comment, current)
+        if (welcomeSpeech != null) welcomeTracker.confirmQueued(comment)
+        speakerTracker.markQueued(comment)
+        commentsQueued.incrementAndGet()
+        return CommentHandlingResult.ACCEPTED
     }
 
     fun onEvent(event: LiveEvent): Boolean {
@@ -196,9 +220,11 @@ class CommentPipeline(
         val key = event.userId.trim().ifBlank { event.displayName.trim().lowercase() }
         if (key.isBlank()) return false
         synchronized(alertLock) {
-            if (closed || pendingFollows.containsKey(key)) return false
-            if (pendingFollows.size < MAX_BATCH_USERS) pendingFollows[key] = name
-            else pendingFollowOverflow++
+            if (closed || pendingFollows.containsKey(key) || announcedFollows.contains(key)) return false
+            // Bound each batch without counting untracked IDs: otherwise duplicate
+            // overflow events can inflate the spoken follower total.
+            if (pendingFollows.size >= MAX_BATCH_USERS) return false
+            pendingFollows[key] = name
             // Only a genuinely new follower extends the quiet window.
             scheduleFollowFlushLocked(followBatchWindowMs.coerceAtLeast(0L))
         }
@@ -224,11 +250,13 @@ class CommentPipeline(
                     val previousGroupCount = existing.groupCounts[groupId]
                     when {
                         previousGroupCount == null -> {
+                            // Once the per-user combo map is full, ignore unseen combo IDs
+                            // rather than adding counts that could be duplicated by later updates.
                             if (existing.groupCounts.size < MAX_GIFT_GROUPS_PER_USER) {
                                 existing.groupCounts[groupId] = count
+                                existing.count = addGiftCounts(existing.count, count)
+                                added = true
                             }
-                            existing.count = addGiftCounts(existing.count, count)
-                            added = true
                         }
                         count > previousGroupCount -> {
                             existing.groupCounts[groupId] = count
@@ -276,18 +304,21 @@ class CommentPipeline(
     private fun flushFollowBatch() {
         synchronized(alertLock) {
             followFlush = null
-            if (closed || pendingFollows.isEmpty() && pendingFollowOverflow == 0) return
+            if (closed || pendingFollows.isEmpty()) return
             if (!settings.get().readFollows) {
                 pendingFollows.clear()
-                pendingFollowOverflow = 0
                 return
             }
-            val total = pendingFollows.size + pendingFollowOverflow
+            val total = pendingFollows.size
             val names = pendingFollows.values.take(MAX_NAMES_IN_ALERT)
             val speech = FollowAlertRules.renderBatch(names, total)
             if (speech != null && speechQueue.enqueue(speech, priority = true)) {
+                pendingFollows.keys.forEach { announcedFollows.add(it) }
+                while (announcedFollows.size > MAX_ANNOUNCED_FOLLOWERS) {
+                    val iterator = announcedFollows.iterator()
+                    if (iterator.hasNext()) { iterator.next(); iterator.remove() } else break
+                }
                 pendingFollows.clear()
-                pendingFollowOverflow = 0
             } else {
                 scheduleFollowFlushLocked(alertRetryDelayMs.coerceAtLeast(100L))
             }
@@ -333,22 +364,28 @@ class CommentPipeline(
             followFlush = null
             giftFlush = null
             pendingFollows.clear()
+            announcedFollows.clear()
             pendingGifts.clear()
-            pendingFollowOverflow = 0
             pendingGiftOverflowUsers = 0
             pendingGiftOverflowCount = 0L
         }
         alertScheduler.shutdownNow()
     }
 
-    fun stats(): LivePipelineStats = LivePipelineStats(
-        commentsReceived = commentsReceived.get(),
-        commentsFiltered = commentsFiltered.get(),
-        commentsQueued = commentsQueued.get(),
-        eventsReceived = eventsReceived.get(),
-        eventsQueued = eventsQueued.get(),
-        speechQueueSize = speechQueue.queuedCount()
-    )
+    fun stats(): LivePipelineStats {
+        val latency = speechQueue.commentQueueLatencyMs()
+        return LivePipelineStats(
+            commentsReceived = commentsReceived.get(),
+            commentsFiltered = commentsFiltered.get(),
+            commentsQueued = commentsQueued.get(),
+            eventsReceived = eventsReceived.get(),
+            eventsQueued = eventsQueued.get(),
+            speechQueueSize = speechQueue.queuedCount(),
+            commentQueueWaitLastMs = latency.first,
+            commentQueueWaitMaxMs = latency.second,
+            commentsStarted = latency.third
+        )
+    }
 }
 
 
@@ -360,13 +397,28 @@ class CommentPipeline(
 class CommentSpeakerTracker {
     private var lastSpeakerKey: String? = null
 
+    private fun keyFor(comment: LiveComment): String =
+        comment.userId.trim().takeIf { it.isNotBlank() }
+            ?: comment.displayName.trim().lowercase()
+
+    /** Checks the current speaker without consuming the turn before queue acceptance. */
+    @Synchronized
+    fun shouldAnnounce(comment: LiveComment): Boolean {
+        val key = keyFor(comment)
+        return key.isNotBlank() && key != lastSpeakerKey
+    }
+
+    /** Commits the speaker turn only after the comment was accepted by the speech queue. */
+    @Synchronized
+    fun markQueued(comment: LiveComment) {
+        keyFor(comment).takeIf { it.isNotBlank() }?.let { lastSpeakerKey = it }
+    }
+
+    /** Backwards-compatible helper used by existing callers and unit tests. */
     @Synchronized
     fun isNewSpeaker(comment: LiveComment): Boolean {
-        val key = comment.userId.trim().takeIf { it.isNotBlank() }
-            ?: comment.displayName.trim().lowercase()
-        if (key.isBlank()) return false
-        val changed = key != lastSpeakerKey
-        lastSpeakerKey = key
+        val changed = shouldAnnounce(comment)
+        if (changed) markQueued(comment)
         return changed
     }
 }
