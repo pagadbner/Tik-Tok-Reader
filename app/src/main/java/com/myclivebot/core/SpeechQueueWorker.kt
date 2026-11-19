@@ -88,7 +88,7 @@ class SpeechQueueWorker(
                         (System.nanoTime() - next.enqueuedAtNanos).coerceAtLeast(0L)
                     )
                     lastCommentQueueWaitMs.set(waitMs)
-                    maxCommentQueueWaitMs.accumulateAndGet(waitMs, ::maxOf)
+                    maxCommentQueueWaitMs.accumulateAndGet(waitMs) { current, candidate -> maxOf(current, candidate) }
                     spokenCommentCount.incrementAndGet()
                 }
                 try {
