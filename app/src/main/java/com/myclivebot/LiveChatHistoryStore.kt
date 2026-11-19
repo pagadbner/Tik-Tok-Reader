@@ -23,6 +23,7 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
     null,
     2
 ) {
+    private val writerLock = Any()
     private val writer = ThreadPoolExecutor(
         1,
         1,
@@ -43,8 +44,9 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
      * Persist history away from the serial LIVE event thread. The bounded
      * writer queue prevents storage lag from becoming an unbounded memory queue.
      */
-    fun addAsync(comment: LiveComment): Boolean {
-        return try {
+    fun addAsync(comment: LiveComment): Boolean = synchronized(writerLock) {
+        if (writer.isShutdown) return@synchronized false
+        try {
             writer.execute { runCatching { add(comment) } }
             true
         } catch (_: RejectedExecutionException) {
@@ -53,14 +55,18 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
     }
 
     private fun <T> afterPendingWrites(block: () -> T): T {
-        if (writer.isShutdown) return block()
         val task = FutureTask(Callable { block() })
-        try {
-            writer.execute(task)
-        } catch (_: RejectedExecutionException) {
-            if (writer.isShutdown) return block()
-            // A full bounded queue must not make clear/read race with earlier writes.
-            writer.queue.put(task)
+        synchronized(writerLock) {
+            if (writer.isShutdown) {
+                writer.awaitTermination(5, TimeUnit.SECONDS)
+                return block()
+            }
+            try {
+                writer.execute(task)
+            } catch (_: RejectedExecutionException) {
+                // A full bounded queue must not make clear/read race with earlier writes.
+                writer.queue.put(task)
+            }
         }
         return task.get()
     }
@@ -143,8 +149,11 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
     }
 
     override fun close() {
-        writer.shutdown()
-        runCatching { writer.awaitTermination(3, TimeUnit.SECONDS) }
+        synchronized(writerLock) { writer.shutdown() }
+        if (!runCatching { writer.awaitTermination(5, TimeUnit.SECONDS) }.getOrDefault(false)) {
+            writer.shutdownNow()
+            runCatching { writer.awaitTermination(2, TimeUnit.SECONDS) }
+        }
         super.close()
     }
 }
