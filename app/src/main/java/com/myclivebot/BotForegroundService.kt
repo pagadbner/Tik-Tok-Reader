@@ -33,6 +33,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.util.LinkedHashSet
 import java.util.concurrent.atomic.AtomicLong
 
 class BotForegroundService : Service() {
@@ -111,6 +112,8 @@ class BotForegroundService : Service() {
     @Volatile private var lastStatsPublishAt: Long = 0L
     private var isolatedVoiceTests = 0
     private val liveSessionGeneration = AtomicLong(0L)
+    private val commentSideEffectLock = Any()
+    private val processedCommentSideEffects = LinkedHashSet<String>()
 
     override fun onCreate() {
         super.onCreate()
@@ -332,6 +335,7 @@ class BotForegroundService : Service() {
 
     private fun startReader(username: String, settings: ReaderSettings) {
         val sessionToken = liveSessionGeneration.incrementAndGet()
+        synchronized(commentSideEffectLock) { processedCommentSideEffects.clear() }
         connector?.disconnect()
         connector = null
         releaseLiveWakeLock()
@@ -355,11 +359,12 @@ class BotForegroundService : Service() {
                     CommentHandlingResult.RETRY
                 } else {
                     // Preserve the established DJ-command and chat-publication order.
-                    // History persistence is now asynchronous and bounded, so it no
-                    // longer blocks this serial LIVE event-processing thread.
-                    runCatching { DjMusicController.handleLiveComment(comment) }
-                    if (liveSessionGeneration.get() == sessionToken) {
-                        runCatching { publishLiveComment(comment, sessionToken) }
+                    // A retried, unacknowledged frame must not repeat those side effects.
+                    if (claimCommentSideEffects(comment, sessionToken)) {
+                        runCatching { DjMusicController.handleLiveComment(comment) }
+                        if (liveSessionGeneration.get() == sessionToken) {
+                            runCatching { publishLiveComment(comment, sessionToken) }
+                        }
                     }
                     val outcome = livePipeline.onComment(comment)
                     if (liveSessionGeneration.get() == sessionToken) {
@@ -447,6 +452,22 @@ class BotForegroundService : Service() {
         giftMinimumRepeatCount = intent.getIntExtra(EXTRA_GIFT_MINIMUM_REPEAT, 1).coerceIn(1, 999),
         giftAlertTemplate = intent.getStringExtra(EXTRA_GIFT_TEMPLATE).orEmpty()
     )
+
+    private fun claimCommentSideEffects(comment: LiveComment, sessionToken: Long): Boolean =
+        synchronized(commentSideEffectLock) {
+            if (liveSessionGeneration.get() != sessionToken || comment.id.isBlank()) {
+                return@synchronized false
+            }
+            if (!processedCommentSideEffects.add(comment.id)) return@synchronized false
+            while (processedCommentSideEffects.size > 10_000) {
+                val iterator = processedCommentSideEffects.iterator()
+                if (iterator.hasNext()) {
+                    iterator.next()
+                    iterator.remove()
+                } else break
+            }
+            true
+        }
 
     private fun publishLiveComment(comment: LiveComment, sessionToken: Long) {
         val timestamp = comment.receivedAt
