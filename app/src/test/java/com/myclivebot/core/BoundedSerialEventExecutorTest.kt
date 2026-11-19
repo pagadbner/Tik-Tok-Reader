@@ -157,4 +157,46 @@ class BoundedSerialEventExecutorTest {
         }
     }
 
+
+    @Test fun burstStressKeepsReceiveBacklogBoundedAndNeverBlocksForCapacity() {
+        val capacity = 64
+        val executor = BoundedSerialEventExecutor(queueCapacity = capacity, threadName = "test-live-burst")
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val completed = java.util.concurrent.CountDownLatch(1)
+        val accepted = java.util.concurrent.atomic.AtomicInteger()
+        val processed = java.util.concurrent.atomic.AtomicInteger()
+
+        try {
+            assertTrue(executor.tryExecute(Runnable {
+                started.countDown()
+                release.await(5, TimeUnit.SECONDS)
+                processed.incrementAndGet()
+            }))
+            accepted.incrementAndGet()
+            assertTrue(started.await(2, TimeUnit.SECONDS))
+
+            val began = System.nanoTime()
+            repeat(10_000) {
+                if (executor.tryExecute(Runnable { processed.incrementAndGet() })) {
+                    accepted.incrementAndGet()
+                }
+            }
+            val elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - began)
+            assertTrue("10k burst submission must remain non-blocking (elapsed=$elapsedMs ms)", elapsedMs < 2_000)
+            assertTrue(executor.queuedCount() <= capacity)
+            assertTrue(accepted.get() <= capacity + 1)
+            assertTrue(executor.droppedTaskCount() > 0)
+
+            release.countDown()
+            // Poll completion through a final task ordered behind every accepted frame.
+            assertTrue(executor.tryExecute(Runnable { completed.countDown() }))
+            assertTrue(completed.await(3, TimeUnit.SECONDS))
+            assertEquals(accepted.get(), processed.get() + 1)
+        } finally {
+            release.countDown()
+            executor.close()
+        }
+    }
+
 }
