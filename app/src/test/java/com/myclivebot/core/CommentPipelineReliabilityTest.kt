@@ -130,4 +130,53 @@ class CommentPipelineReliabilityTest {
         }
     }
 
+
+    @Test fun rejectedCommentCanRetryWithoutBeingMistakenForDuplicate() {
+        val gate = CompletableDeferred<Unit>()
+        val spoken = mutableListOf<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            private var first = true
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                spoken += text
+                if (first) {
+                    first = false
+                    gate.await()
+                }
+            }
+            override suspend fun stop() = Unit
+        }
+        val queue = SpeechQueueWorker(engine, scope, capacity = 1)
+        val pipeline = CommentPipeline(CommentFilter(), queue, ReaderSettings())
+        val retryable = LiveComment(
+            userId = "retry-user",
+            displayName = "RetryUser",
+            text = "same comment",
+            id = "retry-id",
+            receivedAt = 123_456L
+        )
+
+        try {
+            assertEquals(
+                CommentHandlingResult.ACCEPTED,
+                pipeline.onComment(LiveComment("first-user", "First", "hold"))
+            )
+            assertEquals(
+                CommentHandlingResult.ACCEPTED,
+                pipeline.onComment(LiveComment("other-user", "Other", "occupy the queue"))
+            )
+            assertEquals(CommentHandlingResult.RETRY, pipeline.onComment(retryable))
+            assertEquals(1, queue.clearPendingComments())
+            assertEquals(CommentHandlingResult.ACCEPTED, pipeline.onComment(retryable))
+            gate.complete(Unit)
+            assertEquals(listOf("First dice: hold", "RetryUser dice: same comment"), spoken)
+        } finally {
+            gate.complete(Unit)
+            pipeline.close()
+            queue.close()
+            scope.cancel()
+        }
+    }
+
 }
