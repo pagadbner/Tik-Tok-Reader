@@ -11,6 +11,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import com.myclivebot.core.CommentFilter
 import com.myclivebot.core.CommentPipeline
+import com.myclivebot.core.CommentHandlingResult
 import com.myclivebot.core.ChatCommandParser
 import com.myclivebot.core.SelectableSpeechEngine
 import com.myclivebot.core.TikFinityVoiceCatalog
@@ -32,6 +33,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicLong
 
 class BotForegroundService : Service() {
     companion object {
@@ -108,6 +110,7 @@ class BotForegroundService : Service() {
     @Volatile private var lastKnownStatus: String = "Detenido"
     @Volatile private var lastStatsPublishAt: Long = 0L
     private var isolatedVoiceTests = 0
+    private val liveSessionGeneration = AtomicLong(0L)
 
     override fun onCreate() {
         super.onCreate()
@@ -137,6 +140,7 @@ class BotForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                liveSessionGeneration.incrementAndGet()
                 connector?.disconnect()
                 connector = null
                 releaseLiveWakeLock()
@@ -327,6 +331,7 @@ class BotForegroundService : Service() {
     }
 
     private fun startReader(username: String, settings: ReaderSettings) {
+        val sessionToken = liveSessionGeneration.incrementAndGet()
         connector?.disconnect()
         connector = null
         releaseLiveWakeLock()
@@ -347,14 +352,21 @@ class BotForegroundService : Service() {
         pipeline = livePipeline
         val liveConnector = TikTokLiveConnector(
             onComment = { comment ->
-                // Accept the comment into the speech lane before non-critical UI,
-                // history, bridge, and DJ side effects can delay later LIVE frames.
-                try {
-                    livePipeline.onComment(comment)
-                } finally {
-                    DjMusicController.handleLiveComment(comment)
-                    publishLiveComment(comment)
-                    publishLiveStatsIfDue()
+                if (liveSessionGeneration.get() != sessionToken) {
+                    CommentHandlingResult.RETRY
+                } else {
+                    // Preserve the established DJ-command and chat-publication order.
+                    // History persistence is now asynchronous and bounded, so it no
+                    // longer blocks this serial LIVE event-processing thread.
+                    runCatching { DjMusicController.handleLiveComment(comment) }
+                    if (liveSessionGeneration.get() == sessionToken) {
+                        runCatching { publishLiveComment(comment, sessionToken) }
+                    }
+                    val outcome = livePipeline.onComment(comment)
+                    if (liveSessionGeneration.get() == sessionToken) {
+                        runCatching { publishLiveStatsIfDue() }
+                    }
+                    outcome
                 }
             },
             onStatus = ::updateStatus,
@@ -432,9 +444,11 @@ class BotForegroundService : Service() {
         giftAlertTemplate = intent.getStringExtra(EXTRA_GIFT_TEMPLATE).orEmpty()
     )
 
-    private fun publishLiveComment(comment: LiveComment) {
+    private fun publishLiveComment(comment: LiveComment, sessionToken: Long) {
         val timestamp = comment.receivedAt
-        runCatching { liveChatHistoryStore.add(comment) }
+        if (liveSessionGeneration.get() == sessionToken) {
+            runCatching { liveChatHistoryStore.addAsync(comment) }
+        }
         sendBroadcast(
             Intent(ACTION_COMMENT)
                 .setPackage(packageName)
@@ -542,6 +556,7 @@ class BotForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        liveSessionGeneration.incrementAndGet()
         connector?.disconnect()
         connector = null
         pipeline?.close()
