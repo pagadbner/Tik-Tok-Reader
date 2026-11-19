@@ -41,7 +41,7 @@ class BoundedSerialEventExecutorTest {
                 completed.countDown()
             }))
             val elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
-            assertTrue("Backpressure must remain bounded (elapsed=$elapsedMs ms)", elapsedMs < 1_500)
+            assertTrue("Receive callback must not block on a saturated queue (elapsed=$elapsedMs ms)", elapsedMs < 250)
             assertEquals(1, executor.queuedCount())
             assertEquals(1L, executor.droppedTaskCount())
 
@@ -55,31 +55,49 @@ class BoundedSerialEventExecutorTest {
         }
     }
 
-    @Test fun acknowledgesOnlyAfterFrameWasAcceptedByTheWorker() {
+    @Test fun acknowledgesOnlyAfterFrameProcessingAcceptsTheComment() {
         val executor = BoundedSerialEventExecutor(queueCapacity = 1, threadName = "test-live-ack")
-        val started = CountDownLatch(1)
-        val release = CountDownLatch(1)
+        val processingStarted = CountDownLatch(1)
+        val releaseProcessing = CountDownLatch(1)
+        val acknowledged = CountDownLatch(1)
         val ackCount = java.util.concurrent.atomic.AtomicInteger()
 
         try {
-            assertTrue(executor.tryExecute(Runnable {
-                started.countDown()
-                release.await(2, TimeUnit.SECONDS)
-            }))
-            assertTrue(started.await(2, TimeUnit.SECONDS))
-
-            assertTrue(enqueueAndAcknowledge(executor, Runnable { }) {
+            assertTrue(enqueueAndAcknowledge(executor, {
+                processingStarted.countDown()
+                releaseProcessing.await(2, TimeUnit.SECONDS)
+                true
+            }) {
                 ackCount.incrementAndGet()
+                acknowledged.countDown()
             })
+            assertTrue(processingStarted.await(2, TimeUnit.SECONDS))
+            assertEquals(0, ackCount.get())
+            releaseProcessing.countDown()
+            assertTrue(acknowledged.await(2, TimeUnit.SECONDS))
             assertEquals(1, ackCount.get())
-            // A full queue rejects the incoming frame and must not acknowledge it.
-            assertFalse(enqueueAndAcknowledge(executor, Runnable { }) {
-                ackCount.incrementAndGet()
-            })
-            assertEquals(1, ackCount.get())
-            assertEquals(1L, executor.droppedTaskCount())
         } finally {
-            release.countDown()
+            releaseProcessing.countDown()
+            executor.close()
+        }
+    }
+
+    @Test fun doesNotAcknowledgeACommentRejectedByTheSpeechQueue() {
+        val executor = BoundedSerialEventExecutor(queueCapacity = 1, threadName = "test-live-retry")
+        val processed = CountDownLatch(1)
+        val ackCount = java.util.concurrent.atomic.AtomicInteger()
+
+        try {
+            assertTrue(enqueueAndAcknowledge(executor, {
+                processed.countDown()
+                false
+            }) {
+                ackCount.incrementAndGet()
+            })
+            assertTrue(processed.await(2, TimeUnit.SECONDS))
+            Thread.sleep(30)
+            assertEquals(0, ackCount.get())
+        } finally {
             executor.close()
         }
     }
@@ -89,7 +107,7 @@ class BoundedSerialEventExecutorTest {
         val ackCount = java.util.concurrent.atomic.AtomicInteger()
         executor.close()
 
-        assertFalse(enqueueAndAcknowledge(executor, Runnable { }) {
+        assertFalse(enqueueAndAcknowledge(executor, { true }) {
             ackCount.incrementAndGet()
         })
         assertEquals(0, ackCount.get())
