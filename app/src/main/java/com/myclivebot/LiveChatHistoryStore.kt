@@ -115,8 +115,7 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
         )
     }
 
-    fun getAll(): List<LiveComment> {
-        afterPendingWrites { Unit }
+    fun getAll(): List<LiveComment> = afterPendingWrites {
         val comments = ArrayList<LiveComment>()
         readableDatabase.query(
             "live_comments",
@@ -141,7 +140,7 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
                 )
             }
         }
-        return comments
+        comments
     }
 
     fun clear() {
