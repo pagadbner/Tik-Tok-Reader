@@ -287,4 +287,48 @@ class SpeechQueueWorkerTest {
         }
     }
 
+
+    @Test fun concurrentEnqueuesCannotRepopulateQueueAfterClose() {
+        val gate = CompletableDeferred<Unit>()
+        val started = java.util.concurrent.CountDownLatch(1)
+        val startWriters = java.util.concurrent.CountDownLatch(1)
+        val writersDone = java.util.concurrent.CountDownLatch(4)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                if (text == "hold") {
+                    started.countDown()
+                    gate.await()
+                }
+            }
+            override suspend fun stop() = Unit
+        }
+        val worker = SpeechQueueWorker(engine, scope, capacity = 100)
+
+        try {
+            assertTrue(worker.enqueue("hold"))
+            assertTrue(started.await(2, TimeUnit.SECONDS))
+            repeat(4) { writerIndex ->
+                Thread {
+                    startWriters.await()
+                    repeat(1_000) { item ->
+                        worker.enqueue("writer-$writerIndex-$item", comment = true)
+                    }
+                    writersDone.countDown()
+                }.apply { isDaemon = true }.start()
+            }
+            startWriters.countDown()
+            worker.close()
+            assertTrue(writersDone.await(3, TimeUnit.SECONDS))
+            assertEquals(0, worker.queuedCount())
+            assertTrue(!worker.enqueue("after-close", comment = true))
+            assertTrue(!worker.enqueueComments(listOf("welcome" to null, "comment" to "late")))
+        } finally {
+            gate.complete(Unit)
+            worker.close()
+            scope.cancel()
+        }
+    }
+
 }
