@@ -200,7 +200,7 @@ class CommentFilter {
             }
             output.appendCodePoint(codePoint)
         }
-        return output.toString().replace(Regex("\\s+"), " ").trim()
+        return output.toString().replace(whitespaceRegex, " ").trim()
     }
 
     private fun isEmoji(codePoint: Int): Boolean {
