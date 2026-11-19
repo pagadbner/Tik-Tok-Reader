@@ -17,7 +17,10 @@ data class LivePipelineStats(
     val commentsQueued: Long,
     val eventsReceived: Long,
     val eventsQueued: Long,
-    val speechQueueSize: Int
+    val speechQueueSize: Int,
+    val commentQueueWaitLastMs: Long = 0L,
+    val commentQueueWaitMaxMs: Long = 0L,
+    val commentsStarted: Long = 0L
 )
 
 /** Incoming TikTok events are filtered against the latest settings without reconnecting. */
@@ -362,14 +365,20 @@ class CommentPipeline(
         alertScheduler.shutdownNow()
     }
 
-    fun stats(): LivePipelineStats = LivePipelineStats(
-        commentsReceived = commentsReceived.get(),
-        commentsFiltered = commentsFiltered.get(),
-        commentsQueued = commentsQueued.get(),
-        eventsReceived = eventsReceived.get(),
-        eventsQueued = eventsQueued.get(),
-        speechQueueSize = speechQueue.queuedCount()
-    )
+    fun stats(): LivePipelineStats {
+        val latency = speechQueue.commentQueueLatencyMs()
+        return LivePipelineStats(
+            commentsReceived = commentsReceived.get(),
+            commentsFiltered = commentsFiltered.get(),
+            commentsQueued = commentsQueued.get(),
+            eventsReceived = eventsReceived.get(),
+            eventsQueued = eventsQueued.get(),
+            speechQueueSize = speechQueue.queuedCount(),
+            commentQueueWaitLastMs = latency.first,
+            commentQueueWaitMaxMs = latency.second,
+            commentsStarted = latency.third
+        )
+    }
 }
 
 
