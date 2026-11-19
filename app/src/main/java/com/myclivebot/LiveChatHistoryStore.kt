@@ -54,17 +54,6 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
         }
     }
 
-    /** Queue a session clear in order without blocking the LIVE start path. */
-    fun clearAsync(): Boolean = synchronized(writerLock) {
-        if (writer.isShutdown) return@synchronized false
-        try {
-            writer.execute { runCatching { writableDatabase.delete("live_comments", null, null) } }
-            true
-        } catch (_: RejectedExecutionException) {
-            false
-        }
-    }
-
     private fun <T> afterPendingWrites(block: () -> T): T {
         val task = FutureTask(Callable { block() })
         synchronized(writerLock) {
