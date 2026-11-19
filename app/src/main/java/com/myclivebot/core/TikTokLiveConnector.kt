@@ -29,7 +29,7 @@ import java.util.zip.GZIPInputStream
  * a third-party signing service, or logged-in TikTok credentials.
  */
 class TikTokLiveConnector(
-    private val onComment: (LiveComment) -> Unit,
+    private val onComment: (LiveComment) -> CommentHandlingResult,
     private val onStatus: (String) -> Unit,
     private val onEvent: (LiveEvent) -> Unit = {},
     private val cookieFallback: (() -> String)? = null
@@ -282,24 +282,34 @@ class TikTokLiveConnector(
                 val droppedBefore = worker.droppedTaskCount()
                 val accepted = enqueueAndAcknowledge(
                     worker,
-                    Runnable {
-                        if (isSessionActive(sessionId) && webSocketGeneration.get() == attemptId && socket === webSocket) {
+                    {
+                        val canProcess = isSessionActive(sessionId) &&
+                            webSocketGeneration.get() == attemptId && socket === webSocket
+                        val shouldAcknowledge = if (canProcess) {
                             runCatching {
                                 processWebcastFrame(
                                     parsedFrame ?: throw IOException("Invalid LIVE frame envelope"),
                                     sessionId
                                 )
-                            }.onFailure {
-                                if (isSessionActive(sessionId)) onStatus("Se recibió un paquete LIVE no válido; se omitió sin cerrar la conexión.")
+                            }.getOrElse {
+                                if (isSessionActive(sessionId)) {
+                                    onStatus("Se recibió un paquete LIVE no válido; se omitió sin cerrar la conexión.")
+                                }
+                                // Do not loop forever on malformed protobuf payloads.
+                                true
                             }
-                        }
+                        } else false
                         // Permit another overload notice after the backlog has recovered.
                         if (worker.queuedCount() <= BoundedSerialEventExecutor.DEFAULT_QUEUE_CAPACITY / 2) {
                             overloadWarningActive.set(false)
                         }
+                        shouldAcknowledge
                     }
                 ) {
-                    if (logId != 0L) {
+                    if (isSessionActive(sessionId) &&
+                        webSocketGeneration.get() == attemptId && socket === webSocket &&
+                        logId != 0L
+                    ) {
                         runCatching { webSocket.send(ByteString.of(*encodeAck(logId))) }
                     }
                 }
@@ -388,10 +398,10 @@ class TikTokLiveConnector(
             .build()
     }
 
-    private fun processWebcastFrame(frame: ProtoMessage, sessionId: Long) {
-        if (frame.string(7) != "msg" || frame.string(6) != "pb") return
+    private fun processWebcastFrame(frame: ProtoMessage, sessionId: Long): Boolean {
+        if (frame.string(7) != "msg" || frame.string(6) != "pb") return true
         val payload = frame.bytes(8)
-        if (payload.isEmpty()) return
+        if (payload.isEmpty()) return true
 
         val decodedPayload = if (
             payload.size >= 3 &&
@@ -403,51 +413,53 @@ class TikTokLiveConnector(
         } else payload
 
         val result = ProtoMessage(decodedPayload)
+        var shouldAcknowledge = true
         result.messages(1).forEach { raw ->
             if (raw.bool(6)) return@forEach
             val type = raw.string(1)
             val payloadMessage = ProtoMessage(raw.bytes(2))
             val messageId = raw.long(3).toString()
-            if (messageId != "0" && !rememberMessage(messageId)) return@forEach
-
+            if (messageId != "0" && isMessageRemembered(messageId)) return@forEach
             if (!isSessionActive(sessionId)) return@forEach
+
             when (type) {
                 "WebcastChatMessage" -> {
                     val user = payloadMessage.message(2)
                     val identity = payloadMessage.message(18)
                     val replyToUser = payloadMessage.message(12)
                     val comment = payloadMessage.string(3).trim()
-                    if (comment.isBlank()) return@forEach
-                    if (isSessionActive(sessionId)) onComment(
-                        LiveComment(
-                            userId = user?.long(1)?.toString().orEmpty(),
-                            displayName = displayName(user),
-                            text = comment,
-                            profileUsername = user?.string(38)?.trim().orEmpty(),
-                            avatarUrl = user?.let { sender ->
-                                sender.message(9)?.strings(1)?.firstOrNull()
-                                    ?: sender.message(16)?.strings(1)?.firstOrNull()
-                                    ?: sender.message(17)?.strings(1)?.firstOrNull()
-                            },
-                            isModerator = identity?.bool(5) == true,
-                            // TikTok exposes the addressed user on the chat payload (atUser).
-                            // When present, announce the response target instead of reading
-                            // the raw @mention in the message text.
-                            replyToDisplayName = replyToUser?.let(::displayName)
-                                ?.takeUnless { it == "Usuario" },
-                            replyToProfileUsername = replyToUser?.string(38)?.trim()
-                                ?.takeIf { it.isNotBlank() },
-                            contentLanguage = payloadMessage.string(14).takeIf { it.isNotBlank() },
-                            // Current Webcast User exposes is_follower at field 1029 and
-                            // follow_status at 1024. Older schemas may nest follow_status
-                            // under follow_info (field 22 / subfield 3).
-                            isFollower = followerStatus(user)
+                    if (comment.isNotBlank()) {
+                        val outcome = onComment(
+                            LiveComment(
+                                userId = user?.long(1)?.toString().orEmpty(),
+                                displayName = displayName(user),
+                                text = comment,
+                                profileUsername = user?.string(38)?.trim().orEmpty(),
+                                avatarUrl = user?.let { sender ->
+                                    sender.message(9)?.strings(1)?.firstOrNull()
+                                        ?: sender.message(16)?.strings(1)?.firstOrNull()
+                                        ?: sender.message(17)?.strings(1)?.firstOrNull()
+                                },
+                                isModerator = identity?.bool(5) == true,
+                                replyToDisplayName = replyToUser?.let(::displayName)
+                                    ?.takeUnless { it == "Usuario" },
+                                replyToProfileUsername = replyToUser?.string(38)?.trim()
+                                    ?.takeIf { it.isNotBlank() },
+                                contentLanguage = payloadMessage.string(14).takeIf { it.isNotBlank() },
+                                isFollower = followerStatus(user)
+                            )
                         )
-                    )
+                        if (outcome == CommentHandlingResult.RETRY) {
+                            // Keep this message ID unseen and withhold the frame ACK.
+                            // If TikTok retransmits the frame, already accepted sibling
+                            // events are deduplicated while this comment gets another try.
+                            shouldAcknowledge = false
+                            return@forEach
+                        }
+                    }
                 }
                 "WebcastSocialMessage" -> {
                     val user = payloadMessage.message(2)
-                    // Current public webcast schema: action=1 is follow; action=3 is share.
                     val userName = displayName(user)
                     val userId = user?.long(1)?.takeIf { it != 0L }?.toString().orEmpty()
                     val follower = followerStatus(user)
@@ -462,22 +474,20 @@ class TikTokLiveConnector(
                 }
                 "WebcastMemberMessage" -> {
                     val user = payloadMessage.message(2)
-                    if (user != null) {
-                        if (isSessionActive(sessionId)) onEvent(
-                            LiveEvent(
-                                LiveEventType.JOIN,
-                                displayName(user),
-                                userId = user.long(1).takeIf { it != 0L }?.toString().orEmpty(),
-                                isFollower = followerStatus(user)
-                            )
+                    if (user != null && isSessionActive(sessionId)) onEvent(
+                        LiveEvent(
+                            LiveEventType.JOIN,
+                            displayName(user),
+                            userId = user.long(1).takeIf { it != 0L }?.toString().orEmpty(),
+                            isFollower = followerStatus(user)
                         )
-                    }
+                    )
                 }
                 "WebcastLikeMessage" -> {
                     val user = payloadMessage.message(5)
-                    if (user != null) {
+                    if (user != null && isSessionActive(sessionId)) {
                         val likesInEvent = payloadMessage.long(2).coerceAtLeast(1L)
-                        if (isSessionActive(sessionId)) onEvent(
+                        onEvent(
                             LiveEvent(
                                 LiveEventType.LIKE,
                                 displayName(user),
@@ -491,9 +501,36 @@ class TikTokLiveConnector(
                     val user = payloadMessage.message(7)
                     val repeatCount = payloadMessage.long(5).coerceAtLeast(1L)
                     val detail = if (repeatCount > 1L) "x$repeatCount" else ""
-                    if (isSessionActive(sessionId)) onEvent(LiveEvent(LiveEventType.GIFT, displayName(user), detail, userId = user?.long(1)?.takeIf { it != 0L }?.toString().orEmpty(), giftGroupId = payloadMessage.long(3).takeIf { it != 0L }?.toString().orEmpty()))
+                    if (isSessionActive(sessionId)) onEvent(
+                        LiveEvent(
+                            LiveEventType.GIFT,
+                            displayName(user),
+                            detail,
+                            userId = user?.long(1)?.takeIf { it != 0L }?.toString().orEmpty(),
+                            giftGroupId = payloadMessage.long(3).takeIf { it != 0L }?.toString().orEmpty()
+                        )
+                    )
                 }
             }
+
+            // Only mark a message after its processing outcome is durable/accepted.
+            if (messageId != "0") rememberMessage(messageId)
+        }
+        return shouldAcknowledge
+    }
+
+    @Synchronized
+    private fun isMessageRemembered(id: String): Boolean = seenIds.contains(id)
+
+    @Synchronized
+    private fun rememberMessage(id: String) {
+        seenIds.add(id)
+        while (seenIds.size > 500) {
+            val iterator = seenIds.iterator()
+            if (iterator.hasNext()) {
+                iterator.next()
+                iterator.remove()
+            } else break
         }
     }
 
