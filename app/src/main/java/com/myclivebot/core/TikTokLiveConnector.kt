@@ -431,27 +431,32 @@ class TikTokLiveConnector(
                     val replyToUser = payloadMessage.message(12)
                     val comment = payloadMessage.string(3).trim()
                     if (comment.isNotBlank()) {
-                        val outcome = onComment(
-                            LiveComment(
-                                userId = user?.long(1)?.toString().orEmpty(),
-                                displayName = displayName(user),
-                                text = comment,
-                                id = messageId.takeIf { it != "0" } ?: UUID.randomUUID().toString(),
-                                profileUsername = user?.string(38)?.trim().orEmpty(),
-                                avatarUrl = user?.let { sender ->
-                                    sender.message(9)?.strings(1)?.firstOrNull()
-                                        ?: sender.message(16)?.strings(1)?.firstOrNull()
-                                        ?: sender.message(17)?.strings(1)?.firstOrNull()
-                                },
-                                isModerator = identity?.bool(5) == true,
-                                replyToDisplayName = replyToUser?.let(::displayName)
-                                    ?.takeUnless { it == "Usuario" },
-                                replyToProfileUsername = replyToUser?.string(38)?.trim()
-                                    ?.takeIf { it.isNotBlank() },
-                                contentLanguage = payloadMessage.string(14).takeIf { it.isNotBlank() },
-                                isFollower = followerStatus(user)
+                        val outcome = runCatching {
+                            onComment(
+                                LiveComment(
+                                    userId = user?.long(1)?.toString().orEmpty(),
+                                    displayName = displayName(user),
+                                    text = comment,
+                                    id = messageId.takeIf { it != "0" } ?: UUID.randomUUID().toString(),
+                                    profileUsername = user?.string(38)?.trim().orEmpty(),
+                                    avatarUrl = user?.let { sender ->
+                                        sender.message(9)?.strings(1)?.firstOrNull()
+                                            ?: sender.message(16)?.strings(1)?.firstOrNull()
+                                            ?: sender.message(17)?.strings(1)?.firstOrNull()
+                                    },
+                                    isModerator = identity?.bool(5) == true,
+                                    replyToDisplayName = replyToUser?.let(::displayName)
+                                        ?.takeUnless { it == "Usuario" },
+                                    replyToProfileUsername = replyToUser?.string(38)?.trim()
+                                        ?.takeIf { it.isNotBlank() },
+                                    contentLanguage = payloadMessage.string(14).takeIf { it.isNotBlank() },
+                                    isFollower = followerStatus(user)
+                                )
                             )
-                        )
+                        }.getOrElse {
+                            shouldAcknowledge = false
+                            return@forEach
+                        }
                         if (outcome == CommentHandlingResult.RETRY) {
                             // Keep this message ID unseen and withhold the frame ACK.
                             // If TikTok retransmits the frame, already accepted sibling
