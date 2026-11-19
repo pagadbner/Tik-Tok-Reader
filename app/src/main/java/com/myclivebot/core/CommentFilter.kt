@@ -115,7 +115,11 @@ class CommentFilter {
         lastByUser.entries.removeIf { it.value.second < cutoff }
     }
 
-    fun shouldRead(comment: LiveComment, settings: ReaderSettings): Boolean {
+    fun shouldRead(
+        comment: LiveComment,
+        settings: ReaderSettings,
+        recordDuplicate: Boolean = true
+    ): Boolean {
         if (!CommentLanguageFilter.isSupported(comment.text, comment.contentLanguage)) return false
         if (settings.followerOnlyChat && comment.isFollower != true) return false
         val userKey = comment.userId.ifBlank { comment.displayName }.trim().lowercase()
@@ -137,18 +141,30 @@ class CommentFilter {
 
         val now = comment.receivedAt
         val duplicateWindow = settings.suppressDuplicatesSeconds.coerceAtLeast(0) * 1_000
-        var isDuplicate = false
-        lastByUser.compute(userKey) { _, previous ->
-            if (previous != null && previous.first == normalized &&
-                now >= previous.second && now - previous.second <= duplicateWindow
-            ) {
-                isDuplicate = true
-                previous
-            } else normalized to now
-        }
+        val previous = lastByUser[userKey]
+        val isDuplicate = previous != null && previous.first == normalized &&
+            now >= previous.second && now - previous.second <= duplicateWindow
         if (isDuplicate) return false
-        cleanupDuplicatesIfNeeded()
+        if (recordDuplicate) {
+            lastByUser[userKey] = normalized to now
+            cleanupDuplicatesIfNeeded()
+        }
         return true
+    }
+
+    /** Commit duplicate-suppression state only after the speech queue accepts a comment. */
+    fun confirmRead(comment: LiveComment, settings: ReaderSettings) {
+        val userKey = comment.userId.ifBlank { comment.displayName }.trim().lowercase()
+        val sourceToFilter = if (settings.onlyUsername) {
+            if (settings.useProfileUsername) comment.profileUsername.ifBlank { comment.displayName }
+            else comment.displayName
+        } else comment.text
+        val normalized = sourceToFilter.trim().replace(whitespaceRegex, " ")
+            .lowercase(java.util.Locale.ROOT)
+        if (userKey.isNotBlank() && normalized.isNotBlank()) {
+            lastByUser[userKey] = normalized to comment.receivedAt
+            cleanupDuplicatesIfNeeded()
+        }
     }
 
     fun usernameForSpeech(comment: LiveComment, settings: ReaderSettings): String =
