@@ -246,4 +246,45 @@ class SpeechQueueWorkerTest {
         }
     }
 
+
+    @Test fun thousandCommentBurstStaysWithinConfiguredCapacityAndReportsLatency() {
+        val gate = CompletableDeferred<Unit>()
+        val spoken = mutableListOf<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                spoken += text
+                if (text == "currently speaking") gate.await()
+            }
+            override suspend fun stop() = Unit
+        }
+        val worker = SpeechQueueWorker(engine, scope, capacity = 100)
+
+        try {
+            assertTrue(worker.enqueue("currently speaking"))
+            repeat(100) { index ->
+                assertTrue(worker.enqueue("burst-$index", comment = true, itemId = "burst-$index"))
+            }
+            repeat(900) { index ->
+                assertTrue(!worker.enqueue("overflow-$index", comment = true, itemId = "overflow-$index"))
+            }
+            assertEquals(100, worker.queuedCount())
+            assertEquals(900L, worker.rejectedCommentCount())
+
+            gate.complete(Unit)
+            assertEquals(
+                listOf("currently speaking") + (0 until 100).map { "burst-$it" },
+                spoken
+            )
+            val latency = worker.commentQueueLatencyMs()
+            assertEquals(100L, latency.third)
+            assertTrue(latency.second >= latency.first)
+        } finally {
+            gate.complete(Unit)
+            worker.close()
+            scope.cancel()
+        }
+    }
+
 }
