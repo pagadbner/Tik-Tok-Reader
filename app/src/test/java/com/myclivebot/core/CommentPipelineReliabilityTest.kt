@@ -107,4 +107,27 @@ class CommentPipelineReliabilityTest {
             scope.cancel()
         }
     }
+
+    @Test fun commentSanitizedToEmptyIsFilteredAndDoesNotRequestFrameRetry() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val queue = SpeechQueueWorker(engine(), scope, capacity = 5)
+        val pipeline = CommentPipeline(
+            CommentFilter(),
+            queue,
+            ReaderSettings(readUsername = false, ignoreEmojis = true)
+        )
+
+        try {
+            assertEquals(
+                CommentHandlingResult.FILTERED,
+                pipeline.onComment(LiveComment("emoji-only", "Emoji", "😍🔥"))
+            )
+            assertEquals(0, queue.queuedCount())
+        } finally {
+            pipeline.close()
+            queue.close()
+            scope.cancel()
+        }
+    }
+
 }
