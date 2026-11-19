@@ -5,7 +5,6 @@ import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.ThreadPoolExecutor
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -44,32 +43,12 @@ internal class BoundedSerialEventExecutor(
         )
     }
 
-    /**
-     * Enqueues without waiting in the normal case. If full, briefly waits for
-     * a slot so accepted frames are not evicted and the WebSocket can be ACKed.
-     */
+    /** Non-blocking enqueue. A saturated or closed queue rejects the new frame immediately. */
     fun tryExecute(task: Runnable): Boolean {
-        try {
-            executor.execute(task)
-            return true
-        } catch (_: RejectedExecutionException) {
-            if (executor.isShutdown) {
-                rejectedTasks.incrementAndGet()
-                return false
-            }
-        }
-
         return try {
-            val accepted = executor.queue.offer(task, 500, TimeUnit.MILLISECONDS)
-            if (!accepted || executor.isShutdown) {
-                if (accepted) executor.remove(task)
-                rejectedTasks.incrementAndGet()
-                false
-            } else {
-                true
-            }
-        } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
+            executor.execute(task)
+            true
+        } catch (_: RejectedExecutionException) {
             rejectedTasks.incrementAndGet()
             false
         }
@@ -87,15 +66,17 @@ internal class BoundedSerialEventExecutor(
 }
 
 /**
- * Enqueue first and acknowledge only after the bounded processor accepted the
- * frame. The acknowledgement callback runs on the caller (OkHttp reader) thread.
+ * Enqueue without blocking the OkHttp reader. Acknowledge only after the
+ * serial worker has finished processing the frame and explicitly permits it.
+ * Returning false keeps a rejected comment frame eligible for server retry.
  */
 internal fun enqueueAndAcknowledge(
     worker: BoundedSerialEventExecutor,
-    task: Runnable,
+    processFrame: () -> Boolean,
     acknowledge: () -> Unit
 ): Boolean {
-    val accepted = worker.tryExecute(task)
-    if (accepted) acknowledge()
-    return accepted
+    return worker.tryExecute(Runnable {
+        val processed = runCatching { processFrame() }.getOrDefault(false)
+        if (processed) runCatching { acknowledge() }
+    })
 }
