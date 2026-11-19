@@ -44,6 +44,7 @@ class TikTokLiveConnector(
         @Volatile private var cachedTtwid: String? = null
         @Volatile private var cachedTtwidAt: Long = 0L
         private const val TTWID_CACHE_TTL_MS = 4 * 60 * 60 * 1_000L
+        private const val MAX_SEEN_MESSAGE_IDS = 10_000
     }
 
     private val http = OkHttpClient.Builder()
@@ -527,7 +528,7 @@ class TikTokLiveConnector(
     @Synchronized
     private fun rememberMessage(id: String) {
         seenIds.add(id)
-        while (seenIds.size > 500) {
+        while (seenIds.size > MAX_SEEN_MESSAGE_IDS) {
             val iterator = seenIds.iterator()
             if (iterator.hasNext()) {
                 iterator.next()
