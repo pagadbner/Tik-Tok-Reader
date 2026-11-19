@@ -340,7 +340,7 @@ class BotForegroundService : Service() {
         speechQueue?.close()
         speechQueue = null
         activeSettings = settings
-        liveChatHistoryStore.clear()
+        liveChatHistoryStore.clearAsync()
         acquireLiveWakeLock()
         ensureSpeechQueue(settings.maxQueueSize, settings)
         // Warm the selected native voice before the first LIVE comment arrives.
