@@ -84,7 +84,7 @@ class CommentPipeline(
         if (closed) return CommentHandlingResult.RETRY
         commentsReceived.incrementAndGet()
         val current = settings.get()
-        if (!filter.shouldRead(comment, current)) {
+        if (!filter.shouldRead(comment, current, recordDuplicate = false)) {
             commentsFiltered.incrementAndGet()
             return CommentHandlingResult.FILTERED
         }
@@ -169,6 +169,7 @@ class CommentPipeline(
         if (closed) return CommentHandlingResult.RETRY
         val queued = speechQueue.enqueueComments(queueItems)
         if (!queued || closed) return CommentHandlingResult.RETRY
+        filter.confirmRead(comment, current)
         if (welcomeSpeech != null) welcomeTracker.confirmQueued(comment)
         speakerTracker.markQueued(comment)
         commentsQueued.incrementAndGet()
