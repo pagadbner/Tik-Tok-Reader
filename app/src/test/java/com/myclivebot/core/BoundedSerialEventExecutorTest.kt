@@ -163,7 +163,6 @@ class BoundedSerialEventExecutorTest {
         val executor = BoundedSerialEventExecutor(queueCapacity = capacity, threadName = "test-live-burst")
         val started = CountDownLatch(1)
         val release = CountDownLatch(1)
-        val completed = java.util.concurrent.CountDownLatch(1)
         val accepted = java.util.concurrent.atomic.AtomicInteger()
         val processed = java.util.concurrent.atomic.AtomicInteger()
 
@@ -188,11 +187,13 @@ class BoundedSerialEventExecutorTest {
             assertTrue(accepted.get() <= capacity + 1)
             assertTrue(executor.droppedTaskCount() > 0)
 
+            val expectedProcessed = accepted.get()
             release.countDown()
-            // Poll completion through a final task ordered behind every accepted frame.
-            assertTrue(executor.tryExecute(Runnable { completed.countDown() }))
-            assertTrue(completed.await(3, TimeUnit.SECONDS))
-            assertEquals(accepted.get(), processed.get() + 1)
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (processed.get() < expectedProcessed && System.nanoTime() < deadline) {
+                Thread.sleep(2)
+            }
+            assertEquals(expectedProcessed, processed.get())
         } finally {
             release.countDown()
             executor.close()
