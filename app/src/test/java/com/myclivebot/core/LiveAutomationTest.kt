@@ -503,9 +503,10 @@ class LiveAutomationTest {
         )
         val pipeline = CommentPipeline(CommentFilter(), queue, settings)
         try {
-            assertTrue(pipeline.onComment(
-                LiveComment("welcome-1", "Karina", "hola", profileUsername = "karina_fu82")
-            ))
+            assertEquals(
+                CommentHandlingResult.ACCEPTED,
+                pipeline.onComment(LiveComment("welcome-1", "Karina", "hola", profileUsername = "karina_fu82"))
+            )
             assertEquals(listOf("¡Bienvenido karina_fu82!", "hola"), spoken)
         } finally {
             queue.close()
@@ -532,9 +533,10 @@ class LiveAutomationTest {
             )
         )
         try {
-            assertTrue(pipeline.onComment(
-                LiveComment("command-1", "Karina", "!hola", isModerator = true, profileUsername = "karina_fu82")
-            ))
+            assertEquals(
+                CommentHandlingResult.ACCEPTED,
+                pipeline.onComment(LiveComment("command-1", "Karina", "!hola", isModerator = true, profileUsername = "karina_fu82"))
+            )
             assertEquals(listOf("Hola karina_fu82"), spoken)
         } finally {
             queue.close()
@@ -556,16 +558,19 @@ class LiveAutomationTest {
             ReaderSettings(readUsername = true, useProfileUsername = true)
         )
         try {
-            assertTrue(pipeline.onComment(
-                LiveComment(
-                    userId = "reply-author",
-                    displayName = "Karina",
-                    text = "@luis_01 gracias por el dato",
-                    profileUsername = "karina_fu82",
-                    replyToDisplayName = "Luis",
-                    replyToProfileUsername = "luis_01"
+            assertEquals(
+                CommentHandlingResult.ACCEPTED,
+                pipeline.onComment(
+                    LiveComment(
+                        userId = "reply-author",
+                        displayName = "Karina",
+                        text = "@luis_01 gracias por el dato",
+                        profileUsername = "karina_fu82",
+                        replyToDisplayName = "Luis",
+                        replyToProfileUsername = "luis_01"
+                    )
                 )
-            ))
+            )
             assertEquals(
                 listOf("karina_fu82 le respondió a luis_01: gracias por el dato"),
                 spoken
@@ -712,10 +717,16 @@ class LiveAutomationTest {
                 assertTrue(queue.enqueue("pending-$index", comment = true, itemId = "pending-$index"))
             }
 
-            assertFalse(pipeline.onComment(LiveComment("ana", "Ana", "primer mensaje", id = "first")))
+            assertEquals(
+                CommentHandlingResult.RETRY,
+                pipeline.onComment(LiveComment("ana", "Ana", "primer mensaje", id = "first"))
+            )
             assertTrue(queue.skipComment("pending-0"))
             assertTrue(queue.skipComment("pending-1"))
-            assertTrue(pipeline.onComment(LiveComment("ana", "Ana", "segundo mensaje", id = "second")))
+            assertEquals(
+                CommentHandlingResult.ACCEPTED,
+                pipeline.onComment(LiveComment("ana", "Ana", "segundo mensaje", id = "second"))
+            )
             assertEquals(19, queue.queuedCount())
             assertEquals(19, queue.clearPendingComments())
         } finally {
