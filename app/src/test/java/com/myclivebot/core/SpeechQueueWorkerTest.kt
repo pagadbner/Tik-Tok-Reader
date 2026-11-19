@@ -108,7 +108,7 @@ class SpeechQueueWorkerTest {
             }
             override suspend fun stop() = Unit
         }
-        val worker = SpeechQueueWorker(engine, scope, capacity = 1)
+        val worker = SpeechQueueWorker(engine, scope, capacity = 20)
 
         try {
             assertTrue(worker.enqueue("currently speaking"))
@@ -143,7 +143,7 @@ class SpeechQueueWorkerTest {
             }
             override suspend fun stop() = Unit
         }
-        val worker = SpeechQueueWorker(engine, scope, capacity = 2)
+        val worker = SpeechQueueWorker(engine, scope, capacity = 11)
 
         try {
             assertTrue(worker.enqueue("currently speaking"))
@@ -161,4 +161,90 @@ class SpeechQueueWorkerTest {
             scope.cancel()
         }
     }
+    
+    @Test fun rejectsNewCommentsAfterQueueClose() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) = Unit
+            override suspend fun stop() = Unit
+        }
+        val worker = SpeechQueueWorker(engine, scope, capacity = 5)
+        worker.close()
+
+        assertTrue(!worker.enqueue("late comment", comment = true, itemId = "late"))
+        assertTrue(!worker.enqueueComments(listOf("late welcome" to null, "late comment" to "late")))
+        assertEquals(0, worker.queuedCount())
+        scope.cancel()
+    }
+
+    @Test fun manualClearResetsOverflowWarningForTheNextSaturationEpisode() {
+        val gate = CompletableDeferred<Unit>()
+        val warningCounts = mutableListOf<Long>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                if (text == "currently speaking") gate.await()
+            }
+            override suspend fun stop() = Unit
+        }
+        val worker = SpeechQueueWorker(
+            engine,
+            scope,
+            capacity = 5,
+            onCommentQueueFull = { warningCounts += it }
+        )
+
+        try {
+            assertTrue(worker.enqueue("currently speaking"))
+            repeat(5) { assertTrue(worker.enqueue("first-$it", comment = true)) }
+            assertTrue(!worker.enqueue("overflow-1", comment = true))
+            assertEquals(1, warningCounts.size)
+            assertEquals(5, worker.clearPendingComments())
+
+            repeat(5) { assertTrue(worker.enqueue("second-$it", comment = true)) }
+            assertTrue(!worker.enqueue("overflow-2", comment = true))
+            assertEquals(2, warningCounts.size)
+            gate.complete(Unit)
+        } finally {
+            gate.complete(Unit)
+            worker.close()
+            scope.cancel()
+        }
+    }
+
+    @Test fun skipAlsoResetsOverflowWarningAfterQueueDrainsBelowHalf() {
+        val gate = CompletableDeferred<Unit>()
+        val warnings = mutableListOf<Long>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val engine = object : SpeechEngine {
+            override suspend fun initialize() = Unit
+            override suspend fun speak(text: String) {
+                if (text == "currently speaking") gate.await()
+            }
+            override suspend fun stop() = Unit
+        }
+        val worker = SpeechQueueWorker(engine, scope, capacity = 5, onCommentQueueFull = { warnings += it })
+
+        try {
+            assertTrue(worker.enqueue("currently speaking"))
+            repeat(5) { index -> assertTrue(worker.enqueue("skip-$index", comment = true, itemId = "skip-$index")) }
+            assertTrue(!worker.enqueue("overflow-1", comment = true))
+            assertTrue(worker.skipComment("skip-0"))
+            assertTrue(worker.skipComment("skip-1"))
+            assertTrue(worker.skipComment("skip-2"))
+            assertTrue(worker.skipComment("skip-3"))
+            assertTrue(worker.enqueue("after-skip-1", comment = true))
+            assertTrue(worker.enqueue("after-skip-2", comment = true))
+            assertTrue(!worker.enqueue("overflow-2", comment = true))
+            assertEquals(2, warnings.size)
+            gate.complete(Unit)
+        } finally {
+            gate.complete(Unit)
+            worker.close()
+            scope.cancel()
+        }
+    }
+
 }
