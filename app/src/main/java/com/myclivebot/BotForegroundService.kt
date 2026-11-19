@@ -361,7 +361,9 @@ class BotForegroundService : Service() {
                     // Preserve the established DJ-command and chat-publication order.
                     // A retried, unacknowledged frame must not repeat those side effects.
                     if (claimCommentSideEffects(comment, sessionToken)) {
-                        runCatching { DjMusicController.handleLiveComment(comment) }
+                        if (liveSessionGeneration.get() == sessionToken) {
+                            runCatching { DjMusicController.handleLiveComment(comment) }
+                        }
                         if (liveSessionGeneration.get() == sessionToken) {
                             runCatching { publishLiveComment(comment, sessionToken) }
                         }
