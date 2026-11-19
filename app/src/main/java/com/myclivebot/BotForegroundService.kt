@@ -347,10 +347,15 @@ class BotForegroundService : Service() {
         pipeline = livePipeline
         val liveConnector = TikTokLiveConnector(
             onComment = { comment ->
-                DjMusicController.handleLiveComment(comment)
-                publishLiveComment(comment)
-                livePipeline.onComment(comment)
-                publishLiveStatsIfDue()
+                // Accept the comment into the speech lane before non-critical UI,
+                // history, bridge, and DJ side effects can delay later LIVE frames.
+                try {
+                    livePipeline.onComment(comment)
+                } finally {
+                    DjMusicController.handleLiveComment(comment)
+                    publishLiveComment(comment)
+                    publishLiveStatsIfDue()
+                }
             },
             onStatus = ::updateStatus,
             onEvent = { event ->
