@@ -358,17 +358,17 @@ class BotForegroundService : Service() {
                 if (liveSessionGeneration.get() != sessionToken) {
                     CommentHandlingResult.RETRY
                 } else {
-                    // Preserve the established DJ-command and chat-publication order.
-                    // A retried, unacknowledged frame must not repeat those side effects.
-                    if (claimCommentSideEffects(comment, sessionToken)) {
-                        if (liveSessionGeneration.get() == sessionToken) {
-                            runCatching { DjMusicController.handleLiveComment(comment) }
-                        }
-                        if (liveSessionGeneration.get() == sessionToken) {
-                            runCatching { publishLiveComment(comment, sessionToken) }
-                        }
+                    // Keep DJ command handling ahead of the speech pipeline as before.
+                    // Publish history/UI only after the comment has had first chance to
+                    // enter the speech queue, and never repeat either side effect on retry.
+                    val firstDelivery = claimCommentSideEffects(comment, sessionToken)
+                    if (firstDelivery && liveSessionGeneration.get() == sessionToken) {
+                        runCatching { DjMusicController.handleLiveComment(comment) }
                     }
                     val outcome = livePipeline.onComment(comment)
+                    if (firstDelivery && liveSessionGeneration.get() == sessionToken) {
+                        runCatching { publishLiveComment(comment, sessionToken) }
+                    }
                     if (liveSessionGeneration.get() == sessionToken) {
                         runCatching { publishLiveStatsIfDue() }
                     }
