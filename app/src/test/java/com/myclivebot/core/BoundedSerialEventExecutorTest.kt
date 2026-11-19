@@ -121,11 +121,11 @@ class BoundedSerialEventExecutorTest {
             // Expected.
         }
     }
-    @Test fun waitsBrieflyForCapacityInsteadOfEvictingAnAcceptedFrame() {
-        val executor = BoundedSerialEventExecutor(queueCapacity = 1, threadName = "test-live-backpressure")
+    @Test fun rejectsSaturatedFrameImmediatelyWithoutEvictingAcceptedFrames() {
+        val executor = BoundedSerialEventExecutor(queueCapacity = 1, threadName = "test-live-nonblocking")
         val firstStarted = CountDownLatch(1)
         val releaseFirst = CountDownLatch(1)
-        val completed = CountDownLatch(3)
+        val completed = CountDownLatch(2)
         val order = Collections.synchronizedList(mutableListOf<Int>())
 
         try {
@@ -141,18 +141,16 @@ class BoundedSerialEventExecutorTest {
                 completed.countDown()
             }))
 
-            Thread {
-                Thread.sleep(75)
-                releaseFirst.countDown()
-            }.apply { isDaemon = true }.start()
+            val startedAt = System.nanoTime()
+            assertFalse(executor.tryExecute(Runnable { order += 3 }))
+            val elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+            assertTrue("Saturated receive must return immediately (elapsed=$elapsedMs ms)", elapsedMs < 250)
+            assertEquals(1, executor.queuedCount())
 
-            assertTrue(executor.tryExecute(Runnable {
-                order += 3
-                completed.countDown()
-            }))
+            releaseFirst.countDown()
             assertTrue(completed.await(2, TimeUnit.SECONDS))
-            assertEquals(listOf(1, 2, 3), order)
-            assertEquals(0L, executor.droppedTaskCount())
+            assertEquals(listOf(1, 2), order)
+            assertEquals(1L, executor.droppedTaskCount())
         } finally {
             releaseFirst.countDown()
             executor.close()
