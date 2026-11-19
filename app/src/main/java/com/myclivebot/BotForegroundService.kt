@@ -340,7 +340,6 @@ class BotForegroundService : Service() {
         speechQueue?.close()
         speechQueue = null
         activeSettings = settings
-        liveChatHistoryStore.clearAsync()
         acquireLiveWakeLock()
         ensureSpeechQueue(settings.maxQueueSize, settings)
         // Warm the selected native voice before the first LIVE comment arrives.
@@ -378,8 +377,13 @@ class BotForegroundService : Service() {
         )
         connector = liveConnector
         serviceScope.launch(Dispatchers.IO) {
-            runCatching { liveConnector.connect(username) }
-                .onFailure { updateStatus("No se pudo conectar: ${it.message ?: "error desconocido"}") }
+            // Drain previous-session history writes and clear the database before
+            // allowing the new LIVE session to publish any comments.
+            runCatching { liveChatHistoryStore.clear() }
+            if (liveSessionGeneration.get() == sessionToken) {
+                runCatching { liveConnector.connect(username) }
+                    .onFailure { updateStatus("No se pudo conectar: ${it.message ?: "error desconocido"}") }
+            }
         }
     }
 
