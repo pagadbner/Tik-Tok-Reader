@@ -167,7 +167,9 @@ class SpeechQueueWorker(
                 false
             } else {
                 validItems.forEach { (text, itemId) ->
-                    commentQueue.addLast(QueuedSpeech(text, itemId, isComment = true))
+                    // Welcome preambles have no comment ID and are excluded from
+                    // comment queue-wait metrics; the originating comment is counted.
+                    commentQueue.addLast(QueuedSpeech(text, itemId, isComment = itemId != null))
                 }
                 true
             }
