@@ -550,19 +550,7 @@ class TikTokLiveConnector(
         return FollowerStatusParser.isFollower(explicitFlag, status)
     }
 
-    @Synchronized
-    private fun rememberMessage(id: String): Boolean {
-        if (seenIds.contains(id)) return false
-        seenIds.add(id)
-        while (seenIds.size > 500) {
-            val iterator = seenIds.iterator()
-            if (iterator.hasNext()) {
-                iterator.next()
-                iterator.remove()
-            } else break
-        }
-        return true
-    }
+
 
     @Synchronized
     fun disconnect() {
