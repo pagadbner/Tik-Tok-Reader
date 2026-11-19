@@ -68,8 +68,7 @@ object CommentLanguageFilter {
 
 class CommentFilter {
     private data class FilterRules(
-        val sourceBlockedWords: Set<String>,
-        val sourceIgnoredUsers: Set<String>,
+        val sourceSettings: ReaderSettings,
         val ignoredUsers: Set<String>,
         val blockedWords: List<Regex>
     )
@@ -81,18 +80,10 @@ class CommentFilter {
     private val urlRegex = Regex("https?://\\S+", RegexOption.IGNORE_CASE)
 
     private fun rulesFor(settings: ReaderSettings): FilterRules {
-        cachedRules?.let { cached ->
-            if (cached.sourceBlockedWords == settings.blockedWords &&
-                cached.sourceIgnoredUsers == settings.ignoredUsers
-            ) return cached
-        }
+        cachedRules?.takeIf { it.sourceSettings === settings }?.let { return it }
         return synchronized(this) {
-            cachedRules?.takeIf {
-                it.sourceBlockedWords == settings.blockedWords &&
-                    it.sourceIgnoredUsers == settings.ignoredUsers
-            } ?: FilterRules(
-                sourceBlockedWords = settings.blockedWords.toSet(),
-                sourceIgnoredUsers = settings.ignoredUsers.toSet(),
+            cachedRules?.takeIf { it.sourceSettings === settings } ?: FilterRules(
+                sourceSettings = settings,
                 ignoredUsers = settings.ignoredUsers.map {
                     it.trim().removePrefix("@").lowercase(java.util.Locale.ROOT)
                 }.filter { it.isNotEmpty() }.toSet(),
