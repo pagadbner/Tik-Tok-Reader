@@ -13,6 +13,7 @@ import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.IOException
 import java.util.LinkedHashSet
+import java.util.UUID
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.Executors
@@ -434,6 +435,7 @@ class TikTokLiveConnector(
                                 userId = user?.long(1)?.toString().orEmpty(),
                                 displayName = displayName(user),
                                 text = comment,
+                                id = messageId.takeIf { it != "0" } ?: UUID.randomUUID().toString(),
                                 profileUsername = user?.string(38)?.trim().orEmpty(),
                                 avatarUrl = user?.let { sender ->
                                     sender.message(9)?.strings(1)?.firstOrNull()
