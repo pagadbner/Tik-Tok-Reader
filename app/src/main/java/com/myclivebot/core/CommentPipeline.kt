@@ -9,6 +9,8 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
+enum class CommentHandlingResult { ACCEPTED, FILTERED, RETRY }
+
 data class LivePipelineStats(
     val commentsReceived: Long,
     val commentsFiltered: Long,
@@ -49,7 +51,6 @@ class CommentPipeline(
     // A follower is announced at most once during this LIVE session, even across batches.
     private val announcedFollows = LinkedHashSet<String>()
     private val pendingGifts = LinkedHashMap<String, GiftBatchItem>()
-    private var pendingFollowOverflow = 0
     private var pendingGiftOverflowUsers = 0
     private var pendingGiftOverflowCount = 0L
     private var followFlush: ScheduledFuture<*>? = null
@@ -76,12 +77,13 @@ class CommentPipeline(
         settings.set(next)
     }
 
-    fun onComment(comment: LiveComment): Boolean {
+    fun onComment(comment: LiveComment): CommentHandlingResult {
+        if (closed) return CommentHandlingResult.RETRY
         commentsReceived.incrementAndGet()
         val current = settings.get()
         if (!filter.shouldRead(comment, current)) {
             commentsFiltered.incrementAndGet()
-            return false
+            return CommentHandlingResult.FILTERED
         }
         // Preview the welcome without consuming it. The welcome and comment
         // are committed together only if the speech queue accepts both.
@@ -155,13 +157,13 @@ class CommentPipeline(
             welcomeSpeech?.let { add(it to null) }
             add(speech to comment.id)
         }
+        if (closed) return CommentHandlingResult.RETRY
         val queued = speechQueue.enqueueComments(queueItems)
-        if (queued) {
-            if (welcomeSpeech != null) welcomeTracker.confirmQueued(comment)
-            speakerTracker.markQueued(comment)
-            commentsQueued.incrementAndGet()
-        }
-        return queued
+        if (!queued || closed) return CommentHandlingResult.RETRY
+        if (welcomeSpeech != null) welcomeTracker.confirmQueued(comment)
+        speakerTracker.markQueued(comment)
+        commentsQueued.incrementAndGet()
+        return CommentHandlingResult.ACCEPTED
     }
 
     fun onEvent(event: LiveEvent): Boolean {
@@ -209,8 +211,10 @@ class CommentPipeline(
         if (key.isBlank()) return false
         synchronized(alertLock) {
             if (closed || pendingFollows.containsKey(key) || announcedFollows.contains(key)) return false
-            if (pendingFollows.size < MAX_BATCH_USERS) pendingFollows[key] = name
-            else pendingFollowOverflow++
+            // Bound each batch without counting untracked IDs: otherwise duplicate
+            // overflow events can inflate the spoken follower total.
+            if (pendingFollows.size >= MAX_BATCH_USERS) return false
+            pendingFollows[key] = name
             // Only a genuinely new follower extends the quiet window.
             scheduleFollowFlushLocked(followBatchWindowMs.coerceAtLeast(0L))
         }
@@ -290,13 +294,12 @@ class CommentPipeline(
     private fun flushFollowBatch() {
         synchronized(alertLock) {
             followFlush = null
-            if (closed || pendingFollows.isEmpty() && pendingFollowOverflow == 0) return
+            if (closed || pendingFollows.isEmpty()) return
             if (!settings.get().readFollows) {
                 pendingFollows.clear()
-                pendingFollowOverflow = 0
                 return
             }
-            val total = pendingFollows.size + pendingFollowOverflow
+            val total = pendingFollows.size
             val names = pendingFollows.values.take(MAX_NAMES_IN_ALERT)
             val speech = FollowAlertRules.renderBatch(names, total)
             if (speech != null && speechQueue.enqueue(speech, priority = true)) {
@@ -306,7 +309,6 @@ class CommentPipeline(
                     if (iterator.hasNext()) { iterator.next(); iterator.remove() } else break
                 }
                 pendingFollows.clear()
-                pendingFollowOverflow = 0
             } else {
                 scheduleFollowFlushLocked(alertRetryDelayMs.coerceAtLeast(100L))
             }
@@ -354,7 +356,6 @@ class CommentPipeline(
             pendingFollows.clear()
             announcedFollows.clear()
             pendingGifts.clear()
-            pendingFollowOverflow = 0
             pendingGiftOverflowUsers = 0
             pendingGiftOverflowCount = 0L
         }
