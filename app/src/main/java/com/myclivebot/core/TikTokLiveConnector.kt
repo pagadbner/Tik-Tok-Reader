@@ -274,18 +274,24 @@ class TikTokLiveConnector(
                 if (!isSessionActive(sessionId) || webSocketGeneration.get() != attemptId || socket !== webSocket) return
                 // Copy and enqueue without waiting: the OkHttp reader must remain free
                 // to receive control frames and keep the WebSocket transport responsive.
-                val frame = bytes.toByteArray()
+                // Decode the outer protobuf envelope once. The parsed frame is immutable
+                // and can be safely handed to the serial worker for payload processing.
+                val parsedFrame = runCatching { ProtoMessage(bytes.toByteArray()) }.getOrNull()
                 val worker = eventExecutor ?: return
-                val logId = runCatching { ProtoMessage(frame).long(2) }.getOrDefault(0L)
+                val logId = parsedFrame?.long(2) ?: 0L
                 val droppedBefore = worker.droppedTaskCount()
                 val accepted = enqueueAndAcknowledge(
                     worker,
                     Runnable {
                         if (isSessionActive(sessionId) && webSocketGeneration.get() == attemptId && socket === webSocket) {
-                            runCatching { processWebcastFrame(frame, sessionId) }
-                                .onFailure {
-                                    if (isSessionActive(sessionId)) onStatus("Se recibió un paquete LIVE no válido; se omitió sin cerrar la conexión.")
-                                }
+                            runCatching {
+                                processWebcastFrame(
+                                    parsedFrame ?: throw IOException("Invalid LIVE frame envelope"),
+                                    sessionId
+                                )
+                            }.onFailure {
+                                if (isSessionActive(sessionId)) onStatus("Se recibió un paquete LIVE no válido; se omitió sin cerrar la conexión.")
+                            }
                         }
                         // Permit another overload notice after the backlog has recovered.
                         if (worker.queuedCount() <= BoundedSerialEventExecutor.DEFAULT_QUEUE_CAPACITY / 2) {
@@ -382,8 +388,7 @@ class TikTokLiveConnector(
             .build()
     }
 
-    private fun processWebcastFrame(bytes: ByteArray, sessionId: Long) {
-        val frame = ProtoMessage(bytes)
+    private fun processWebcastFrame(frame: ProtoMessage, sessionId: Long) {
         if (frame.string(7) != "msg" || frame.string(6) != "pb") return
         val payload = frame.bytes(8)
         if (payload.isEmpty()) return
