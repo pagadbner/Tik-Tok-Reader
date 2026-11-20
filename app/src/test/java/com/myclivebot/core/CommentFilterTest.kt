@@ -33,12 +33,19 @@ class CommentFilterTest {
         assertFalse(filter.shouldRead(LiveComment("troll", "Troll", "hola"), settings))
     }
 
-    @Test fun suppressesRepeatedMessagesFromSameUserWithinWindow() {
+    @Test fun allowsRepeatedMessagesFromSameUserWithoutSuppression() {
         val filter = CommentFilter()
         val settings = ReaderSettings(suppressDuplicatesSeconds = 5)
         assertTrue(filter.shouldRead(LiveComment("1", "Ana", "hola", receivedAt = 10_000), settings))
-        assertFalse(filter.shouldRead(LiveComment("1", "Ana", "hola", receivedAt = 12_000), settings))
-        assertTrue(filter.shouldRead(LiveComment("1", "Ana", "hola", receivedAt = 16_000), settings))
+        assertTrue(filter.shouldRead(LiveComment("1", "Ana", "hola", receivedAt = 12_000), settings))
+        assertTrue(filter.shouldRead(LiveComment("1", "Ana", "hola", receivedAt = 13_000), settings))
+    }
+
+    @Test fun usernameOnlyModeAllowsRapidCommentsFromSameUser() {
+        val filter = CommentFilter()
+        val settings = ReaderSettings(onlyUsername = true, suppressDuplicatesSeconds = 5)
+        assertTrue(filter.shouldRead(LiveComment("1", "Ana", "hola", receivedAt = 10_000), settings))
+        assertTrue(filter.shouldRead(LiveComment("1", "Ana", "buenos dias", receivedAt = 11_000), settings))
     }
 
     @Test fun removesEmojiFromSpeechText() {
