@@ -1563,70 +1563,14 @@ private fun LiveChatPanel(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 verticalAlignment = Alignment.Top
                             ) {
-                                Column(
-                                    modifier = Modifier.widthIn(min = 44.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                                ) {
-                                    Box(
-                                        modifier = if (comment.isFanClubMember) {
-                                            Modifier
-                                                .size(52.dp)
-                                                .shadow(
-                                                    elevation = 14.dp,
-                                                    shape = RoundedCornerShape(50.dp),
-                                                    ambientColor = Color(0xFFFF7900).copy(alpha = .95f),
-                                                    spotColor = Color(0xFFFF7900).copy(alpha = .95f)
-                                                )
-                                                .background(
-                                                    brush = Brush.radialGradient(
-                                                        colors = listOf(
-                                                            Color(0xFFFFB347).copy(alpha = .72f),
-                                                            Color(0xFFFF8A00).copy(alpha = .38f),
-                                                            Color(0xFFFF7900).copy(alpha = .08f),
-                                                            Color.Transparent
-                                                        )
-                                                    ),
-                                                    shape = RoundedCornerShape(50.dp)
-                                                )
-                                                .border(
-                                                    width = 2.5.dp,
-                                                    brush = Brush.sweepGradient(
-                                                        listOf(
-                                                            Color(0xFFFFD28A),
-                                                            Color(0xFFFF7900),
-                                                            Color(0xFFFFA52E),
-                                                            Color(0xFFFFD28A)
-                                                        )
-                                                    ),
-                                                    shape = RoundedCornerShape(50.dp)
-                                                )
-                                        } else {
-                                            Modifier.size(52.dp)
-                                        },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        AsyncImage(
-                                            model = comment.avatarUrl,
-                                            contentDescription = "Foto de perfil de ${comment.username}",
-                                            modifier = Modifier
-                                                .size(38.dp)
-                                                .clip(RoundedCornerShape(50.dp))
-                                                .background(LocalAppThemeColors.current.panel),
-                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                        )
-                                    }
-                                    if (comment.isFanClubMember) {
-                                        Text(
-                                            "Club",
-                                            color = Color(0xFFFFA52E),
-                                            fontWeight = FontWeight.Bold,
-                                            style = MaterialTheme.typography.labelSmall
-                                        )
-                                    }
-                                }
+                                AsyncImage(
+                                    model = comment.avatarUrl,
+                                    contentDescription = "Foto de perfil de ${comment.username}",
+                                    modifier = Modifier.size(38.dp).clip(RoundedCornerShape(50.dp)).background(LocalAppThemeColors.current.panel),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                )
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    if (comment.isModerator || comment.isFollower) {
+                                    if (comment.isModerator || comment.isFollower || comment.isFanClubMember) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1639,6 +1583,11 @@ private fun LiveChatPanel(
                                             if (comment.isFollower) {
                                                 Surface(color = Color(0xFF168C91).copy(alpha = .22f), shape = RoundedCornerShape(6.dp)) {
                                                     Text("Follower", modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = Color(0xFF77E3E0), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                                                }
+                                            }
+                                            if (comment.isFanClubMember) {
+                                                Surface(color = Color(0xFFFF8A00).copy(alpha = .18f), shape = RoundedCornerShape(6.dp)) {
+                                                    Text("Club", modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = Color(0xFFFFB45C), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
                                                 }
                                             }
                                         }
