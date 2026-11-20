@@ -4,7 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-data class DjMusicTrack(val videoId: String, val title: String, val thumbnailUrl: String, val duration: String = "", val requestedBy: String = "Tú")
+data class DjMusicTrack(val videoId: String, val title: String, val thumbnailUrl: String, val duration: String = "", val requestedBy: String = "Tú", val artistName: String = "", val artistUrl: String = "", val artistThumbnailUrl: String = "")
 data class DjMusicState(
     val followersOnly: Boolean = false,
     val moderatorsOnly: Boolean = false,
