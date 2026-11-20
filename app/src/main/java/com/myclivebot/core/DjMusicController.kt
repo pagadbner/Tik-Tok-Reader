@@ -99,6 +99,42 @@ object DjMusicController {
     }
 
     @Synchronized
+    fun moveQueueTrack(fromIndex: Int, toIndex: Int) {
+        val current = mutableState.value
+        if (fromIndex !in current.queue.indices || toIndex !in current.queue.indices || fromIndex == toIndex) return
+        val reordered = current.queue.toMutableList()
+        val moved = reordered.removeAt(fromIndex)
+        reordered.add(toIndex, moved)
+        mutableState.value = current.copy(queue = reordered)
+    }
+
+    @Synchronized
+    fun playQueueTrackNow(index: Int) {
+        val current = mutableState.value
+        if (index !in current.queue.indices) return
+        val selected = current.queue[index]
+        val remaining = current.queue.toMutableList().also { it.removeAt(index) }
+        current.currentTrack?.let { remaining.add(0, it) }
+        mutableState.value = current.copy(
+            currentTrack = selected,
+            queue = remaining,
+            message = "Reproduciendo ahora: ${selected.title}"
+        )
+    }
+
+    @Synchronized
+    fun playTrackNow(track: DjMusicTrack) {
+        val current = mutableState.value
+        val nextQueue = current.queue.toMutableList()
+        current.currentTrack?.let { nextQueue.add(0, it) }
+        mutableState.value = current.copy(
+            currentTrack = track,
+            queue = nextQueue,
+            message = "Reproduciendo ahora: ${track.title}"
+        )
+    }
+
+    @Synchronized
     fun removeQueueTrack(index: Int) {
         val current = mutableState.value
         if (index !in current.queue.indices) return
