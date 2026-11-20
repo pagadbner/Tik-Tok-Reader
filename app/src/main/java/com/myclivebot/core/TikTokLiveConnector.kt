@@ -1,5 +1,6 @@
 package com.myclivebot.core
 
+import android.util.Log
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -63,6 +64,7 @@ class TikTokLiveConnector(
     @Volatile private var currentTtwid: String? = null
     @Volatile private var stopped = true
     private val seenIds = LinkedHashSet<String>()
+    private val fanClubDiagnosticCount = AtomicLong(0L)
     private val sessionGeneration = AtomicLong(0L)
     private val webSocketGeneration = AtomicLong(0L)
     @Volatile private var reconnectAttempt = 0
@@ -549,7 +551,9 @@ class TikTokLiveConnector(
             ?: "Usuario"
 
     private fun isFanClubMember(user: ProtoMessage?): Boolean {
-        val fanClub = user?.message(24) ?: return false
+        val fanClub = user?.message(24)
+        val primaryData = fanClub?.message(1)
+        val preferredEntries = fanClub?.messages(2).orEmpty()
 
         fun isActiveClubData(data: ProtoMessage?): Boolean {
             if (data == null) return false
@@ -557,12 +561,29 @@ class TikTokLiveConnector(
             return data.long(3) == 1L || (!data.has(3) && data.long(2) > 0L)
         }
 
-        if (isActiveClubData(fanClub.message(1))) return true
+        val active = isActiveClubData(primaryData) ||
+            preferredEntries.any { entry -> isActiveClubData(entry.message(2)) }
 
-        // TikTok may expose the creator-specific club entry through preferData.
-        return fanClub.messages(2).any { entry ->
-            isActiveClubData(entry.message(2))
+        // Temporary, privacy-safe diagnostics: no usernames, IDs, or message text.
+        // Limit output to the first 15 chat events in this connector instance.
+        if (fanClubDiagnosticCount.incrementAndGet() <= 15L) {
+            val primaryStatus = primaryData?.takeIf { it.has(3) }?.long(3)
+            val primaryLevel = primaryData?.takeIf { it.has(2) }?.long(2)
+            val preferredStates = preferredEntries.mapNotNull { entry ->
+                entry.message(2)?.let { data ->
+                    "status=${if (data.has(3)) data.long(3) else "missing"},level=${if (data.has(2)) data.long(2) else "missing"}"
+                }
+            }
+            Log.d(
+                "TikLBotFanClub",
+                "userPresent=${user != null}, fansClubPresent=${fanClub != null}, " +
+                    "dataPresent=${primaryData != null}, status=${primaryStatus ?: "missing"}, " +
+                    "level=${primaryLevel ?: "missing"}, preferDataEntries=${preferredEntries.size}, " +
+                    "preferDataStates=$preferredStates, active=$active"
+            )
         }
+
+        return active
     }
 
     private fun followerStatus(user: ProtoMessage?): Boolean? {
