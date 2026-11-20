@@ -9,7 +9,6 @@ data class LiveComment(
     val avatarUrl: String? = null,
     val isModerator: Boolean = false,
     val isFollower: Boolean? = null,
-    val isFanClubMember: Boolean = false,
     val receivedAt: Long = System.currentTimeMillis(),
     val id: String = UUID.randomUUID().toString(),
     val replyToDisplayName: String? = null,
