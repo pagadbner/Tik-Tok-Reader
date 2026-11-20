@@ -66,7 +66,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import java.io.File
 
-private data class LiveCommentUi(val id: String, val username: String, val message: String, val avatarUrl: String?, val replyToDisplayName: String?, val receivedAt: Long, val isModerator: Boolean = false, val isFollower: Boolean = false, val skipped: Boolean = false)
+private data class LiveCommentUi(val id: String, val username: String, val message: String, val avatarUrl: String?, val replyToDisplayName: String?, val receivedAt: Long, val isModerator: Boolean = false, val isFollower: Boolean = false, val isFanClubMember: Boolean = false, val skipped: Boolean = false)
 private data class CustomCommandEntry(val title: String, val trigger: String, val response: String)
 
 class MainActivity : ComponentActivity() {
@@ -98,7 +98,8 @@ class MainActivity : ComponentActivity() {
                                 replyToDisplayName = intent.getStringExtra(BotForegroundService.EXTRA_REPLY_TO)?.takeIf { it.isNotBlank() },
                                 receivedAt = intent.getLongExtra(BotForegroundService.EXTRA_COMMENT_TIME, System.currentTimeMillis()),
                                 isModerator = intent.getBooleanExtra(BotForegroundService.EXTRA_COMMENT_IS_MODERATOR, false),
-                                isFollower = intent.getBooleanExtra(BotForegroundService.EXTRA_COMMENT_IS_FOLLOWER, false)
+                                isFollower = intent.getBooleanExtra(BotForegroundService.EXTRA_COMMENT_IS_FOLLOWER, false),
+                                isFanClubMember = intent.getBooleanExtra(BotForegroundService.EXTRA_COMMENT_IS_FAN_CLUB_MEMBER, false)
                             )
                         )
                     }
@@ -383,7 +384,8 @@ class MainActivity : ComponentActivity() {
                             replyToDisplayName = comment.replyToDisplayName,
                             receivedAt = comment.receivedAt,
                             isModerator = comment.isModerator,
-                            isFollower = comment.isFollower == true
+                            isFollower = comment.isFollower == true,
+                            isFanClubMember = comment.isFanClubMember
                         )
                     )
                 }
@@ -1561,26 +1563,81 @@ private fun LiveChatPanel(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 verticalAlignment = Alignment.Top
                             ) {
-                                AsyncImage(
-                                    model = comment.avatarUrl,
-                                    contentDescription = "Foto de perfil de ${comment.username}",
-                                    modifier = Modifier.size(38.dp).clip(RoundedCornerShape(50.dp)).background(LocalAppThemeColors.current.panel),
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                )
+                                Column(
+                                    modifier = Modifier.widthIn(min = 44.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Box(
+                                        modifier = if (comment.isFanClubMember) {
+                                            Modifier
+                                                .size(44.dp)
+                                                .shadow(
+                                                    elevation = 11.dp,
+                                                    shape = RoundedCornerShape(50.dp),
+                                                    ambientColor = Color(0xFFFF8A00).copy(alpha = .85f),
+                                                    spotColor = Color(0xFFFF8A00).copy(alpha = .85f)
+                                                )
+                                                .border(
+                                                    width = 2.dp,
+                                                    brush = Brush.sweepGradient(
+                                                        listOf(
+                                                            Color(0xFFFFC46B),
+                                                            Color(0xFFFF7900),
+                                                            Color(0xFFFFA52E),
+                                                            Color(0xFFFFD18A)
+                                                        )
+                                                    ),
+                                                    shape = RoundedCornerShape(50.dp)
+                                                )
+                                        } else {
+                                            Modifier.size(44.dp)
+                                        },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        AsyncImage(
+                                            model = comment.avatarUrl,
+                                            contentDescription = "Foto de perfil de ${comment.username}",
+                                            modifier = Modifier
+                                                .size(38.dp)
+                                                .clip(RoundedCornerShape(50.dp))
+                                                .background(LocalAppThemeColors.current.panel),
+                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                        )
+                                    }
+                                    if (comment.isFanClubMember) {
+                                        Text(
+                                            "Club",
+                                            color = Color(0xFFFFA52E),
+                                            fontWeight = FontWeight.Bold,
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    }
+                                }
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Text(comment.username.ifBlank { "Usuario" }, color = LocalAppThemeColors.current.secondary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
-                                        if (comment.isModerator) {
-                                            Surface(color = Color(0xFF7657D8).copy(alpha = .22f), shape = RoundedCornerShape(6.dp)) {
-                                                Text("Moderador", modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = Color(0xFFC6B5FF), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                                    if (comment.isModerator || comment.isFollower) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            if (comment.isModerator) {
+                                                Surface(color = Color(0xFF7657D8).copy(alpha = .22f), shape = RoundedCornerShape(6.dp)) {
+                                                    Text("Moderador", modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = Color(0xFFC6B5FF), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                                                }
                                             }
-                                        }
-                                        if (comment.isFollower) {
-                                            Surface(color = Color(0xFF168C91).copy(alpha = .22f), shape = RoundedCornerShape(6.dp)) {
-                                                Text("Follower", modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = Color(0xFF77E3E0), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                                            if (comment.isFollower) {
+                                                Surface(color = Color(0xFF168C91).copy(alpha = .22f), shape = RoundedCornerShape(6.dp)) {
+                                                    Text("Follower", modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = Color(0xFF77E3E0), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                                                }
                                             }
                                         }
                                     }
+                                    Text(
+                                        comment.username.ifBlank { "Usuario" },
+                                        color = LocalAppThemeColors.current.secondary,
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
                                     if (!comment.replyToDisplayName.isNullOrBlank()) {
                                         Text("↪ Respondió a @${comment.replyToDisplayName}", color = LocalAppThemeColors.current.primary, style = MaterialTheme.typography.labelSmall)
                                     }
