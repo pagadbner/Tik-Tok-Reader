@@ -66,7 +66,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import java.io.File
 
-private data class LiveCommentUi(val id: String, val username: String, val message: String, val avatarUrl: String?, val replyToDisplayName: String?, val receivedAt: Long, val isModerator: Boolean = false, val isFollower: Boolean = false, val isFanClubMember: Boolean = false, val skipped: Boolean = false)
+private data class LiveCommentUi(val id: String, val username: String, val message: String, val avatarUrl: String?, val replyToDisplayName: String?, val receivedAt: Long, val isModerator: Boolean = false, val isFollower: Boolean = false, val skipped: Boolean = false)
 private data class CustomCommandEntry(val title: String, val trigger: String, val response: String)
 
 class MainActivity : ComponentActivity() {
@@ -99,7 +99,6 @@ class MainActivity : ComponentActivity() {
                                 receivedAt = intent.getLongExtra(BotForegroundService.EXTRA_COMMENT_TIME, System.currentTimeMillis()),
                                 isModerator = intent.getBooleanExtra(BotForegroundService.EXTRA_COMMENT_IS_MODERATOR, false),
                                 isFollower = intent.getBooleanExtra(BotForegroundService.EXTRA_COMMENT_IS_FOLLOWER, false),
-                                isFanClubMember = intent.getBooleanExtra(BotForegroundService.EXTRA_COMMENT_IS_FAN_CLUB_MEMBER, false)
                             )
                         )
                     }
@@ -385,7 +384,6 @@ class MainActivity : ComponentActivity() {
                             receivedAt = comment.receivedAt,
                             isModerator = comment.isModerator,
                             isFollower = comment.isFollower == true,
-                            isFanClubMember = comment.isFanClubMember
                         )
                     )
                 }
@@ -1570,7 +1568,7 @@ private fun LiveChatPanel(
                                     contentScale = androidx.compose.ui.layout.ContentScale.Crop
                                 )
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    if (comment.isModerator || comment.isFollower || comment.isFanClubMember) {
+                                    if (comment.isModerator || comment.isFollower) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1583,11 +1581,6 @@ private fun LiveChatPanel(
                                             if (comment.isFollower) {
                                                 Surface(color = Color(0xFF168C91).copy(alpha = .22f), shape = RoundedCornerShape(6.dp)) {
                                                     Text("Follower", modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = Color(0xFF77E3E0), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
-                                                }
-                                            }
-                                            if (comment.isFanClubMember) {
-                                                Surface(color = Color(0xFFFF8A00).copy(alpha = .18f), shape = RoundedCornerShape(6.dp)) {
-                                                    Text("Club", modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = Color(0xFFFFB45C), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
                                                 }
                                             }
                                         }
