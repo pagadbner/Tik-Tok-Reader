@@ -450,8 +450,7 @@ class TikTokLiveConnector(
                                     replyToProfileUsername = replyToUser?.string(38)?.trim()
                                         ?.takeIf { it.isNotBlank() },
                                     contentLanguage = payloadMessage.string(14).takeIf { it.isNotBlank() },
-                                    isFollower = followerStatus(user),
-                                    isFanClubMember = isFanClubMember(user)
+                                    isFollower = followerStatus(user)
                                 )
                             )
                         }.getOrElse {
@@ -547,22 +546,6 @@ class TikTokLiveConnector(
         user?.string(3)?.takeIf { it.isNotBlank() }
             ?: user?.string(38)?.takeIf { it.isNotBlank() }
             ?: "Usuario"
-
-    private fun isFanClubMember(user: ProtoMessage?): Boolean {
-        val fanClub = user?.message(24) ?: return false
-
-        // TikTok User.fansClub.data (field 1) and preferData (field 2)
-        // both contain FansClubData; only status ACTIVE (1) confirms membership.
-        fun hasActiveMembership(data: ProtoMessage?): Boolean =
-            data != null && data.has(3) && data.long(3) == 1L
-
-        val primaryDataIsActive = hasActiveMembership(fanClub.message(1))
-        val preferredDataIsActive = fanClub.messages(2).any { mapEntry ->
-            hasActiveMembership(mapEntry.message(2))
-        }
-
-        return primaryDataIsActive || preferredDataIsActive
-    }
 
     private fun followerStatus(user: ProtoMessage?): Boolean? {
         if (user == null) return null
