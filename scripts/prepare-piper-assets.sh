@@ -36,7 +36,7 @@ for f in es_rules es_list es_emoji; do
 done
 if [[ -x "$BIN" && -f "$DICT_TMP/es_rules" ]]; then
   (cd "$DICT_TMP" && ESPEAK_DATA_PATH="$BUILD" "$BIN" --compile=es >/dev/null)
-  find "$DICT_TMP" -maxdepth 1 -type f -name '*dict*' -exec cp {} "$BUILD/espeak-ng-data/" \\;
+  find "$DICT_TMP" -maxdepth 1 -type f -name '*dict*' -exec cp {} "$BUILD/espeak-ng-data/" \;
 fi
 
 ASSETS="$ROOT/app/src/main/assets/espeak-ng-data"
