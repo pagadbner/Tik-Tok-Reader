@@ -21,7 +21,7 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
     context.applicationContext,
     "tiklbot_live_chat.db",
     null,
-    3
+    2
 ) {
     private val writerLock = Any()
     private val writer = ThreadPoolExecutor(
@@ -82,8 +82,7 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
                 received_at INTEGER NOT NULL,
                 reply_to TEXT,
                 is_moderator INTEGER NOT NULL DEFAULT 0,
-                is_follower INTEGER,
-                is_fan_club_member INTEGER NOT NULL DEFAULT 0
+                is_follower INTEGER
             )
             """.trimIndent()
         )
@@ -94,9 +93,6 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
         if (oldVersion < 2) {
             db.execSQL("ALTER TABLE live_comments ADD COLUMN is_moderator INTEGER NOT NULL DEFAULT 0")
             db.execSQL("ALTER TABLE live_comments ADD COLUMN is_follower INTEGER")
-        }
-        if (oldVersion < 3) {
-            db.execSQL("ALTER TABLE live_comments ADD COLUMN is_fan_club_member INTEGER NOT NULL DEFAULT 0")
         }
     }
 
@@ -110,7 +106,6 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
             put("reply_to", comment.replyToDisplayName)
             put("is_moderator", if (comment.isModerator) 1 else 0)
             if (comment.isFollower != null) put("is_follower", if (comment.isFollower == true) 1 else 0)
-            put("is_fan_club_member", if (comment.isFanClubMember) 1 else 0)
         }
         writableDatabase.insertWithOnConflict(
             "live_comments",
@@ -124,7 +119,7 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
         val comments = ArrayList<LiveComment>()
         readableDatabase.query(
             "live_comments",
-            arrayOf("id", "username", "message", "avatar_url", "received_at", "reply_to", "is_moderator", "is_follower", "is_fan_club_member"),
+            arrayOf("id", "username", "message", "avatar_url", "received_at", "reply_to", "is_moderator", "is_follower"),
             null,
             null,
             null,
@@ -141,8 +136,7 @@ class LiveChatHistoryStore(context: Context) : SQLiteOpenHelper(
                     id = cursor.getString(0),
                     replyToDisplayName = cursor.getString(5),
                     isModerator = cursor.getInt(6) != 0,
-                    isFollower = if (cursor.isNull(7)) null else cursor.getInt(7) != 0,
-                    isFanClubMember = cursor.getInt(8) != 0
+                    isFollower = if (cursor.isNull(7)) null else cursor.getInt(7) != 0
                 )
             }
         }
