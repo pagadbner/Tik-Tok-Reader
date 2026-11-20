@@ -1571,27 +1571,38 @@ private fun LiveChatPanel(
                                     Box(
                                         modifier = if (comment.isFanClubMember) {
                                             Modifier
-                                                .size(44.dp)
+                                                .size(52.dp)
                                                 .shadow(
-                                                    elevation = 11.dp,
+                                                    elevation = 14.dp,
                                                     shape = RoundedCornerShape(50.dp),
-                                                    ambientColor = Color(0xFFFF8A00).copy(alpha = .85f),
-                                                    spotColor = Color(0xFFFF8A00).copy(alpha = .85f)
+                                                    ambientColor = Color(0xFFFF7900).copy(alpha = .95f),
+                                                    spotColor = Color(0xFFFF7900).copy(alpha = .95f)
+                                                )
+                                                .background(
+                                                    brush = Brush.radialGradient(
+                                                        colors = listOf(
+                                                            Color(0xFFFFB347).copy(alpha = .72f),
+                                                            Color(0xFFFF8A00).copy(alpha = .38f),
+                                                            Color(0xFFFF7900).copy(alpha = .08f),
+                                                            Color.Transparent
+                                                        )
+                                                    ),
+                                                    shape = RoundedCornerShape(50.dp)
                                                 )
                                                 .border(
-                                                    width = 2.dp,
+                                                    width = 2.5.dp,
                                                     brush = Brush.sweepGradient(
                                                         listOf(
-                                                            Color(0xFFFFC46B),
+                                                            Color(0xFFFFD28A),
                                                             Color(0xFFFF7900),
                                                             Color(0xFFFFA52E),
-                                                            Color(0xFFFFD18A)
+                                                            Color(0xFFFFD28A)
                                                         )
                                                     ),
                                                     shape = RoundedCornerShape(50.dp)
                                                 )
                                         } else {
-                                            Modifier.size(44.dp)
+                                            Modifier.size(52.dp)
                                         },
                                         contentAlignment = Alignment.Center
                                     ) {
