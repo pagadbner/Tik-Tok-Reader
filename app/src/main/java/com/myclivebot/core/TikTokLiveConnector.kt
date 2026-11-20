@@ -450,7 +450,8 @@ class TikTokLiveConnector(
                                     replyToProfileUsername = replyToUser?.string(38)?.trim()
                                         ?.takeIf { it.isNotBlank() },
                                     contentLanguage = payloadMessage.string(14).takeIf { it.isNotBlank() },
-                                    isFollower = followerStatus(user)
+                                    isFollower = followerStatus(user),
+                                    isFanClubMember = isFanClubMember(user)
                                 )
                             )
                         }.getOrElse {
@@ -546,6 +547,18 @@ class TikTokLiveConnector(
         user?.string(3)?.takeIf { it.isNotBlank() }
             ?: user?.string(38)?.takeIf { it.isNotBlank() }
             ?: "Usuario"
+
+    private fun isFanClubMember(user: ProtoMessage?): Boolean {
+        val fanClub = user?.message(24) ?: return false
+        val data = fanClub.message(1)
+        if (data != null && (data.long(2) > 0L || data.long(3) > 0L)) return true
+
+        // TikTok may expose the creator-specific club entry through preferData.
+        return fanClub.messages(2).any { entry ->
+            val preferredData = entry.message(2)
+            preferredData != null && (preferredData.long(2) > 0L || preferredData.long(3) > 0L)
+        }
+    }
 
     private fun followerStatus(user: ProtoMessage?): Boolean? {
         if (user == null) return null
