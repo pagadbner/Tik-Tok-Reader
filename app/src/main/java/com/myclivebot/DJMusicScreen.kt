@@ -12,6 +12,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,6 +25,9 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
@@ -35,6 +39,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
@@ -45,6 +51,7 @@ import org.json.JSONArray
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.abs
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -65,6 +72,8 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
     var activeSearchId by remember { mutableIntStateOf(0) }
     var searching by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<DjMusicTrack?>(null) }
+    var searchResults by remember { mutableStateOf<List<DjMusicTrack>>(emptyList()) }
+    val dragThresholdPx = with(LocalDensity.current) { 68.dp.toPx() }
     var accessMenu by remember { mutableStateOf(false) }
     var playerPlaying by remember { mutableStateOf(false) }
     var playerReady by remember { mutableStateOf(false) }
@@ -131,7 +140,8 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
         searchQuery.set(query)
         searching = true
         result = null
-        DjMusicController.setMessage("Buscando la primera coincidencia…")
+        searchResults = emptyList()
+        DjMusicController.setMessage("Buscando canciones…")
         val videoId = Regex("""(?:v=|youtu\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{11})""")
             .find(query)?.groupValues?.get(1)
         val target = if (videoId != null) {
@@ -239,30 +249,67 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
 
         Surface(color = palette.panel, shape = RoundedCornerShape(20.dp), shadowElevation = 12.dp, border = BorderStroke(1.dp, palette.glassBorder)) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("RESULTADO SELECCIONADO", color = palette.secondary, style = MaterialTheme.typography.labelMedium)
+                Text("RESULTADOS DE BÚSQUEDA", color = palette.secondary, style = MaterialTheme.typography.labelMedium)
                 if (searching) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
-                    Text("Buscando título, carátula y enlace del primer resultado…", color = palette.muted, style = MaterialTheme.typography.bodySmall)
+                    Text("Buscando canciones, miniaturas y perfiles de artistas…", color = palette.muted, style = MaterialTheme.typography.bodySmall)
                 }
-                val selected = result ?: state.currentTrack
-                if (selected != null) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        AsyncImage(
-                            model = selected.thumbnailUrl.ifBlank { "https://i.ytimg.com/vi/${selected.videoId}/hqdefault.jpg" },
-                            contentDescription = "Carátula de ${selected.title}",
-                            modifier = Modifier.size(104.dp, 72.dp).clip(RoundedCornerShape(12.dp))
-                        )
-                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                            Text(selected.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
-                            Text(
-                                selected.duration.ifBlank { "Duración no disponible" },
-                                color = palette.muted,
-                                style = MaterialTheme.typography.bodySmall
-                            )
+                if (searchResults.isEmpty() && !searching) {
+                    Text("Escribe el nombre de una canción o artista para ver coincidencias y elegir una.", color = palette.muted, style = MaterialTheme.typography.bodySmall)
+                }
+                searchResults.forEachIndexed { index, track ->
+                    Surface(
+                        color = palette.panel.copy(alpha = .72f),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, palette.glassBorder.copy(alpha = .7f))
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(9.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                AsyncImage(
+                                    model = track.thumbnailUrl,
+                                    contentDescription = "Miniatura de ${track.title}",
+                                    modifier = Modifier.size(88.dp, 58.dp).clip(RoundedCornerShape(9.dp))
+                                )
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text(track.title, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
+                                    Text(track.duration.ifBlank { "Duración no disponible" }, color = palette.muted, style = MaterialTheme.typography.labelSmall)
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                        if (track.artistThumbnailUrl.isNotBlank()) {
+                                            AsyncImage(
+                                                model = track.artistThumbnailUrl,
+                                                contentDescription = "Perfil de ${track.artistName}",
+                                                modifier = Modifier.size(20.dp).clip(RoundedCornerShape(50.dp))
+                                            )
+                                        }
+                                        Text(
+                                            track.artistName.ifBlank { "Artista no identificado" },
+                                            color = palette.secondary,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                OutlinedButton(
+                                    onClick = { DjMusicController.addTrack(track); searchResults = searchResults.filterNot { it.videoId == track.videoId } },
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Text(" Cola", style = MaterialTheme.typography.labelSmall)
+                                }
+                                Button(
+                                    onClick = { DjMusicController.playTrackNow(track); searchResults = searchResults.filterNot { it.videoId == track.videoId } },
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(Icons.Default.PlayCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Text(" Reproducir ahora", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
                         }
                     }
-                } else if (!searching) {
-                    Text("Busca una canción o solicita !play en el LIVE.", color = palette.muted, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -455,21 +502,45 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                     Text("La cola está vacía.", color = palette.muted, style = MaterialTheme.typography.bodySmall)
                 } else {
                     state.queue.forEachIndexed { index, track ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .pointerInput(track.videoId, index, state.queue) {
+                                    var accumulated = 0f
+                                    detectDragGesturesAfterLongPress(
+                                        onDragEnd = { accumulated = 0f },
+                                        onDragCancel = { accumulated = 0f }
+                                    ) { change, dragAmount ->
+                                        change.consume()
+                                        accumulated += dragAmount.y
+                                        if (abs(accumulated) >= dragThresholdPx) {
+                                            val target = (index + if (accumulated > 0f) 1 else -1)
+                                                .coerceIn(state.queue.indices)
+                                            if (target != index) DjMusicController.moveQueueTrack(index, target)
+                                            accumulated = 0f
+                                        }
+                                    }
+                                },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.DragHandle, contentDescription = "Mantén pulsado para mover", tint = palette.muted)
                             AsyncImage(
                                 model = track.thumbnailUrl.ifBlank { "https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg" },
                                 contentDescription = null,
-                                modifier = Modifier.size(54.dp, 42.dp).clip(RoundedCornerShape(8.dp))
+                                modifier = Modifier.size(48.dp, 38.dp).clip(RoundedCornerShape(8.dp))
                             )
-                            Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                                Text("${index + 1}. ${track.title}", maxLines = 2, style = MaterialTheme.typography.bodySmall)
+                            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                                Text("${index + 1}. ${track.title}", maxLines = 1, style = MaterialTheme.typography.bodySmall)
                                 Text(
-                                    listOf(track.duration.ifBlank { "Duración desconocida" }, "Solicitada por ${track.requestedBy}").joinToString(" · "),
+                                    listOf(track.duration.ifBlank { "Duración desconocida" }, track.requestedBy).joinToString(" · "),
                                     color = palette.muted,
-                                    style = MaterialTheme.typography.labelSmall
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1
                                 )
                             }
-                            IconButton(onClick = { DjMusicController.removeQueueTrack(index) }) {
+                            IconButton(onClick = { DjMusicController.playQueueTrackNow(index) }, modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.Default.PlayCircle, contentDescription = "Reproducir ahora: ${track.title}", tint = palette.secondary)
+                            }
+                            IconButton(onClick = { DjMusicController.removeQueueTrack(index) }, modifier = Modifier.size(36.dp)) {
                                 Icon(Icons.Default.DeleteOutline, contentDescription = "Eliminar ${track.title} de la cola", tint = palette.muted)
                             }
                         }
@@ -518,16 +589,24 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                 return cleanTitle(value);
                               }
                               function send(items){
-                                var x=(items||[]).find(function(item){return item&&item.videoId&&cleanTitle(item.title)&&!isDuration(item.title);});
-                                if(x&&x.videoId){
-                                  var title=cleanTitle(x.title);
+                                var valid=(items||[]).filter(function(item){return item&&item.videoId&&cleanTitle(item.title)&&!isDuration(item.title);});
+                                var seen={},list=[];
+                                valid.forEach(function(x){
+                                  if(seen[x.videoId]||list.length>=8)return;
+                                  seen[x.videoId]=true;
                                   var thumbs=x.thumbnails||[];
                                   thumbs.sort(function(a,b){return (b.width||0)-(a.width||0);});
-                                  TikLBotMusicSearch.onResults(requestId,JSON.stringify({
-                                    id:x.videoId,title:title,
+                                  list.push({
+                                    id:x.videoId,title:cleanTitle(x.title),
                                     thumbnail:(thumbs[0]&&thumbs[0].url)||'',
-                                    duration:x.duration||formatSeconds(x.lengthSeconds)||''
-                                  }));
+                                    duration:x.duration||formatSeconds(x.lengthSeconds)||'',
+                                    artistName:cleanTitle(x.artistName||''),
+                                    artistUrl:x.artistUrl||'',
+                                    artistThumbnail:x.artistThumbnail||''
+                                  });
+                                });
+                                if(list.length){
+                                  TikLBotMusicSearch.onResults(requestId,JSON.stringify(list));
                                   return true;
                                 }
                                 return false;
@@ -542,7 +621,12 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                   if(!o||typeof o!=='object')return;
                                   if(o.videoRenderer&&o.videoRenderer.videoId){
                                     var v=o.videoRenderer;
-                                    found.push({videoId:v.videoId,title:rendererTitle(v),thumbnails:(v.thumbnail&&v.thumbnail.thumbnails)||[],duration:rendererDuration(v)});
+                                    var owner=(v.ownerText&&v.ownerText.runs&&v.ownerText.runs[0])||{};
+                                    var channel=(owner.navigationEndpoint&&owner.navigationEndpoint.browseEndpoint)||{};
+                                    var channelThumb=v.channelThumbnailSupportedRenderers&&v.channelThumbnailSupportedRenderers.channelThumbnailWithLinkRenderer;
+                                    var channelThumbs=channelThumb&&channelThumb.thumbnail&&channelThumb.thumbnail.thumbnails||[];
+                                    channelThumbs.sort(function(a,b){return (b.width||0)-(a.width||0);});
+                                    found.push({videoId:v.videoId,title:rendererTitle(v),thumbnails:(v.thumbnail&&v.thumbnail.thumbnails)||[],duration:rendererDuration(v),artistName:owner.text||'',artistUrl:channel.canonicalBaseUrl?('https://www.youtube.com'+channel.canonicalBaseUrl):(channel.browseId?('https://www.youtube.com/channel/'+channel.browseId):''),artistThumbnail:channelThumbs[0]&&channelThumbs[0].url||''});
                                   }
                                   Object.keys(o).forEach(function(k){if(k!=='videoRenderer')walk(o[k]);});
                                 }
@@ -558,7 +642,9 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                     if(!title||isDuration(title))title=cleanTitle(a.getAttribute('title')||a.getAttribute('aria-label'));
                                     if(!title||isDuration(title))return;
                                     var durationNode=card&&card.querySelector('ytd-thumbnail-overlay-time-status-renderer, .ytd-thumbnail-overlay-time-status-renderer');
-                                    found.push({videoId:m[1],title:title,thumbnails:im?[{url:im.currentSrc||im.src,width:640}]:[],duration:durationNode?(durationNode.innerText||'').trim():''});
+                                    var ownerLink=card&&card.querySelector('ytd-channel-name a, #channel-name a, a[href^="/channel/"], a[href^="/@"]');
+                                    var ownerName=ownerLink?cleanTitle(ownerLink.textContent):'';
+                                    found.push({videoId:m[1],title:title,thumbnails:im?[{url:im.currentSrc||im.src,width:640}]:[],duration:durationNode?(durationNode.innerText||'').trim():'',artistName:ownerName,artistUrl:ownerLink?new URL(ownerLink.href,location.origin).href:'',artistThumbnail:''});
                                   });
                                 }
                                 return send(found);
@@ -567,7 +653,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                 attempts++;
                                 if(scan())return;
                                 if(attempts<30)setTimeout(poll,500);
-                                else TikLBotMusicSearch.onResults(requestId,JSON.stringify({}));
+                                else TikLBotMusicSearch.onResults(requestId,JSON.stringify([]));
                               }
                               poll();
                             })();
@@ -579,26 +665,37 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                     @JavascriptInterface
                     fun onResults(requestId: Int, json: String) {
                         if (requestId != searchRequestId.get() || completedSearchId.getAndSet(requestId) == requestId) return
-                        val track = runCatching {
-                            val item = org.json.JSONObject(json)
-                            val id = item.optString("id")
-                            if (id.length != 11 || !id.matches(Regex("[A-Za-z0-9_-]{11}"))) null else DjMusicTrack(
-                                videoId = id,
-                                title = item.optString("title").ifBlank { "Video de YouTube" },
-                                thumbnailUrl = item.optString("thumbnail").ifBlank { "https://i.ytimg.com/vi/$id/hqdefault.jpg" },
-                                duration = item.optString("duration"),
-                                requestedBy = searchRequester.get()
-                            )
-                        }.getOrNull()
+                        val tracks = runCatching {
+                            val items = JSONArray(json)
+                            (0 until minOf(items.length(), 8)).mapNotNull { index ->
+                                val item = items.optJSONObject(index) ?: return@mapNotNull null
+                                val id = item.optString("id")
+                                if (id.length != 11 || !id.matches(Regex("[A-Za-z0-9_-]{11}"))) return@mapNotNull null
+                                DjMusicTrack(
+                                    videoId = id,
+                                    title = item.optString("title").ifBlank { "Video de YouTube" },
+                                    thumbnailUrl = item.optString("thumbnail").ifBlank { "https://i.ytimg.com/vi/$id/hqdefault.jpg" },
+                                    duration = item.optString("duration"),
+                                    requestedBy = searchRequester.get(),
+                                    artistName = item.optString("artistName"),
+                                    artistUrl = item.optString("artistUrl"),
+                                    artistThumbnailUrl = item.optString("artistThumbnail")
+                                )
+                            }
+                        }.getOrDefault(emptyList())
                         post {
                             if (requestId != searchRequestId.get()) return@post
                             searching = false
                             DjMusicController.completeSearch(searchQuery.get(), searchRequester.get())
-                            if (track != null) {
-                                result = track
-                                DjMusicController.addTrack(track)
+                            if (tracks.isNotEmpty()) {
+                                if (searchRequester.get() == "Tú") {
+                                    searchResults = tracks
+                                    DjMusicController.setMessage("Se encontraron ${tracks.size} resultados. Elige uno.")
+                                } else {
+                                    DjMusicController.addTrack(tracks.first())
+                                }
                             } else {
-                                DjMusicController.setMessage("No se encontró un resultado legible. Prueba otro título o URL.")
+                                DjMusicController.setMessage("No se encontraron resultados legibles. Prueba otro título o URL.")
                             }
                         }
                     }
