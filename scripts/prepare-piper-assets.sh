@@ -6,20 +6,19 @@ PIPER="$ROOT/piper-kotlin"
 
 cd "$PIPER"
 
-# Piper's pinned fetch script currently points at repo1.maven.org, which
-# returned HTTP 404 in GitHub Actions for the published ONNX Runtime AAR.
-# Use Maven Central's canonical endpoint without changing the pinned version
-# or any Piper engine/native source.
+# Use Google's maintained Maven Central mirror for the pinned ONNX Runtime AAR.
+# This avoids the HTTP 404 observed from the Maven Central endpoints in CI,
+# without changing Piper's pinned version or any engine/native source.
 PIPER_DEPS_SCRIPT="$PIPER/scripts/fetch-native-deps.sh"
 if grep -q 'https://repo1.maven.org/maven2/' "$PIPER_DEPS_SCRIPT"; then
-  sed -i 's#https://repo1.maven.org/maven2/#https://repo.maven.apache.org/maven2/#g' "$PIPER_DEPS_SCRIPT"
+  sed -i 's#https://repo1.maven.org/maven2/#https://maven-central.storage-download.googleapis.com/maven2/#g' "$PIPER_DEPS_SCRIPT"
+elif grep -q 'https://repo.maven.apache.org/maven2/' "$PIPER_DEPS_SCRIPT"; then
+  sed -i 's#https://repo.maven.apache.org/maven2/#https://maven-central.storage-download.googleapis.com/maven2/#g' "$PIPER_DEPS_SCRIPT"
 fi
 
-# Maven Central can temporarily answer HTTP 429 from shared GitHub Actions
-# runners. Retry transient throttling/network failures instead of aborting the
-# whole Android build before Gradle starts.
+# Retry transient network errors and rate limits; permanent 404s fail immediately.
 if grep -q 'curl -fL -o /tmp/onnxruntime-android.aar' "$PIPER_DEPS_SCRIPT"; then
-  sed -i 's#curl -fL -o /tmp/onnxruntime-android.aar#curl --retry 6 --retry-all-errors --retry-delay 5 --retry-max-time 180 --connect-timeout 20 --max-time 240 -fL -o /tmp/onnxruntime-android.aar#' "$PIPER_DEPS_SCRIPT"
+  sed -i 's#curl -fL -o /tmp/onnxruntime-android.aar#curl --retry 6 --retry-delay 5 --retry-max-time 180 --connect-timeout 20 --max-time 240 -fL -o /tmp/onnxruntime-android.aar#' "$PIPER_DEPS_SCRIPT"
 fi
 
 ./scripts/fetch-native-deps.sh
@@ -37,7 +36,7 @@ for f in es_rules es_list es_emoji; do
 done
 if [[ -x "$BIN" && -f "$DICT_TMP/es_rules" ]]; then
   (cd "$DICT_TMP" && ESPEAK_DATA_PATH="$BUILD" "$BIN" --compile=es >/dev/null)
-  find "$DICT_TMP" -maxdepth 1 -type f -name '*dict*' -exec cp {} "$BUILD/espeak-ng-data/" \;
+  find "$DICT_TMP" -maxdepth 1 -type f -name '*dict*' -exec cp {} "$BUILD/espeak-ng-data/" \\;
 fi
 
 ASSETS="$ROOT/app/src/main/assets/espeak-ng-data"
