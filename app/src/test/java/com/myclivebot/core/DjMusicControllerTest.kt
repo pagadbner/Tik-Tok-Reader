@@ -48,4 +48,27 @@ class DjMusicControllerTest {
         count++
         assertEquals(count, controller.state.value.pendingSearches.size)
     }
+    @Test
+    fun queueCanBeReorderedAndPlayedNowWithoutDroppingCurrentTrack() {
+        val controller = DjMusicController
+        controller.clearQueue()
+
+        val current = DjMusicTrack("aaaaaaaaaaa", "Actual", "", requestedBy = "Tú")
+        val second = DjMusicTrack("bbbbbbbbbbb", "Segunda", "", requestedBy = "Tú")
+        val third = DjMusicTrack("ccccccccccc", "Tercera", "", requestedBy = "Tú")
+
+        controller.addTrack(current)
+        controller.addTrack(second)
+        controller.addTrack(third)
+
+        controller.moveQueueTrack(1, 0)
+        assertEquals(listOf(third, second), controller.state.value.queue)
+
+        controller.playQueueTrackNow(1)
+        assertEquals(second, controller.state.value.currentTrack)
+        assertEquals(listOf(current, third), controller.state.value.queue)
+
+        controller.clearQueue()
+    }
+
 }
