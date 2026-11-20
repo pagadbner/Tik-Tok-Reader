@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -59,6 +60,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
     val palette = LocalAppThemeColors.current
     val state by DjMusicController.state.collectAsState()
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var playbackServiceActive by remember { mutableStateOf(false) }
 
@@ -241,7 +243,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Default.PlayArrow, null)
-                    Text(if (searching) "  BUSCANDO…" else "  BUSCAR Y AGREGAR PRIMER RESULTADO")
+                    Text(if (searching) "  BUSCANDO…" else "  BUSCAR CANCIONES")
                 }
                 Text(state.message, color = palette.muted, style = MaterialTheme.typography.bodySmall)
             }
@@ -282,11 +284,18 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                                             )
                                         }
                                         Text(
-                                            track.artistName.ifBlank { "Artista no identificado" },
+                                            track.artistName.ifBlank { "Perfil del artista no disponible" },
                                             color = palette.secondary,
                                             style = MaterialTheme.typography.labelSmall,
                                             maxLines = 1
                                         )
+                                        if (track.artistUrl.isNotBlank()) {
+                                            TextButton(
+                                                onClick = { runCatching { uriHandler.openUri(track.artistUrl) } },
+                                                contentPadding = PaddingValues(0.dp),
+                                                modifier = Modifier.height(24.dp)
+                                            ) { Text("Ver perfil", style = MaterialTheme.typography.labelSmall) }
+                                        }
                                     }
                                 }
                             }
@@ -614,7 +623,7 @@ fun DJMusicScreen(modifier: Modifier = Modifier) {
                               function scan(){
                                 if(location.pathname.indexOf('/watch')===0){
                                   var d=window.ytInitialPlayerResponse&&window.ytInitialPlayerResponse.videoDetails;
-                                  if(d&&send([{videoId:d.videoId,title:d.title,thumbnails:d.thumbnail&&d.thumbnail.thumbnails,lengthSeconds:d.lengthSeconds}]))return true;
+                                  if(d&&send([{videoId:d.videoId,title:d.title,thumbnails:d.thumbnail&&d.thumbnail.thumbnails,lengthSeconds:d.lengthSeconds,artistName:d.author||'',artistUrl:d.channelId?('https://www.youtube.com/channel/'+d.channelId):''}]))return true;
                                 }
                                 var found=[],data=window.ytInitialData;
                                 function walk(o){
