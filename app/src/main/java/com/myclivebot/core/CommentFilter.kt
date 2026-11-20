@@ -1,8 +1,5 @@
 package com.myclivebot.core
 
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicLong
-
 /** User-configurable reading, moderation and speech settings. */
 data class ReaderSettings(
     val readUsername: Boolean = true,
@@ -73,8 +70,6 @@ class CommentFilter {
         val blockedWords: List<Regex>
     )
 
-    private val lastByUser = ConcurrentHashMap<String, Pair<String, Long>>()
-    private val lastCleanupAt = AtomicLong(0L)
     @Volatile private var cachedRules: FilterRules? = null
     private val whitespaceRegex = Regex("\\s+")
     private val urlRegex = Regex("https?://\\S+", RegexOption.IGNORE_CASE)
@@ -97,20 +92,7 @@ class CommentFilter {
         }
     }
 
-    private fun cleanupDuplicatesIfNeeded() {
-        if (lastByUser.size <= 2_000) return
-        val now = System.currentTimeMillis()
-        val previous = lastCleanupAt.get()
-        if (now - previous < 30_000L || !lastCleanupAt.compareAndSet(previous, now)) return
-        val cutoff = now - 60_000L
-        lastByUser.entries.removeIf { it.value.second < cutoff }
-    }
-
-    fun shouldRead(
-        comment: LiveComment,
-        settings: ReaderSettings,
-        recordDuplicate: Boolean = true
-    ): Boolean {
+    fun shouldRead(comment: LiveComment, settings: ReaderSettings): Boolean {
         if (!CommentLanguageFilter.isSupported(comment.text, comment.contentLanguage)) return false
         if (settings.followerOnlyChat && comment.isFollower != true) return false
         val userKey = comment.userId.ifBlank { comment.displayName }.trim().lowercase()
@@ -130,32 +112,7 @@ class CommentFilter {
         val normalized = cleanText.lowercase(java.util.Locale.ROOT)
         if (rules.blockedWords.any { it.containsMatchIn(normalized) }) return false
 
-        val now = comment.receivedAt
-        val duplicateWindow = settings.suppressDuplicatesSeconds.coerceAtLeast(0) * 1_000
-        val previous = lastByUser[userKey]
-        val isDuplicate = previous != null && previous.first == normalized &&
-            now >= previous.second && now - previous.second <= duplicateWindow
-        if (isDuplicate) return false
-        if (recordDuplicate) {
-            lastByUser[userKey] = normalized to now
-            cleanupDuplicatesIfNeeded()
-        }
         return true
-    }
-
-    /** Commit duplicate-suppression state only after the speech queue accepts a comment. */
-    fun confirmRead(comment: LiveComment, settings: ReaderSettings) {
-        val userKey = comment.userId.ifBlank { comment.displayName }.trim().lowercase()
-        val sourceToFilter = if (settings.onlyUsername) {
-            if (settings.useProfileUsername) comment.profileUsername.ifBlank { comment.displayName }
-            else comment.displayName
-        } else comment.text
-        val normalized = sourceToFilter.trim().replace(whitespaceRegex, " ")
-            .lowercase(java.util.Locale.ROOT)
-        if (userKey.isNotBlank() && normalized.isNotBlank()) {
-            lastByUser[userKey] = normalized to comment.receivedAt
-            cleanupDuplicatesIfNeeded()
-        }
     }
 
     fun usernameForSpeech(comment: LiveComment, settings: ReaderSettings): String =
