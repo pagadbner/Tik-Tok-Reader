@@ -50,7 +50,7 @@ class DesktopYoutubeSearchView(
 
     fun search(query: String, requestId: Int) {
         activeRequest.set(requestId)
-        val videoId = Regex("""(?:v=|youtu\\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{11})""")
+        val videoId = Regex("""(?:v=|youtu\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{11})""")
             .find(query)?.groupValues?.get(1)
         val url = if (videoId != null) {
             "https://www.youtube.com/watch?v=$videoId"
@@ -75,8 +75,8 @@ class DesktopYoutubeSearchView(
     private fun searchScript(requestId: Int): String = """
         (function(){
           var requestId=$requestId, attempts=0;
-          function clean(v){return String(v||'').replace(/\\s+/g,' ').trim();}
-          function duration(v){return /^\\d{1,2}:\\d{2}(?::\\d{2})?$/.test(clean(v));}
+          function clean(v){return String(v||'').replace(/\s+/g,' ').trim();}
+          function duration(v){return /^\d{1,2}:\d{2}(?::\d{2})?$/.test(clean(v));}
           function send(items){
             var seen={},out=[];
             (items||[]).forEach(function(x){
@@ -196,11 +196,11 @@ class DesktopYoutubePlayerView(
     }
 
     inner class PlayerBridge {
-        fun onPlayerEnded() = onEnded()
-        fun onPlayerError(code: Int) = onError(code)
-        fun onPlayerReady() = onReady()
-        fun onPlayerState(value: Int) = onState(value)
-        fun onAutoplayBlocked() = onState(-1)
+        fun onPlayerEnded() = SwingUtilities.invokeLater(onEnded)
+        fun onPlayerError(code: Int) = SwingUtilities.invokeLater { onError(code) }
+        fun onPlayerReady() = SwingUtilities.invokeLater(onReady)
+        fun onPlayerState(value: Int) = SwingUtilities.invokeLater { onState(value) }
+        fun onAutoplayBlocked() = SwingUtilities.invokeLater { onState(-1) }
     }
 
     private fun playerHtml(videoId: String, volume: Int, muted: Boolean): String {
