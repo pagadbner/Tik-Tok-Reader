@@ -51,6 +51,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     var username by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Desconectado") }
     var connected by remember { mutableStateOf(false) }
+    var connecting by remember { mutableStateOf(false) }
     val comments = remember { mutableStateListOf<LiveComment>() }
     val djMusicState by DjMusicController.state.collectAsState()
     var readerSettings by remember { mutableStateOf(DesktopSettingsStore.load()) }
@@ -76,6 +77,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
         connector?.close()
         connector = null
         connected = false
+        connecting = false
         status = "Desconectado"
     }
 
@@ -165,8 +167,10 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                         singleLine = true
                                     )
                                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        Button(enabled = !connected && username.isNotBlank(), onClick = {
+                                        Button(enabled = !connected && !connecting && username.isNotBlank(), onClick = {
                                             comments.clear()
+                                            connecting = true
+                                            connected = false
                                             status = "Preparando conexión…"
                                             val live = TikTokLiveConnector(
                                                 onComment = { comment ->
@@ -181,11 +185,16 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                                     }
                                                     result
                                                 },
-                                                onStatus = { value -> SwingUtilities.invokeLater { status = value } },
+                                                onStatus = { value -> SwingUtilities.invokeLater {
+                                                    status = value
+                                                    connected = value.startsWith("Conectado al LIVE")
+                                                    if (connected || value.startsWith("TikTok no aceptó la conexión") || value.startsWith("No se pudo programar")) {
+                                                        connecting = false
+                                                    }
+                                                } },
                                                 onEvent = { event -> commentPipeline.onEvent(event) }
                                             )
                                             connector = live
-                                            connected = true
                                             live.connect(username)
                                         }) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("Conectar") }
                                         OutlinedButton(enabled = connected, onClick = { stopLive() }) {
@@ -198,7 +207,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 StatCard("Comentarios recibidos", comments.size.toString(), Modifier.weight(1f))
                                 StatCard("Filtrados", filteredComments.toString(), Modifier.weight(1f))
-                                StatCard("Estado de conexión", if (connected) "Activo" else "Inactivo", Modifier.weight(1f))
+                                StatCard("Estado de conexión", when { connected -> "Activo"; connecting -> "Conectando"; else -> "Inactivo" }, Modifier.weight(1f))
                             }
                             Spacer(Modifier.height(16.dp))
                             Text("Chat en vivo", fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
