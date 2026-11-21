@@ -23,7 +23,7 @@ import javax.swing.SwingUtilities
  */
 class DesktopYoutubeSearchView(
     private val onResults: (Int, String) -> Unit
-) : JFXPanel() {
+) : JFXPanel(), AutoCloseable {
     private val activeRequest = AtomicInteger(0)
     @Volatile private var engine: WebEngine? = null
 
@@ -70,6 +70,11 @@ class DesktopYoutubeSearchView(
         SwingUtilities.invokeLater {
             if (requestId == activeRequest.get()) onResults(requestId, json)
         }
+    }
+
+    override fun close() {
+        activeRequest.incrementAndGet()
+        Platform.runLater { runCatching { engine?.load("about:blank") } }
     }
 
     private fun searchScript(requestId: Int): String = """
