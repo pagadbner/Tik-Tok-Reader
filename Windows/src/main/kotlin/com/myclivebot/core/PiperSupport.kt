@@ -130,10 +130,11 @@ class PiperSpeechEngine(
                 val ticket = generation.get()
                 val voice = ensureVoiceLoaded()
                 val piper = piperInstance ?: throw IllegalStateException("El motor Piper no está inicializado.")
-                val samples = piper.textToAudio(voice, text.take(500))
                 val adjustedSampleRate = (voice.sampleRate * selectedSpeed.coerceIn(0.65f, 1.5f)).toInt()
-                if (ticket == generation.get() && samples.isNotEmpty()) {
-                    DesktopAudioPlayer.playPcm(samples, adjustedSampleRate, selectedVolume, muted)
+                if (ticket == generation.get()) {
+                    DesktopAudioPlayer.playPcmStream(adjustedSampleRate, selectedVolume, muted) { emit ->
+                        piper.textToAudio(voice, text.take(500)) { samples -> emit(samples) }
+                    }
                 }
             }
         }

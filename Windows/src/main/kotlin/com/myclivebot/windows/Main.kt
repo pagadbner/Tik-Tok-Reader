@@ -542,7 +542,7 @@ private fun VoicePanel(
             Text("Velocidad", color = Muted, fontSize = 12.sp)
             Slider(value = settings.speed, onValueChange = { onSettingsChange(settings.copy(speed = it)) }, valueRange = 0.65f..1.5f)
             Text(status, color = if (status.startsWith("Error")) Color(0xFFFF8A8A) else Muted, fontSize = 11.sp)
-            Text("Piper local aún requiere integrar ONNX Runtime y el catálogo descargable para Windows.", color = Muted, fontSize = 11.sp)
+            Text("Piper genera audio localmente por fragmentos; el control de velocidad puede modificar ligeramente el tono.", color = Muted, fontSize = 11.sp)
         }
     }
 }

@@ -72,35 +72,53 @@ object DesktopAudioPlayer {
     }
 
     fun playPcm(samples: ShortArray, sampleRate: Int, volume: Float, muted: Boolean) {
-        if (samples.isEmpty() || muted) return
+        playPcmStream(sampleRate, volume, muted) { emit -> emit(samples) }
+    }
+
+    /**
+     * Plays Piper callback chunks as they are synthesized instead of buffering the
+     * entire utterance. stop() closes the line; subsequent native chunks are ignored.
+     */
+    fun playPcmStream(
+        sampleRate: Int,
+        volume: Float,
+        muted: Boolean,
+        synthesize: ((ShortArray) -> Unit) -> Unit
+    ) {
+        if (muted || volume <= 0f) return
         require(sampleRate in 8_000..96_000) { "Frecuencia de audio Piper no válida." }
         stopRequested.set(false)
         var line: SourceDataLine? = null
         val gain = volume.coerceIn(0f, 1f)
         try {
             val format = AudioFormat(sampleRate.toFloat(), 16, 1, true, false)
-            line = AudioSystem.getSourceDataLine(format).apply { open(format); start() }
-            activeLine = line
-            val chunkSamples = 8 * 1024
-            var offset = 0
-            while (offset < samples.size && !stopRequested.get()) {
-                val count = minOf(chunkSamples, samples.size - offset)
-                val pcm = ByteArray(count * 2)
-                for (index in 0 until count) {
-                    val value = (samples[offset + index].toInt() * gain).toInt()
-                        .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
-                    pcm[index * 2] = (value and 0xff).toByte()
-                    pcm[index * 2 + 1] = ((value shr 8) and 0xff).toByte()
+            val outputLine = AudioSystem.getSourceDataLine(format).apply { open(format); start() }
+            line = outputLine
+            activeLine = outputLine
+            val emit: (ShortArray) -> Unit = { samples ->
+                if (!stopRequested.get() && samples.isNotEmpty()) {
+                    val pcm = ByteArray(samples.size * 2)
+                    for (index in samples.indices) {
+                        val value = (samples[index].toInt() * gain).toInt()
+                            .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+                        pcm[index * 2] = (value and 0xff).toByte()
+                        pcm[index * 2 + 1] = ((value shr 8) and 0xff).toByte()
+                    }
+                    var offset = 0
+                    while (offset < pcm.size && !stopRequested.get()) {
+                        try {
+                            val written = outputLine.write(pcm, offset, pcm.size - offset)
+                            if (written <= 0) break
+                            offset += written
+                        } catch (error: Exception) {
+                            if (!stopRequested.get()) throw error
+                            break
+                        }
+                    }
                 }
-                var writtenOffset = 0
-                while (writtenOffset < pcm.size && !stopRequested.get()) {
-                    val written = line.write(pcm, writtenOffset, pcm.size - writtenOffset)
-                    if (written <= 0) break
-                    writtenOffset += written
-                }
-                offset += count
             }
-            if (!stopRequested.get()) line.drain()
+            synthesize(emit)
+            if (!stopRequested.get()) outputLine.drain()
         } finally {
             activeLine = null
             runCatching { line?.stop() }

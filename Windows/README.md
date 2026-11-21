@@ -8,7 +8,7 @@ Aplicación de escritorio independiente basada en Kotlin/JVM y Compose Desktop. 
 - Transporte TikTok LIVE JVM compartido, con parser protobuf, heartbeat, ACK, reconexión y cola serial de eventos.
 - Chat de comentarios, filtros compartidos, pipeline de lectura y cola de voz con prioridad para comentarios.
 - Motores Edge TTS, TikTok TTS y TikFinity adaptados a audio Java Sound para Windows.
-- Motor Piper local con runtime JNI Windows x64, catálogo de voces, descarga bajo demanda, validación de modelos/configuración y selección aleatoria entre voces instaladas.
+- Motor Piper local con runtime JNI Windows x64, catálogo de voces, descarga bajo demanda, validación de modelos/configuración, síntesis por fragmentos y selección aleatoria entre voces instaladas.
 - Preferencias de Windows persistentes, incluyendo filtros, alertas, plantillas y comandos personalizados.
 - Panel de automatizaciones para follows, regalos, compartidos, entradas, likes, bienvenidas y comandos locales de moderadores.
 - Panel de DJ Music para recibir solicitudes manuales y comandos `!play`, con permisos de seguidores/moderadores y cola de solicitudes.
