@@ -15,7 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.Window as DesktopWindow
 import com.myclivebot.core.LiveComment
 import com.myclivebot.core.TikTokLiveConnector
 import kotlinx.coroutines.Dispatchers
@@ -73,7 +73,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
         primary = Violet, secondary = Cyan, background = Ink, surface = Panel,
         onPrimary = Color.White, onBackground = Color.White, onSurface = Color.White
     )) {
-        Window(onCloseRequest = { stopLive(); exitApplication() }, title = "TikLBot") {
+        DesktopWindow(onCloseRequest = { stopLive(); exitApplication() }, title = "TikLBot") {
             Row(Modifier.fillMaxSize().background(Ink)) {
                 Column(
                     Modifier.width(224.dp).fillMaxHeight().background(Panel).padding(16.dp),
