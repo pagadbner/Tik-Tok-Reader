@@ -1,0 +1,104 @@
+name: Windows EXE
+
+on:
+  push:
+    branches: [Windows-test]
+    paths:
+      - "Windows/**"
+      - ".github/workflows/windows-exe.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "Windows/**"
+      - ".github/workflows/windows-exe.yml"
+  workflow_run:
+    workflows: ["Publish latest TikLBot release"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: tiklbot-windows-${{ github.event_name }}-${{ github.ref || github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  build-windows:
+    name: Test and package TikLBot for Windows
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout Windows-test or published Main commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install WiX and Inno Setup
+        shell: pwsh
+        run: |
+          choco install wixtoolset innosetup --no-progress -y
+          $env:PATH += ";C:\\Program Files (x86)\\WiX Toolset v3.14\\bin;C:\\Program Files (x86)\\Inno Setup 6"
+          "PATH=$env:PATH" >> $env:GITHUB_ENV
+
+      - name: Set up Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Verify toolchain
+        shell: pwsh
+        run: |
+          java -version
+          gradle --version
+          if (!(Get-Command candle.exe -ErrorAction SilentlyContinue)) { throw "WiX candle.exe no está disponible." }
+          if (!(Test-Path "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe")) { throw "Inno Setup no está instalado." }
+
+      - name: Run Windows tests and build MSI
+        shell: pwsh
+        run: gradle -p Windows test packageMsi --no-daemon --stacktrace
+
+      - name: Build signed-style EXE setup wrapper
+        shell: pwsh
+        run: |
+          $env:PATH += ";C:\\Program Files (x86)\\Inno Setup 6"
+          & "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe" "Windows/installer/TikLBot.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup falló con código $LASTEXITCODE." }
+
+      - name: Validate and hash Windows installer
+        shell: pwsh
+        run: |
+          $exe = "Windows/build/installer/TikLBot-Windows-Setup.exe"
+          if (!(Test-Path $exe) -or (Get-Item $exe).Length -lt 1000000) { throw "El instalador EXE no existe o está incompleto." }
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  TikLBot-Windows-Setup.exe" | Set-Content "Windows/build/installer/TikLBot-Windows-Setup.exe.sha256" -Encoding ascii
+          Get-Item $exe | Format-List Name,Length
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TikLBot-Windows-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          path: |
+            Windows/build/installer/TikLBot-Windows-Setup.exe
+            Windows/build/installer/TikLBot-Windows-Setup.exe.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach Windows installer to the existing latest Release
+        if: ${{ github.event_name == 'workflow_run' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          files: |
+            Windows/build/installer/TikLBot-Windows-Setup.exe
+            Windows/build/installer/TikLBot-Windows-Setup.exe.sha256
+          overwrite_files: true
+          fail_on_unmatched_files: true
