@@ -1,6 +1,5 @@
 package com.myclivebot.windows
 
-import com.myclivebot.core.ReaderSettings
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
