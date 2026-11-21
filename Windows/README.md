@@ -10,6 +10,9 @@ Aplicación de escritorio independiente basada en Kotlin/JVM y Compose Desktop. 
 - Motores Edge TTS, TikTok TTS y TikFinity adaptados a audio Java Sound para Windows.
 - Motor Piper local con runtime JNI Windows x64, catálogo de voces, descarga bajo demanda, validación de modelos/configuración, síntesis por fragmentos y selección aleatoria entre voces instaladas.
 - Preferencias de Windows persistentes, incluyendo filtros, alertas, plantillas y comandos personalizados.
+- Historial local SQLite con escritura asíncrona y cola acotada.
+- Perfil público de TikTok: consulta independiente del avatar y del estado LIVE.
+- Puente WebSocket local para integraciones, limitado a `127.0.0.1:8765`.
 - Panel de automatizaciones para follows, regalos, compartidos, entradas, likes, bienvenidas y comandos locales de moderadores.
 - Panel de DJ Music para recibir solicitudes manuales y comandos `!play`, con permisos de seguidores/moderadores y cola de solicitudes.
 - Actualizador PC independiente: consulta la Release compartida, descarga el EXE y verifica SHA-256 antes de iniciar el instalador.
@@ -19,7 +22,7 @@ Aplicación de escritorio independiente basada en Kotlin/JVM y Compose Desktop. 
 
 - Integrar el catálogo/búsqueda musical, miniaturas, reproductor de escritorio, controles de reproducción y cola real de pistas.
 - Probar los cuatro motores de voz en un equipo Windows real, incluyendo latencia, cancelación y salida de audio.
-- Completar el resto de ajustes y secciones que todavía dependan de componentes Android.
+- Conectar los módulos de perfil, historial y puente local a la interfaz de escritorio y verificar su comportamiento en una sesión LIVE real.
 - Probar la conexión real a TikTok LIVE, la salida de audio, instalación limpia y actualización de una versión anterior en un equipo Windows.
 - Configurar y verificar el icono nativo de la aplicación/instalador.
 

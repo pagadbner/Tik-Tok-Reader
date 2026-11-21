@@ -39,6 +39,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("org.apache.commons:commons-compress:1.27.1")
     implementation("io.github.jvoice-project:piper-jni:1.4.2")
+    implementation("org.java-websocket:Java-WebSocket:1.5.7")
+    implementation("org.xerial:sqlite-jdbc:3.47.1.0")
     // JavaFX WebView is embedded in the desktop UI for YouTube search and playback.
     implementation("org.openjfx:javafx-base:17.0.10:win")
     implementation("org.openjfx:javafx-graphics:17.0.10:win")
