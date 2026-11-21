@@ -87,7 +87,7 @@ class TikTokTtsSpeechEngine(
                 }
                 val encoded = result.optString("data")
                 if (encoded.isBlank()) throw IOException("TikTok TTS no incluyó el audio.")
-                val decoded = try { Base64.getDecoder().decode(encoded) } catch (_: IllegalArgumentException) {
+                val decoded = try { Base64.getMimeDecoder().decode(encoded) } catch (_: IllegalArgumentException) {
                     throw IOException("TikTok TTS devolvió audio Base64 no válido.")
                 }
                 if (decoded.isEmpty() || decoded.size > MAX_AUDIO_BYTES) {
