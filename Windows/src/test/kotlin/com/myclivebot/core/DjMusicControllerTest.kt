@@ -65,6 +65,11 @@ class DjMusicControllerTest {
 
     @Test
     fun requestQueueProcessesRequestsInFifoOrder() {
+        // Other tests may have left a request in the singleton controller.
+        while (true) {
+            val pending = DjMusicController.takeNextSearch() ?: break
+            DjMusicController.completeSearch(pending.first, pending.second)
+        }
         val first = "dj-test-first-${System.nanoTime()}"
         val second = "dj-test-second-${System.nanoTime()}"
         DjMusicController.enqueueSearch(first, "Tester 1")
