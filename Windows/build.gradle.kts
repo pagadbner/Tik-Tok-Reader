@@ -41,6 +41,7 @@ dependencies {
     implementation("org.openjfx:javafx-base:17.0.10:win")
     implementation("org.openjfx:javafx-graphics:17.0.10:win")
     implementation("org.openjfx:javafx-web:17.0.10:win")
+    implementation("org.openjfx:javafx-media:17.0.10:win")
     implementation("org.openjfx:javafx-swing:17.0.10:win")
     testImplementation(kotlin("test-junit5"))
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.2")
