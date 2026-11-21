@@ -223,10 +223,11 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                         }
                         "Chat en vivo" -> CommentList(comments, Modifier.fillMaxSize())
                         "DJ Music" -> DjMusicPanel(djMusicState)
-                        "Voces" -> FeatureNotice(
-                            "Motores de voz",
-                            "La capa de audio Windows debe sustituir AudioTrack y las rutas de archivos Android.",
-                            "La integración de Piper y los proveedores de voz se está preparando para Windows."
+                        "Voces" -> VoicePanel(
+                            readerSettings,
+                            voiceMuted,
+                            onSettingsChange = ::saveReaderSettings,
+                            onMutedChange = { voiceMuted = it; speechEngine.setMuted(it) }
                         )
                         "Automatizaciones" -> AutomationPanel(readerSettings, ::saveReaderSettings)
                         else -> {
@@ -382,6 +383,45 @@ private fun CommentList(comments: List<LiveComment>, modifier: Modifier = Modifi
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun VoicePanel(
+    settings: ReaderSettings,
+    muted: Boolean,
+    onSettingsChange: (ReaderSettings) -> Unit,
+    onMutedChange: (Boolean) -> Unit
+) {
+    var voiceMenuExpanded by remember { mutableStateOf(false) }
+    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("Voz del lector", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("Motor disponible en esta compilación: Microsoft Edge TTS.", color = Muted, fontSize = 13.sp)
+            Text("Voz", color = Muted, fontSize = 12.sp)
+            Box {
+                OutlinedButton(onClick = { voiceMenuExpanded = true }) {
+                    Text(EdgeTtsVoiceCatalog.find(settings.edgeVoiceId).name)
+                }
+                DropdownMenu(expanded = voiceMenuExpanded, onDismissRequest = { voiceMenuExpanded = false }) {
+                    EdgeTtsVoiceCatalog.voices.forEach { voice ->
+                        DropdownMenuItem(
+                            text = { Text(voice.name) },
+                            onClick = {
+                                voiceMenuExpanded = false
+                                onSettingsChange(settings.copy(edgeVoiceId = voice.id))
+                            }
+                        )
+                    }
+                }
+            }
+            SettingToggle("Silenciar voz", muted, onMutedChange)
+            Text("Volumen", color = Muted, fontSize = 12.sp)
+            Slider(value = settings.volume, onValueChange = { onSettingsChange(settings.copy(volume = it)) }, valueRange = 0f..1f)
+            Text("Velocidad", color = Muted, fontSize = 12.sp)
+            Slider(value = settings.speed, onValueChange = { onSettingsChange(settings.copy(speed = it)) }, valueRange = 0.65f..1.5f)
+            Text("Los motores Piper, TikTok TTS y TikFinity todavía requieren su adaptación y pruebas específicas para Windows.", color = Muted, fontSize = 11.sp)
         }
     }
 }
