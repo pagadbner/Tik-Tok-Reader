@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -27,10 +28,14 @@ import com.myclivebot.core.CommentHandlingResult
 import com.myclivebot.core.TikTokLiveConnector
 import com.myclivebot.core.DjMusicController
 import com.myclivebot.core.DjMusicState
+import com.myclivebot.core.DjMusicTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.Desktop
+import java.net.URI
+import java.util.concurrent.atomic.AtomicInteger
+import org.json.JSONArray
 import javax.swing.SwingUtilities
 
 private val Ink = Color(0xFF090B16)
@@ -174,7 +179,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                             status = "Preparando conexión…"
                                             val live = TikTokLiveConnector(
                                                 onComment = { comment ->
-                                                    if (comment.text.trim().startsWith("!play ", ignoreCase = true)) {
+                                                    if (comment.text.trim().startsWith("!play ", ignoreCase = true) || comment.text.trim().equals("!skip", ignoreCase = true)) {
                                                         DjMusicController.handleLiveComment(comment)
                                                     }
                                                     val result = commentPipeline.onComment(comment)
@@ -488,57 +493,289 @@ private fun AutomationPanel(settings: ReaderSettings, onChange: (ReaderSettings)
 @Composable
 private fun DjMusicPanel(state: DjMusicState) {
     var query by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    var searchResults by remember { mutableStateOf<List<DjMusicTrack>>(emptyList()) }
+    var searching by remember { mutableStateOf(false) }
+    var playerReady by remember { mutableStateOf(false) }
+    var playerPlaying by remember { mutableStateOf(false) }
+    var activeSearch by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var activeSearchId by remember { mutableIntStateOf(0) }
+    var searchView by remember { mutableStateOf<DesktopYoutubeSearchView?>(null) }
+    var playerView by remember { mutableStateOf<DesktopYoutubePlayerView?>(null) }
+    var accessMenu by remember { mutableStateOf(false) }
+    val searchCounter = remember { AtomicInteger(0) }
+
+    val handleSearchResults = rememberUpdatedState<(Int, String) -> Unit> { requestId, json ->
+        if (requestId == searchCounter.get()) {
+            val requester = activeSearch
+            if (requester != null) {
+                val tracks = runCatching {
+                    val items = JSONArray(json)
+                    (0 until minOf(items.length(), 8)).mapNotNull { index ->
+                        val item = items.optJSONObject(index) ?: return@mapNotNull null
+                        val id = item.optString("id")
+                        if (id.length != 11 || !id.matches(Regex("[A-Za-z0-9_-]{11}"))) return@mapNotNull null
+                        DjMusicTrack(
+                            videoId = id,
+                            title = item.optString("title").ifBlank { "Video de YouTube" },
+                            thumbnailUrl = item.optString("thumbnail").ifBlank { "https://i.ytimg.com/vi/$id/hqdefault.jpg" },
+                            duration = item.optString("duration"),
+                            requestedBy = requester.second,
+                            artistName = item.optString("artistName"),
+                            artistUrl = item.optString("artistUrl"),
+                            artistThumbnailUrl = item.optString("artistThumbnail")
+                        )
+                    }
+                }.getOrDefault(emptyList())
+                searching = false
+                activeSearch = null
+                DjMusicController.completeSearch(requester.first, requester.second)
+                if (tracks.isNotEmpty()) {
+                    if (requester.second == "Tú") {
+                        searchResults = tracks
+                        DjMusicController.setMessage("Se encontraron ${tracks.size} resultados. Elige una canción.")
+                    } else {
+                        DjMusicController.addTrack(tracks.first())
+                    }
+                } else {
+                    searchResults = emptyList()
+                    DjMusicController.setMessage("No se encontraron resultados legibles. Prueba otro título o URL.")
+                }
+            }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            runCatching { searchView?.close() }
+            runCatching { playerView?.close() }
+        }
+    }
+
+    LaunchedEffect(state.pendingSearches, state.activeSearch, searchView, searching) {
+        val browser = searchView
+        if (browser != null && !searching) {
+            val request = state.activeSearch ?: DjMusicController.takeNextSearch()
+            if (request != null) {
+                activeSearch = request
+                val requestId = searchCounter.incrementAndGet()
+                activeSearchId = requestId
+                searching = true
+                searchResults = emptyList()
+                DjMusicController.setMessage("Buscando canciones en YouTube…")
+                browser.search(request.first, requestId)
+            }
+        }
+    }
+
+    LaunchedEffect(searching, activeSearchId) {
+        if (searching) {
+            val requestId = activeSearchId
+            kotlinx.coroutines.delay(20_000)
+            if (searching && activeSearchId == requestId) {
+                searching = false
+                searchCounter.incrementAndGet()
+                activeSearch?.let { DjMusicController.completeSearch(it.first, it.second) }
+                activeSearch = null
+                DjMusicController.setMessage("YouTube no respondió a tiempo. Comprueba tu conexión e inténtalo otra vez.")
+            }
+        }
+    }
+
+    LaunchedEffect(state.currentTrack?.videoId, playerView) {
+        val track = state.currentTrack
+        val player = playerView
+        if (track != null && player != null) {
+            playerReady = false
+            playerPlaying = false
+            runCatching { player.loadTrack(track, state.volume, state.muted) }
+                .onFailure { DjMusicController.setMessage("No se pudo abrir el reproductor: ${it.message ?: "error"}") }
+        }
+    }
+
+    LaunchedEffect(state.volume, state.muted, playerView) {
+        playerView?.setVolume(state.volume)
+        playerView?.setMuted(state.muted)
+    }
+
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Solicitudes musicales", fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                Text("Agrega solicitudes manuales o permite que el chat use !play canción. Se aplican los permisos configurados.", color = Muted, fontSize = 13.sp)
+            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("DJ Music · YouTube", fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                        Text("Busca canciones, gestiona solicitudes y controla la reproducción.", color = Muted, fontSize = 12.sp)
+                    }
+                    Box {
+                        OutlinedButton(onClick = { accessMenu = true }) {
+                            Text(when { state.moderatorsOnly -> "Moderadores"; state.followersOnly -> "Seguidores"; else -> "Todos" })
+                        }
+                        DropdownMenu(expanded = accessMenu, onDismissRequest = { accessMenu = false }) {
+                            DropdownMenuItem(text = { Text("Todos") }, onClick = {
+                                DjMusicController.setFollowersOnly(false)
+                                DjMusicController.setModeratorsOnly(false)
+                                accessMenu = false
+                            })
+                            DropdownMenuItem(text = { Text("Solo seguidores") }, onClick = {
+                                DjMusicController.setFollowersOnly(true)
+                                accessMenu = false
+                            })
+                            DropdownMenuItem(text = { Text("Solo moderadores") }, onClick = {
+                                DjMusicController.setModeratorsOnly(true)
+                                accessMenu = false
+                            })
+                        }
+                    }
+                }
+                Text("Comandos LIVE: !play nombre de canción · !skip (solo moderadores)", color = Cyan, fontSize = 12.sp)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = query,
                         onValueChange = { query = it },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
-                        label = { Text("Buscar canción o artista") },
-                        placeholder = { Text("Nombre de canción") }
+                        label = { Text("Canción, artista o URL de YouTube") },
+                        placeholder = { Text("José José - Volcán") }
                     )
-                    Button(enabled = query.isNotBlank() && state.pendingSearches.size < 50, onClick = {
-                        DjMusicController.enqueueSearch(query)
+                    Button(enabled = query.isNotBlank() && !searching, onClick = {
+                        DjMusicController.enqueueSearch(query, "Tú")
                         query = ""
-                    }) { Text("Solicitar") }
+                    }) { Text(if (searching) "Buscando…" else "Buscar") }
                 }
-                SettingToggle("Solo seguidores", state.followersOnly) { DjMusicController.setFollowersOnly(it) }
-                SettingToggle("Solo moderadores", state.moderatorsOnly) { DjMusicController.setModeratorsOnly(it) }
-                Text(state.message, color = Cyan, fontSize = 12.sp)
-                Text("Solicitudes en espera: ${state.pendingSearches.size}/50", color = Muted, fontSize = 12.sp)
+                Text(state.message, color = Muted, fontSize = 12.sp)
+                if (searching) LinearProgressIndicator(Modifier.fillMaxWidth())
             }
         }
-        Card(Modifier.fillMaxWidth().weight(1f), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Cola de solicitudes", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
-                if (state.activeSearch != null) {
-                    Text("Procesando: ${state.activeSearch.second} — ${state.activeSearch.first}", color = Cyan, fontSize = 13.sp)
+
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Resultados de búsqueda", color = Cyan, fontWeight = FontWeight.SemiBold)
+                if (searchResults.isEmpty()) {
+                    Text(if (searching) "Buscando coincidencias en YouTube…" else "Los resultados aparecerán aquí para que elijas qué reproducir.", color = Muted, fontSize = 12.sp)
+                } else {
+                    searchResults.forEach { track ->
+                        Row(Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(10.dp)).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(track.title, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 2)
+                                Text(listOf(track.artistName, track.duration).filter { it.isNotBlank() }.joinToString(" · "), color = Muted, fontSize = 11.sp)
+                                if (track.artistUrl.isNotBlank()) {
+                                    TextButton(onClick = { runCatching { Desktop.getDesktop().browse(URI(track.artistUrl)) } }) {
+                                        Text("Ver perfil del artista")
+                                    }
+                                }
+                            }
+                            OutlinedButton(onClick = {
+                                DjMusicController.addTrack(track)
+                                searchResults = searchResults.filterNot { it.videoId == track.videoId }
+                            }) { Text("Cola") }
+                            Button(onClick = {
+                                DjMusicController.playTrackNow(track)
+                                searchResults = searchResults.filterNot { it.videoId == track.videoId }
+                            }) { Text("Reproducir") }
+                        }
+                    }
                 }
-                if (state.pendingSearches.isEmpty()) {
-                    Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                        Text("Todavía no hay solicitudes. Puedes escribir !play canción en el LIVE.", color = Muted)
+            }
+        }
+
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Reproduciendo", color = Cyan, fontWeight = FontWeight.SemiBold)
+                val current = state.currentTrack
+                Text(current?.title ?: "No hay ninguna canción seleccionada.", color = Color.White, fontWeight = FontWeight.Medium)
+                if (current != null) {
+                    Text("Solicitada por ${current.requestedBy}", color = Muted, fontSize = 11.sp)
+                }
+                SwingPanel(
+                    factory = {
+                        DesktopYoutubePlayerView(
+                            onEnded = { DjMusicController.skip("La canción terminó.") },
+                            onError = { code ->
+                                val detail = when (code) {
+                                    2 -> "ID o parámetro inválido"
+                                    5 -> "falló el reproductor HTML5"
+                                    100 -> "el video no existe o es privado"
+                                    101, 150 -> "el propietario no permite la reproducción incrustada"
+                                    153 -> "YouTube no recibió el HTTP Referer de la aplicación"
+                                    else -> "error $code"
+                                }
+                                DjMusicController.setMessage("YouTube no pudo reproducir el video: $detail. Prueba otra coincidencia.")
+                            },
+                            onReady = { playerReady = true },
+                            onState = { value ->
+                                playerPlaying = value == 1
+                                if (value == -1) DjMusicController.setMessage("YouTube bloqueó el inicio automático. Pulsa Reproducir.")
+                            }
+                        ).also { playerView = it }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(220.dp),
+                    update = { playerView = it as DesktopYoutubePlayerView }
+                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        DjMusicController.setMuted(!state.muted)
+                        playerView?.setMuted(!state.muted)
+                    }) { Text(if (state.muted) "Activar sonido" else "Silenciar") }
+                    Slider(
+                        value = state.volume.toFloat(),
+                        onValueChange = {
+                            DjMusicController.setVolume(it.toInt())
+                            playerView?.setVolume(it.toInt())
+                        },
+                        valueRange = 0f..100f,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text("${state.volume}%", color = Muted, fontSize = 11.sp)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(enabled = current != null && playerReady, onClick = { playerView?.seekBy(-10) }) { Text("−10 s") }
+                    Button(enabled = current != null && playerReady, onClick = { playerView?.playPause() }) {
+                        Text(if (playerPlaying) "Pausar" else "Reproducir")
+                    }
+                    OutlinedButton(enabled = current != null && playerReady, onClick = { playerView?.seekBy(10) }) { Text("+10 s") }
+                    OutlinedButton(enabled = current != null, onClick = { DjMusicController.skip() }) { Text("Siguiente") }
+                }
+            }
+        }
+
+        Card(Modifier.fillMaxWidth().weight(1f), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Cola de reproducción · ${state.queue.size}", color = Cyan, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    TextButton(enabled = state.queue.isNotEmpty(), onClick = { DjMusicController.clearQueue() }) { Text("Vaciar") }
+                }
+                if (state.queue.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("La cola está vacía.", color = Muted)
                     }
                 } else {
-                    LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(state.pendingSearches) { request ->
-                            Row(Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(10.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Text(request.first, color = Color.White, fontWeight = FontWeight.SemiBold)
-                                    Text("Solicitado por ${request.second}", color = Muted, fontSize = 12.sp)
+                    LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(state.queue) { track ->
+                            val index = state.queue.indexOf(track)
+                            Row(Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(9.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text("${index + 1}. ${track.title}", color = Color.White, maxLines = 1)
+                                    Text("Solicitada por ${track.requestedBy}", color = Muted, fontSize = 11.sp)
                                 }
+                                TextButton(enabled = index > 0, onClick = { DjMusicController.moveQueueTrack(index, index - 1) }) { Text("↑") }
+                                TextButton(enabled = index < state.queue.lastIndex, onClick = { DjMusicController.moveQueueTrack(index, index + 1) }) { Text("↓") }
+                                TextButton(onClick = { DjMusicController.playQueueTrackNow(index) }) { Text("Ahora") }
+                                TextButton(onClick = { DjMusicController.removeQueueTrack(index) }) { Text("Quitar") }
                             }
                         }
                     }
                 }
-                Text("La búsqueda de catálogo y la reproducción de audio aún no están conectadas en Windows; esta pantalla administra las solicitudes sin simular una reproducción.", color = Muted, fontSize = 11.sp)
             }
         }
     }
+
+    SwingPanel(
+        factory = {
+            DesktopYoutubeSearchView { requestId, json -> handleSearchResults.value(requestId, json) }
+                .also { searchView = it }
+        },
+        modifier = Modifier.size(1.dp),
+        update = { searchView = it as DesktopYoutubeSearchView }
+    )
 }
 
 @Composable
