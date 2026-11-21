@@ -19,6 +19,10 @@ import androidx.compose.ui.window.Window as DesktopWindow
 import com.myclivebot.core.LiveComment
 import com.myclivebot.core.ReaderSettings
 import com.myclivebot.core.CommentFilter
+import com.myclivebot.core.CommentPipeline
+import com.myclivebot.core.SpeechQueueWorker
+import com.myclivebot.core.EdgeTtsSpeechEngine
+import com.myclivebot.core.EdgeTtsVoiceCatalog
 import com.myclivebot.core.CommentHandlingResult
 import com.myclivebot.core.TikTokLiveConnector
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +30,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.Desktop
 import javax.swing.SwingUtilities
-import java.util.concurrent.atomic.AtomicReference
 
 private val Ink = Color(0xFF090B16)
 private val Panel = Color(0xFF15182A)
@@ -47,14 +50,18 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     var connected by remember { mutableStateOf(false) }
     val comments = remember { mutableStateListOf<LiveComment>() }
     var readerSettings by remember { mutableStateOf(DesktopSettingsStore.load()) }
-    val settingsReference = remember { AtomicReference(readerSettings) }
-    val commentFilter = remember { CommentFilter() }
     var filteredComments by remember { mutableStateOf(0) }
+    var voiceMuted by remember { mutableStateOf(false) }
+    val speechEngine = remember { EdgeTtsSpeechEngine(voiceId = readerSettings.edgeVoiceId, volume = readerSettings.volume, speed = readerSettings.speed) }
+    val speechQueue = remember { SpeechQueueWorker(speechEngine, scope, capacity = readerSettings.maxQueueSize) }
+    val commentPipeline = remember { CommentPipeline(CommentFilter(), speechQueue, readerSettings) }
+    var voiceMenuExpanded by remember { mutableStateOf(false) }
 
     fun saveReaderSettings(next: ReaderSettings) {
         readerSettings = next
-        settingsReference.set(next)
         DesktopSettingsStore.save(next)
+        commentPipeline.updateSettings(next)
+        speechEngine.update(next.edgeVoiceId, next.volume, next.speed)
     }
     var connector by remember { mutableStateOf<TikTokLiveConnector?>(null) }
     var update by remember { mutableStateOf<DesktopUpdateInfo?>(null) }
@@ -70,7 +77,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     }
 
     DisposableEffect(Unit) {
-        onDispose { connector?.close() }
+        onDispose { connector?.close(); commentPipeline.close(); speechQueue.close(); speechEngine.release() }
     }
 
     LaunchedEffect(Unit) {
@@ -160,15 +167,16 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                             status = "Preparando conexión…"
                                             val live = TikTokLiveConnector(
                                                 onComment = { comment ->
-                                                    val accepted = commentFilter.shouldRead(comment, settingsReference.get())
+                                                    val result = commentPipeline.onComment(comment)
                                                     SwingUtilities.invokeLater {
                                                         comments.add(0, comment)
                                                         while (comments.size > 300) comments.removeAt(comments.lastIndex)
-                                                        if (!accepted) filteredComments++
+                                                        if (result == CommentHandlingResult.FILTERED) filteredComments++
                                                     }
-                                                    if (accepted) CommentHandlingResult.ACCEPTED else CommentHandlingResult.FILTERED
+                                                    result
                                                 },
-                                                onStatus = { value -> SwingUtilities.invokeLater { status = value } }
+                                                onStatus = { value -> SwingUtilities.invokeLater { status = value } },
+                                                onEvent = { event -> commentPipeline.onEvent(event) }
                                             )
                                             connector = live
                                             connected = true
@@ -217,6 +225,28 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                     SettingToggle("Ignorar símbolos", readerSettings.ignoreSymbols) { saveReaderSettings(readerSettings.copy(ignoreSymbols = it)) }
                                     SettingToggle("Leer solamente el nombre", readerSettings.onlyUsername) { saveReaderSettings(readerSettings.copy(onlyUsername = it)) }
                                     SettingToggle("Ignorar moderadores", readerSettings.ignoreModerators) { saveReaderSettings(readerSettings.copy(ignoreModerators = it)) }
+                                    SettingToggle("Silenciar voz", voiceMuted) { voiceMuted = it; speechEngine.setMuted(it) }
+                                    Text("Voz Edge TTS", color = Muted, fontSize = 12.sp)
+                                    Box {
+                                        OutlinedButton(onClick = { voiceMenuExpanded = true }) {
+                                            Text(EdgeTtsVoiceCatalog.find(readerSettings.edgeVoiceId).name)
+                                        }
+                                        DropdownMenu(expanded = voiceMenuExpanded, onDismissRequest = { voiceMenuExpanded = false }) {
+                                            EdgeTtsVoiceCatalog.voices.forEach { voice ->
+                                                DropdownMenuItem(
+                                                    text = { Text(voice.name) },
+                                                    onClick = {
+                                                        voiceMenuExpanded = false
+                                                        saveReaderSettings(readerSettings.copy(edgeVoiceId = voice.id))
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Text("Volumen", color = Muted, fontSize = 12.sp)
+                                    Slider(value = readerSettings.volume, onValueChange = { saveReaderSettings(readerSettings.copy(volume = it)) }, valueRange = 0f..1f)
+                                    Text("Velocidad", color = Muted, fontSize = 12.sp)
+                                    Slider(value = readerSettings.speed, onValueChange = { saveReaderSettings(readerSettings.copy(speed = it)) }, valueRange = 0.65f..1.5f)
                                     OutlinedTextField(
                                         value = readerSettings.blockedWords.joinToString("\n"),
                                         onValueChange = { value -> saveReaderSettings(readerSettings.copy(blockedWords = value.lines().map { it.trim() }.filter { it.isNotEmpty() }.toSet())) },
