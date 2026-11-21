@@ -68,7 +68,12 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     var readerSettings by remember { mutableStateOf(DesktopSettingsStore.load()) }
     var filteredComments by remember { mutableStateOf(0) }
     var voiceMuted by remember { mutableStateOf(false) }
-    val speechEngine = remember { SelectableSpeechEngine(readerSettings) }
+    var voiceStatus by remember { mutableStateOf("Motor de voz listo.") }
+    val speechEngine = remember {
+        SelectableSpeechEngine(readerSettings) { error ->
+            SwingUtilities.invokeLater { voiceStatus = error.message ?: "Error del motor de voz." }
+        }
+    }
     val speechQueue = remember { SpeechQueueWorker(speechEngine, scope, capacity = readerSettings.maxQueueSize) }
     val commentPipeline = remember { CommentPipeline(CommentFilter(), speechQueue, readerSettings) }
 
@@ -255,7 +260,8 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             readerSettings,
                             voiceMuted,
                             onSettingsChange = ::saveReaderSettings,
-                            onMutedChange = { voiceMuted = it; speechEngine.setMuted(it) }
+                            onMutedChange = { voiceMuted = it; speechEngine.setMuted(it) },
+                            status = voiceStatus
                         )
                         "Automatizaciones" -> AutomationPanel(readerSettings, ::saveReaderSettings)
                         else -> {
@@ -399,7 +405,8 @@ private fun VoicePanel(
     settings: ReaderSettings,
     muted: Boolean,
     onSettingsChange: (ReaderSettings) -> Unit,
-    onMutedChange: (Boolean) -> Unit
+    onMutedChange: (Boolean) -> Unit,
+    status: String
 ) {
     var providerMenuExpanded by remember { mutableStateOf(false) }
     var voiceMenuExpanded by remember { mutableStateOf(false) }
@@ -477,6 +484,7 @@ private fun VoicePanel(
             Slider(value = settings.volume, onValueChange = { onSettingsChange(settings.copy(volume = it)) }, valueRange = 0f..1f)
             Text("Velocidad", color = Muted, fontSize = 12.sp)
             Slider(value = settings.speed, onValueChange = { onSettingsChange(settings.copy(speed = it)) }, valueRange = 0.65f..1.5f)
+            Text(status, color = if (status.startsWith("Error")) Color(0xFFFF8A8A) else Muted, fontSize = 11.sp)
             Text("Piper local aún requiere integrar ONNX Runtime y el catálogo descargable para Windows.", color = Muted, fontSize = 11.sp)
         }
     }
