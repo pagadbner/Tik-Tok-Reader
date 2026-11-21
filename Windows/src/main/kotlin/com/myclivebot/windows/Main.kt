@@ -263,7 +263,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                     )
                                     SettingToggle("Activar comandos personalizados (moderadores)", readerSettings.customCommandsEnabled) { saveReaderSettings(readerSettings.copy(customCommandsEnabled = it)) }
                                     OutlinedTextField(
-                                        value = readerSettings.customCommands.entries.joinToString("\\n") { "${it.key}=${it.value}" },
+                                        value = readerSettings.customCommands.entries.joinToString("\n") { "${it.key}=${it.value}" },
                                         onValueChange = { value -> saveReaderSettings(readerSettings.copy(customCommands = com.myclivebot.core.ChatCommandParser.parseConfig(value))) },
                                         modifier = Modifier.fillMaxWidth(),
                                         label = { Text("Comandos: !comando=respuesta ({user}, {command})") },
