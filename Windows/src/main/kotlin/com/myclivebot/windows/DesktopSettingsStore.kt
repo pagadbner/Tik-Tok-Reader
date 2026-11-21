@@ -22,6 +22,10 @@ object DesktopSettingsStore {
         readShares = prefs.getBoolean("read_shares", true),
         readJoins = prefs.getBoolean("read_joins", true),
         readLikes = prefs.getBoolean("read_likes", true),
+        speechProvider = "edge",
+        edgeVoiceId = prefs.get("edge_voice_id", EdgeTtsVoiceCatalog.DEFAULT_VOICE_ID),
+        volume = prefs.getFloat("volume", 0.9f).coerceIn(0f, 1f),
+        speed = prefs.getFloat("speed", 1f).coerceIn(0.65f, 1.5f),
         welcomeEnabled = prefs.getBoolean("welcome_enabled", false),
         welcomeTemplate = prefs.get("welcome_template", "¡Bienvenido al LIVE, {user}!")
     )
@@ -42,6 +46,9 @@ object DesktopSettingsStore {
         prefs.putBoolean("read_shares", settings.readShares)
         prefs.putBoolean("read_joins", settings.readJoins)
         prefs.putBoolean("read_likes", settings.readLikes)
+        prefs.put("edge_voice_id", settings.edgeVoiceId)
+        prefs.putFloat("volume", settings.volume.coerceIn(0f, 1f))
+        prefs.putFloat("speed", settings.speed.coerceIn(0.65f, 1.5f))
         prefs.putBoolean("welcome_enabled", settings.welcomeEnabled)
         prefs.put("welcome_template", settings.welcomeTemplate)
         prefs.flush()
