@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -749,8 +750,7 @@ private fun DjMusicPanel(state: DjMusicState) {
                     }
                 } else {
                     LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(state.queue) { track ->
-                            val index = state.queue.indexOf(track)
+                        itemsIndexed(state.queue) { index, track ->
                             Row(Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(9.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text("${index + 1}. ${track.title}", color = Color.White, maxLines = 1)
