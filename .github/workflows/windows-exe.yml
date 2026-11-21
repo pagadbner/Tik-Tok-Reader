@@ -66,7 +66,7 @@ jobs:
         shell: pwsh
         run: gradle -p Windows test packageMsi --no-daemon --stacktrace
 
-      - name: Build signed-style EXE setup wrapper
+      - name: Build EXE setup wrapper
         shell: pwsh
         run: |
           $env:PATH += ";C:\\Program Files (x86)\\Inno Setup 6"
