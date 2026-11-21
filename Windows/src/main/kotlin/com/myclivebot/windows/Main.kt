@@ -36,6 +36,7 @@ import kotlinx.coroutines.withContext
 import java.awt.Desktop
 import java.net.URI
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.LinkedHashSet
 import org.json.JSONArray
 import javax.swing.SwingUtilities
 
@@ -59,6 +60,8 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     var connected by remember { mutableStateOf(false) }
     var connecting by remember { mutableStateOf(false) }
     val comments = remember { mutableStateListOf<LiveComment>() }
+    val commentSideEffectLock = remember { Any() }
+    val processedCommentSideEffects = remember { LinkedHashSet<String>() }
     val djMusicState by DjMusicController.state.collectAsState()
     var readerSettings by remember { mutableStateOf(DesktopSettingsStore.load()) }
     var filteredComments by remember { mutableStateOf(0) }
@@ -84,6 +87,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
         connector = null
         connected = false
         connecting = false
+        synchronized(commentSideEffectLock) { processedCommentSideEffects.clear() }
         status = "Desconectado"
     }
 
@@ -175,19 +179,36 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                         Button(enabled = !connected && !connecting && username.isNotBlank(), onClick = {
                                             comments.clear()
+                                            synchronized(commentSideEffectLock) { processedCommentSideEffects.clear() }
                                             connecting = true
                                             connected = false
                                             status = "Preparando conexión…"
                                             val live = TikTokLiveConnector(
                                                 onComment = { comment ->
-                                                    if (comment.text.trim().startsWith("!play ", ignoreCase = true) || comment.text.trim().equals("!skip", ignoreCase = true)) {
-                                                        DjMusicController.handleLiveComment(comment)
+                                                    val commentKey = comment.id.ifBlank { "${comment.userId}:${comment.displayName}:${comment.text}" }
+                                                    val firstDelivery = synchronized(commentSideEffectLock) {
+                                                        if (commentKey in processedCommentSideEffects) false
+                                                        else {
+                                                            processedCommentSideEffects.add(commentKey)
+                                                            while (processedCommentSideEffects.size > 10_000) {
+                                                                processedCommentSideEffects.remove(processedCommentSideEffects.first())
+                                                            }
+                                                            true
+                                                        }
+                                                    }
+                                                    if (firstDelivery &&
+                                                        (comment.text.trim().startsWith("!play ", ignoreCase = true) ||
+                                                            comment.text.trim().equals("!skip", ignoreCase = true))
+                                                    ) {
+                                                        runCatching { DjMusicController.handleLiveComment(comment) }
                                                     }
                                                     val result = commentPipeline.onComment(comment)
-                                                    SwingUtilities.invokeLater {
-                                                        comments.add(0, comment)
-                                                        while (comments.size > 300) comments.removeAt(comments.lastIndex)
-                                                        if (result == CommentHandlingResult.FILTERED) filteredComments++
+                                                    if (firstDelivery) {
+                                                        SwingUtilities.invokeLater {
+                                                            comments.add(0, comment)
+                                                            while (comments.size > 300) comments.removeAt(comments.lastIndex)
+                                                            if (result == CommentHandlingResult.FILTERED) filteredComments++
+                                                        }
                                                     }
                                                     result
                                                 },
