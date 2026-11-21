@@ -3,6 +3,8 @@ package com.myclivebot.windows
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
@@ -83,12 +85,21 @@ object DesktopUpdateManager {
             }
             val actualHash = actual.digest().joinToString("") { "%02x".format(it) }
             if (!actualHash.equals(expected, true)) error("El SHA-256 no coincide. Instalación cancelada.")
-            if (installer.exists() && !installer.delete()) error("No se pudo reemplazar una descarga anterior.")
-            if (!temporary.renameTo(installer)) error("No se pudo preparar el instalador verificado.")
+            // Replace the previous installer only after the new file passed SHA-256.
+            // A network/checksum failure must never delete an earlier verified download.
+            try {
+                Files.move(
+                    temporary.toPath(),
+                    installer.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE
+                )
+            } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                Files.move(temporary.toPath(), installer.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
             return installer
         } catch (error: Exception) {
             temporary.delete()
-            installer.delete()
             throw error
         }
     }
