@@ -5,22 +5,22 @@ import com.myclivebot.core.EdgeTtsVoiceCatalog
 import com.myclivebot.core.PiperVoiceCatalog
 import com.myclivebot.core.TikTokTtsVoiceCatalog
 import java.util.prefs.Preferences
-import org.json.JSONObject
 
 object DesktopSettingsStore {
     private val prefs = Preferences.userRoot().node("com/myclivebot/tiklbot/windows")
 
     fun load(): ReaderSettings {
-        val customCommands = runCatching {
-            val json = JSONObject(prefs.get("custom_commands", "{}"))
-            buildMap {
-                val keys = json.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    put(key, json.optString(key))
+        val customCommands = buildMap {
+            repeat(40) { index ->
+                val entry = prefs.get("custom_command_$index", "")
+                val separator = entry.indexOf('=')
+                if (separator > 0) {
+                    val command = entry.substring(0, separator).trim()
+                    val response = entry.substring(separator + 1).trim()
+                    if (command.isNotBlank() && response.isNotBlank()) put(command, response)
                 }
             }
-        }.getOrDefault(emptyMap())
+        }
 
         return ReaderSettings(
             readUsername = prefs.getBoolean("read_username", true),
@@ -91,7 +91,11 @@ object DesktopSettingsStore {
         prefs.putBoolean("read_likes", settings.readLikes)
         prefs.putBoolean("random_voices", settings.randomVoices)
         prefs.putBoolean("custom_commands_enabled", settings.customCommandsEnabled)
-        prefs.put("custom_commands", JSONObject(settings.customCommands).toString())
+        // Store each command separately: Preferences limits a single value to 8 KB.
+        runCatching { prefs.keys().filter { it.startsWith("custom_command_") }.forEach { prefs.remove(it) } }
+        settings.customCommands.entries.take(40).forEachIndexed { index, entry ->
+            prefs.put("custom_command_$index", "${entry.key}=${entry.value.take(280)}")
+        }
         prefs.putBoolean("welcome_enabled", settings.welcomeEnabled)
         prefs.put("welcome_template", settings.welcomeTemplate)
         prefs.putInt("gift_minimum_repeat_count", settings.giftMinimumRepeatCount.coerceIn(1, 100))
