@@ -188,8 +188,15 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                                 onStatus = { value -> SwingUtilities.invokeLater {
                                                     status = value
                                                     connected = value.startsWith("Conectado al LIVE")
-                                                    if (connected || value.startsWith("TikTok no aceptó la conexión") || value.startsWith("No se pudo programar")) {
-                                                        connecting = false
+                                                    when {
+                                                        connected -> connecting = false
+                                                        value.startsWith("TikTok no aceptó la conexión") || value.startsWith("No se pudo programar") -> connecting = false
+                                                        value.contains("Se reintentará la conexión LIVE") ||
+                                                            value.startsWith("Buscando el LIVE") ||
+                                                            value.startsWith("LIVE encontrado") ||
+                                                            value.startsWith("Preparando conexión") ||
+                                                            value.startsWith("Conectando con TikTok") ||
+                                                            value.startsWith("Probando el servidor") -> connecting = true
                                                     }
                                                 } },
                                                 onEvent = { event -> commentPipeline.onEvent(event) }
