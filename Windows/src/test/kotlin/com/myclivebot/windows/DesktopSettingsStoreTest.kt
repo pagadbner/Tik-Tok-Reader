@@ -18,7 +18,12 @@ class DesktopSettingsStoreTest {
             welcomeTemplate = "¡Qué gusto verte, {user}!",
             giftMinimumRepeatCount = 4,
             giftAlertTemplate = "Gracias {user} por {count}",
-            useProfileUsername = true
+            useProfileUsername = true,
+            speechProvider = "tikfinity",
+            apiVoiceId = "en_male_m03_lobby",
+            apiRandomVoice = true,
+            tikFinityChannelId = "123456789",
+            tikTokVoiceId = "es_mx_female_supermom"
         )
         try {
             DesktopSettingsStore.save(expected)
@@ -34,6 +39,11 @@ class DesktopSettingsStoreTest {
             assertEquals(expected.giftMinimumRepeatCount, actual.giftMinimumRepeatCount)
             assertEquals(expected.giftAlertTemplate, actual.giftAlertTemplate)
             assertEquals(expected.useProfileUsername, actual.useProfileUsername)
+            assertEquals(expected.speechProvider, actual.speechProvider)
+            assertEquals(expected.apiVoiceId, actual.apiVoiceId)
+            assertEquals(expected.apiRandomVoice, actual.apiRandomVoice)
+            assertEquals(expected.tikFinityChannelId, actual.tikFinityChannelId)
+            assertEquals(expected.tikTokVoiceId, actual.tikTokVoiceId)
         } finally {
             DesktopSettingsStore.save(original)
         }
