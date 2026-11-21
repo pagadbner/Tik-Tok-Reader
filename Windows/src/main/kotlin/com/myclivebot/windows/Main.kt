@@ -585,11 +585,15 @@ private fun DjMusicPanel(state: DjMusicState) {
     LaunchedEffect(state.currentTrack?.videoId, playerView) {
         val track = state.currentTrack
         val player = playerView
-        if (track != null && player != null) {
+        if (player != null) {
             playerReady = false
             playerPlaying = false
-            runCatching { player.loadTrack(track, state.volume, state.muted) }
-                .onFailure { DjMusicController.setMessage("No se pudo abrir el reproductor: ${it.message ?: "error"}") }
+            if (track != null) {
+                runCatching { player.loadTrack(track, state.volume, state.muted) }
+                    .onFailure { DjMusicController.setMessage("No se pudo abrir el reproductor: ${it.message ?: "error"}") }
+            } else {
+                player.clearTrack()
+            }
         }
     }
 
