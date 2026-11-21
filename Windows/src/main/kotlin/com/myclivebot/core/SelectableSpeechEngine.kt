@@ -13,6 +13,7 @@ class SelectableSpeechEngine(
 ) : SpeechEngine {
     private val settings = AtomicReference(initial)
     private val edge = EdgeTtsSpeechEngine(initial.edgeVoiceId, initial.volume, initial.speed)
+    private val piper = DynamicPiperSpeechEngine(initial)
     private val tikTok = TikTokTtsSpeechEngine(initial.tikTokVoiceId, initial.volume, initial.speed)
     private val tikFinity = TikFinitySpeechEngine(
         initial.apiVoiceId,
@@ -23,6 +24,7 @@ class SelectableSpeechEngine(
 
     fun update(next: ReaderSettings) {
         settings.set(next)
+        piper.update(next)
         edge.update(next.edgeVoiceId, next.volume, next.speed)
         tikTok.update(next.tikTokVoiceId, next.volume, next.speed)
         tikFinity.update(next.apiVoiceId, next.tikFinityChannelId, next.volume, next.speed)
@@ -30,12 +32,14 @@ class SelectableSpeechEngine(
 
     fun setMuted(value: Boolean) {
         edge.setMuted(value)
+        piper.setMuted(value)
         tikTok.setMuted(value)
         tikFinity.setMuted(value)
     }
 
     override suspend fun initialize() {
         when (supportedProvider(settings.get().speechProvider)) {
+            PROVIDER_PIPER -> piper.initialize()
             PROVIDER_TIKFINITY -> tikFinity.initialize()
             PROVIDER_TIKTOK -> tikTok.initialize()
             else -> edge.initialize()
@@ -46,6 +50,7 @@ class SelectableSpeechEngine(
         val current = settings.get()
         try {
             when (supportedProvider(current.speechProvider)) {
+                PROVIDER_PIPER -> piper.speak(text)
                 PROVIDER_TIKFINITY -> {
                     val voice = if (current.apiRandomVoice) TikFinityVoiceCatalog.randomVoice() else current.apiVoiceId
                     tikFinity.update(voice, current.tikFinityChannelId, current.volume, current.speed)
@@ -68,22 +73,25 @@ class SelectableSpeechEngine(
 
     override suspend fun stop() {
         runCatching { edge.stop() }
+        runCatching { piper.stop() }
         runCatching { tikTok.stop() }
         runCatching { tikFinity.stop() }
     }
 
     fun release() {
         edge.release()
+        piper.release()
         tikTok.release()
         tikFinity.release()
     }
 
     private fun supportedProvider(value: String): String = when (value) {
-        PROVIDER_TIKFINITY, PROVIDER_TIKTOK, PROVIDER_EDGE -> value
+        PROVIDER_PIPER, PROVIDER_TIKFINITY, PROVIDER_TIKTOK, PROVIDER_EDGE -> value
         else -> PROVIDER_EDGE
     }
 
     companion object {
+        const val PROVIDER_PIPER = "piper"
         const val PROVIDER_TIKFINITY = "tikfinity"
         const val PROVIDER_EDGE = "edge"
         const val PROVIDER_TIKTOK = "tiktok"

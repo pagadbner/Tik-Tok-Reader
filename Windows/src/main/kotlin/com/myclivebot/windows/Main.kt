@@ -32,6 +32,8 @@ import com.myclivebot.core.DjMusicState
 import com.myclivebot.core.DjMusicTrack
 import com.myclivebot.core.TikTokTtsVoiceCatalog
 import com.myclivebot.core.TikFinityVoiceCatalog
+import com.myclivebot.core.PiperVoiceCatalog
+import com.myclivebot.core.PiperSpeechEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -410,15 +412,22 @@ private fun VoicePanel(
 ) {
     var providerMenuExpanded by remember { mutableStateOf(false) }
     var voiceMenuExpanded by remember { mutableStateOf(false) }
-    val provider = settings.speechProvider.takeIf { it in setOf("edge", "tiktok", "tikfinity") } ?: "edge"
+    val downloadScope = rememberCoroutineScope()
+    var piperInstalled by remember(settings.voiceId) { mutableStateOf(PiperSpeechEngine.isVoiceInstalled(settings.voiceId)) }
+    var piperDownloadRunning by remember(settings.voiceId) { mutableStateOf(false) }
+    var piperDownloadProgress by remember(settings.voiceId) { mutableIntStateOf(0) }
+    var piperDownloadStatus by remember(settings.voiceId) { mutableStateOf("") }
+    val provider = settings.speechProvider.takeIf { it in setOf("edge", "tiktok", "tikfinity", "piper") } ?: "edge"
     val providerName = when (provider) {
         "tiktok" -> "TikTok TTS"
         "tikfinity" -> "TikFinity"
+        "piper" -> "Piper local"
         else -> "Microsoft Edge TTS"
     }
     val voiceName = when (provider) {
         "tiktok" -> TikTokTtsVoiceCatalog.find(settings.tikTokVoiceId).name
         "tikfinity" -> TikFinityVoiceCatalog.find(settings.apiVoiceId).name
+        "piper" -> PiperVoiceCatalog.find(settings.voiceId).name
         else -> EdgeTtsVoiceCatalog.find(settings.edgeVoiceId).name
     }
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
@@ -441,6 +450,10 @@ private fun VoicePanel(
                         providerMenuExpanded = false
                         onSettingsChange(settings.copy(speechProvider = "tikfinity"))
                     })
+                    DropdownMenuItem(text = { Text("Piper local") }, onClick = {
+                        providerMenuExpanded = false
+                        onSettingsChange(settings.copy(speechProvider = "piper"))
+                    })
                 }
             }
             Text("Voz", color = Muted, fontSize = 12.sp)
@@ -460,6 +473,12 @@ private fun VoicePanel(
                                 onSettingsChange(settings.copy(apiVoiceId = voice.id))
                             })
                         }
+                        "piper" -> PiperVoiceCatalog.voices.forEach { voice ->
+                            DropdownMenuItem(text = { Text(voice.name) }, onClick = {
+                                voiceMenuExpanded = false
+                                onSettingsChange(settings.copy(voiceId = voice.id))
+                            })
+                        }
                         else -> EdgeTtsVoiceCatalog.voices.forEach { voice ->
                             DropdownMenuItem(text = { Text(voice.name) }, onClick = {
                                 voiceMenuExpanded = false
@@ -468,6 +487,44 @@ private fun VoicePanel(
                         }
                     }
                 }
+            }
+            if (provider == "piper") {
+                val selectedVoice = PiperVoiceCatalog.find(settings.voiceId)
+                SettingToggle("Elegir voces aleatorias instaladas", settings.randomVoices) {
+                    onSettingsChange(settings.copy(randomVoices = it))
+                }
+                Text(selectedVoice.description, color = Muted, fontSize = 11.sp)
+                Text(selectedVoice.licenseNote, color = Muted, fontSize = 10.sp)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        enabled = !piperInstalled && !piperDownloadRunning,
+                        onClick = {
+                            downloadScope.launch {
+                                piperDownloadRunning = true
+                                piperDownloadProgress = 0
+                                piperDownloadStatus = "Preparando descarga…"
+                                try {
+                                    PiperSpeechEngine.downloadVoice(settings.voiceId) { percent, message ->
+                                        SwingUtilities.invokeLater {
+                                            piperDownloadProgress = percent
+                                            piperDownloadStatus = message
+                                        }
+                                    }
+                                    piperInstalled = true
+                                    piperDownloadStatus = "Voz instalada y validada."
+                                } catch (error: Exception) {
+                                    piperDownloadStatus = error.message ?: "No se pudo descargar la voz."
+                                } finally {
+                                    piperDownloadRunning = false
+                                }
+                            }
+                        }
+                    ) { Text(if (piperInstalled) "Voz instalada" else if (piperDownloadRunning) "Descargando…" else "Descargar voz") }
+                    if (piperDownloadRunning) Text("$piperDownloadProgress%", color = Cyan)
+                }
+                if (piperDownloadRunning) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (piperDownloadStatus.isNotBlank()) Text(piperDownloadStatus, color = Muted, fontSize = 11.sp)
+                Text("Los modelos se descargan bajo demanda en la carpeta local de TikLBot; no se incluyen en el instalador.", color = Muted, fontSize = 10.sp)
             }
             if (provider == "tikfinity") {
                 OutlinedTextField(

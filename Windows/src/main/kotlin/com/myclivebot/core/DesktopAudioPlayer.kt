@@ -71,6 +71,43 @@ object DesktopAudioPlayer {
         }
     }
 
+    fun playPcm(samples: ShortArray, sampleRate: Int, volume: Float, muted: Boolean) {
+        if (samples.isEmpty() || muted) return
+        require(sampleRate in 8_000..48_000) { "Frecuencia de audio Piper no válida." }
+        stopRequested.set(false)
+        var line: SourceDataLine? = null
+        val gain = volume.coerceIn(0f, 1f)
+        try {
+            val format = AudioFormat(sampleRate.toFloat(), 16, 1, true, false)
+            line = AudioSystem.getSourceDataLine(format).apply { open(format); start() }
+            activeLine = line
+            val chunkSamples = 8 * 1024
+            var offset = 0
+            while (offset < samples.size && !stopRequested.get()) {
+                val count = minOf(chunkSamples, samples.size - offset)
+                val pcm = ByteArray(count * 2)
+                for (index in 0 until count) {
+                    val value = (samples[offset + index].toInt() * gain).toInt()
+                        .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+                    pcm[index * 2] = (value and 0xff).toByte()
+                    pcm[index * 2 + 1] = ((value shr 8) and 0xff).toByte()
+                }
+                var writtenOffset = 0
+                while (writtenOffset < pcm.size && !stopRequested.get()) {
+                    val written = line.write(pcm, writtenOffset, pcm.size - writtenOffset)
+                    if (written <= 0) break
+                    writtenOffset += written
+                }
+                offset += count
+            }
+            if (!stopRequested.get()) line.drain()
+        } finally {
+            activeLine = null
+            runCatching { line?.stop() }
+            runCatching { line?.close() }
+        }
+    }
+
     fun stop() {
         stopRequested.set(true)
         activeLine?.let { line ->

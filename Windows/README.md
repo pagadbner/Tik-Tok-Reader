@@ -7,7 +7,8 @@ Aplicación de escritorio independiente basada en Kotlin/JVM y Compose Desktop. 
 - Interfaz de escritorio con navegación Home, Chat en vivo, DJ Music, Voces, Automatizaciones y Settings.
 - Transporte TikTok LIVE JVM compartido, con parser protobuf, heartbeat, ACK, reconexión y cola serial de eventos.
 - Chat de comentarios, filtros compartidos, pipeline de lectura y cola de voz con prioridad para comentarios.
-- Motor Edge TTS adaptado a audio Java Sound para Windows.
+- Motores Edge TTS, TikTok TTS y TikFinity adaptados a audio Java Sound para Windows.
+- Motor Piper local con runtime JNI Windows x64, catálogo de voces, descarga bajo demanda, validación de modelos/configuración y selección aleatoria entre voces instaladas.
 - Preferencias de Windows persistentes, incluyendo filtros, alertas, plantillas y comandos personalizados.
 - Panel de automatizaciones para follows, regalos, compartidos, entradas, likes, bienvenidas y comandos locales de moderadores.
 - Panel de DJ Music para recibir solicitudes manuales y comandos `!play`, con permisos de seguidores/moderadores y cola de solicitudes.
@@ -17,10 +18,12 @@ Aplicación de escritorio independiente basada en Kotlin/JVM y Compose Desktop. 
 ## Pendiente antes de declarar la conversión completa
 
 - Integrar el catálogo/búsqueda musical, miniaturas, reproductor de escritorio, controles de reproducción y cola real de pistas.
-- Adaptar y probar los motores Piper, TikTok TTS y TikFinity en Windows; por ahora el motor de voz conectado es Edge TTS.
+- Probar los cuatro motores de voz en un equipo Windows real, incluyendo latencia, cancelación y salida de audio.
 - Completar el resto de ajustes y secciones que todavía dependan de componentes Android.
 - Probar la conexión real a TikTok LIVE, la salida de audio, instalación limpia y actualización de una versión anterior en un equipo Windows.
 - Configurar y verificar el icono nativo de la aplicación/instalador.
+
+El runtime Piper JNI incluye componentes nativos GPL-3.0; consulta `THIRD_PARTY_NOTICES.md` y los textos de licencia incluidos en los recursos. Los modelos se descargan por separado y conservan sus propias condiciones de uso.
 
 No se debe considerar funcional una característica pendiente solo porque su interfaz aparezca en la aplicación. La conexión LIVE, la reproducción y el actualizador requieren pruebas reales en Windows antes de publicar.
 
