@@ -1,6 +1,7 @@
 package com.myclivebot.windows
 
 import com.myclivebot.core.ReaderSettings
+import com.myclivebot.core.EdgeTtsVoiceCatalog
 import java.util.prefs.Preferences
 
 object DesktopSettingsStore {
