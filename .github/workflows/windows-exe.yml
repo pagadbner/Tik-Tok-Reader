@@ -11,6 +11,7 @@ on:
     paths:
       - "Windows/**"
       - ".github/workflows/windows-exe.yml"
+  workflow_dispatch:
   workflow_run:
     workflows: ["Publish latest TikLBot release"]
     types: [completed]
@@ -22,7 +23,7 @@ permissions:
 
 concurrency:
   group: tiklbot-windows-${{ github.event_name }}-${{ github.ref || github.event.workflow_run.head_sha }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build-windows:
