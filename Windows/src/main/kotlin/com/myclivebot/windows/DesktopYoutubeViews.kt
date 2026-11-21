@@ -60,7 +60,7 @@ class DesktopYoutubeSearchView(
         Platform.runLater { engine?.load(url) }
     }
 
-    private inner class SearchBridge {
+    inner class SearchBridge {
         fun onResults(requestId: Int, json: String) {
             if (requestId == activeRequest.get()) dispatchResults(requestId, json)
         }
@@ -166,6 +166,14 @@ class DesktopYoutubePlayerView(
                     runCatching {
                         val window = view.engine.executeScript("window") as JSObject
                         window.setMember("TikLBotMusicPlayer", PlayerBridge())
+                        view.engine.executeScript("""
+                            window.__tiklbotBridgeReady=true;
+                            (window.__tiklbotPending||[]).forEach(function(event){
+                              var callback=window.TikLBotMusicPlayer[event[0]];
+                              if(callback)callback.apply(window.TikLBotMusicPlayer,event[1]||[]);
+                            });
+                            window.__tiklbotPending=[];
+                        """.trimIndent())
                     }
                 }
             }
@@ -187,7 +195,7 @@ class DesktopYoutubePlayerView(
         Platform.runLater { runCatching { engine?.executeScript(script) } }
     }
 
-    private inner class PlayerBridge {
+    inner class PlayerBridge {
         fun onPlayerEnded() = onEnded()
         fun onPlayerError(code: Int) = onError(code)
         fun onPlayerReady() = onReady()
@@ -203,6 +211,21 @@ class DesktopYoutubePlayerView(
 <meta charset="utf-8"></head>
 <body style="margin:0;background:#000;overflow:hidden">
 <div id="player"></div>
+<script>
+window.__tiklbotBridgeReady=false;
+window.__tiklbotPending=[];
+function notifyPlayer(method,args){
+ if(window.__tiklbotBridgeReady){var fn=window.TikLBotMusicPlayer[method];if(fn)fn.apply(window.TikLBotMusicPlayer,args||[]);}
+ else window.__tiklbotPending.push([method,args||[]]);
+}
+window.TikLBotMusicPlayer={
+ onPlayerEnded:function(){notifyPlayer('onPlayerEnded');},
+ onPlayerError:function(code){notifyPlayer('onPlayerError',[code]);},
+ onPlayerReady:function(){notifyPlayer('onPlayerReady');},
+ onPlayerState:function(value){notifyPlayer('onPlayerState',[value]);},
+ onAutoplayBlocked:function(){notifyPlayer('onAutoplayBlocked');}
+};
+</script>
 <script src="https://www.youtube.com/iframe_api"></script>
 <script>
 var player;
@@ -210,10 +233,10 @@ function onYouTubeIframeAPIReady(){
  player=new YT.Player('player',{width:'100%',height:'100%',videoId:'$videoId',
   playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'$safeOrigin'},
   events:{
-   onReady:function(e){e.target.setVolume($volume);$muteScript;TikLBotMusicPlayer.onPlayerReady();e.target.playVideo();},
-   onStateChange:function(e){if(e.data===0)TikLBotMusicPlayer.onPlayerEnded();TikLBotMusicPlayer.onPlayerState(e.data);},
-   onError:function(e){TikLBotMusicPlayer.onPlayerError(e.data);},
-   onAutoplayBlocked:function(){TikLBotMusicPlayer.onAutoplayBlocked();}
+   onReady:function(e){e.target.setVolume($volume);$muteScript;notifyPlayer('onPlayerReady');e.target.playVideo();},
+   onStateChange:function(e){if(e.data===0)notifyPlayer('onPlayerEnded');notifyPlayer('onPlayerState',[e.data]);},
+   onError:function(e){notifyPlayer('onPlayerError',[e.data]);},
+   onAutoplayBlocked:function(){notifyPlayer('onAutoplayBlocked');}
   }});
 }
 function setVolume(v){if(player)player.setVolume(v);}
