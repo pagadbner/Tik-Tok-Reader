@@ -191,6 +191,7 @@ class DesktopYoutubePlayerView(
         Platform.runLater { engine?.load("$origin/player?video=${track.videoId}") }
     }
 
+    fun clearTrack() = evaluate("clearPlayer()")
     fun setVolume(value: Int) = evaluate("setVolume(${value.coerceIn(0, 100)})")
     fun setMuted(value: Boolean) = evaluate("setMuted($value)")
     fun playPause() = evaluate("playPause()")
@@ -244,6 +245,7 @@ function onYouTubeIframeAPIReady(){
    onAutoplayBlocked:function(){notifyPlayer('onAutoplayBlocked');}
   }});
 }
+function clearPlayer(){if(player){player.stopVideo();player.destroy();player=null;}}
 function setVolume(v){if(player)player.setVolume(v);}
 function setMuted(v){if(player){if(v)player.mute();else player.unMute();}}
 function playPause(){if(player){if(player.getPlayerState()===1)player.pauseVideo();else{player.unMute();player.playVideo();}}}
