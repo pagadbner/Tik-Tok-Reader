@@ -17,12 +17,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window as DesktopWindow
 import com.myclivebot.core.LiveComment
+import com.myclivebot.core.ReaderSettings
+import com.myclivebot.core.CommentFilter
+import com.myclivebot.core.CommentHandlingResult
 import com.myclivebot.core.TikTokLiveConnector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.Desktop
 import javax.swing.SwingUtilities
+import java.util.concurrent.atomic.AtomicReference
 
 private val Ink = Color(0xFF090B16)
 private val Panel = Color(0xFF15182A)
@@ -42,6 +46,16 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     var status by remember { mutableStateOf("Desconectado") }
     var connected by remember { mutableStateOf(false) }
     val comments = remember { mutableStateListOf<LiveComment>() }
+    var readerSettings by remember { mutableStateOf(DesktopSettingsStore.load()) }
+    val settingsReference = remember { AtomicReference(readerSettings) }
+    val commentFilter = remember { CommentFilter() }
+    var filteredComments by remember { mutableStateOf(0) }
+
+    fun saveReaderSettings(next: ReaderSettings) {
+        readerSettings = next
+        settingsReference.set(next)
+        DesktopSettingsStore.save(next)
+    }
     var connector by remember { mutableStateOf<TikTokLiveConnector?>(null) }
     var update by remember { mutableStateOf<DesktopUpdateInfo?>(null) }
     var updateStatus by remember { mutableStateOf("Comprobando actualizaciones…") }
@@ -146,11 +160,13 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                             status = "Preparando conexión…"
                                             val live = TikTokLiveConnector(
                                                 onComment = { comment ->
+                                                    val accepted = commentFilter.shouldRead(comment, settingsReference.get())
                                                     SwingUtilities.invokeLater {
                                                         comments.add(0, comment)
                                                         while (comments.size > 300) comments.removeAt(comments.lastIndex)
+                                                        if (!accepted) filteredComments++
                                                     }
-                                                    com.myclivebot.core.CommentHandlingResult.ACCEPTED
+                                                    if (accepted) CommentHandlingResult.ACCEPTED else CommentHandlingResult.FILTERED
                                                 },
                                                 onStatus = { value -> SwingUtilities.invokeLater { status = value } }
                                             )
@@ -167,8 +183,8 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             Spacer(Modifier.height(16.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 StatCard("Comentarios recibidos", comments.size.toString(), Modifier.weight(1f))
+                                StatCard("Filtrados", filteredComments.toString(), Modifier.weight(1f))
                                 StatCard("Estado de conexión", if (connected) "Activo" else "Inactivo", Modifier.weight(1f))
-                                StatCard("Versión PC", "0.13.15", Modifier.weight(1f))
                             }
                             Spacer(Modifier.height(16.dp))
                             Text("Chat en vivo", fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
@@ -192,9 +208,33 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             "La conexión base ya reutiliza el transporte JVM de la versión Android."
                         )
                         else -> {
-                            FeatureNotice("Settings", "Preferencias locales de TikLBot PC.", "La persistencia de ajustes y los catálogos se integrarán con los módulos compartidos.")
+                            Text("Preferencias del lector", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                            Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
+                                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    SettingToggle("Leer nombre del usuario", readerSettings.readUsername) { saveReaderSettings(readerSettings.copy(readUsername = it)) }
+                                    SettingToggle("Solo seguidores", readerSettings.followerOnlyChat) { saveReaderSettings(readerSettings.copy(followerOnlyChat = it)) }
+                                    SettingToggle("Ignorar emojis", readerSettings.ignoreEmojis) { saveReaderSettings(readerSettings.copy(ignoreEmojis = it)) }
+                                    SettingToggle("Ignorar símbolos", readerSettings.ignoreSymbols) { saveReaderSettings(readerSettings.copy(ignoreSymbols = it)) }
+                                    SettingToggle("Leer solamente el nombre", readerSettings.onlyUsername) { saveReaderSettings(readerSettings.copy(onlyUsername = it)) }
+                                    SettingToggle("Ignorar moderadores", readerSettings.ignoreModerators) { saveReaderSettings(readerSettings.copy(ignoreModerators = it)) }
+                                    OutlinedTextField(
+                                        value = readerSettings.blockedWords.joinToString("\\n"),
+                                        onValueChange = { value -> saveReaderSettings(readerSettings.copy(blockedWords = value.lines().map(String::trim).filter(String::isNotEmpty).toSet())) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        label = { Text("Palabras bloqueadas (una por línea)") },
+                                        minLines = 3
+                                    )
+                                    OutlinedTextField(
+                                        value = readerSettings.ignoredUsers.joinToString("\\n"),
+                                        onValueChange = { value -> saveReaderSettings(readerSettings.copy(ignoredUsers = value.lines().map(String::trim).filter(String::isNotEmpty).toSet())) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        label = { Text("Usuarios ignorados (uno por línea)") },
+                                        minLines = 3
+                                    )
+                                }
+                            }
                             Spacer(Modifier.height(14.dp))
-                            Card(colors = CardDefaults.cardColors(containerColor = Panel)) {
+                            Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
                                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text("Actualizaciones", fontWeight = FontWeight.SemiBold)
                                     Text(updateStatus, color = Muted)
@@ -269,5 +309,13 @@ private fun FeatureNotice(title: String, description: String, detail: String) {
             Text(detail, color = Muted)
             Text("Adaptación en desarrollo — esta sección todavía no se declara funcional.", color = Cyan, fontSize = 12.sp)
         }
+    }
+}
+
+@Composable
+private fun SettingToggle(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = Color.White)
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
