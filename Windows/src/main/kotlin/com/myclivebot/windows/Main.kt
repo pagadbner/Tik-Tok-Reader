@@ -80,9 +80,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Box(Modifier.size(42.dp).background(Violet, RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.GraphicEq, null, tint = Color.White, modifier = Modifier.size(26.dp))
-                        }
+                        TikLBotLogo(42.dp)
                         Column {
                             Text("TikLBot", fontSize = 21.sp, fontWeight = FontWeight.Bold)
                             Text("DESKTOP • 0.13.15", fontSize = 10.sp, color = Muted)
