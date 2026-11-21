@@ -219,14 +219,14 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                     SettingToggle("Ignorar moderadores", readerSettings.ignoreModerators) { saveReaderSettings(readerSettings.copy(ignoreModerators = it)) }
                                     OutlinedTextField(
                                         value = readerSettings.blockedWords.joinToString("\n"),
-                                        onValueChange = { value -> saveReaderSettings(readerSettings.copy(blockedWords = value.lines().map(String::trim).filter(String::isNotEmpty).toSet())) },
+                                        onValueChange = { value -> saveReaderSettings(readerSettings.copy(blockedWords = value.lines().map { it.trim() }.filter { it.isNotEmpty() }.toSet())) },
                                         modifier = Modifier.fillMaxWidth(),
                                         label = { Text("Palabras bloqueadas (una por línea)") },
                                         minLines = 3
                                     )
                                     OutlinedTextField(
                                         value = readerSettings.ignoredUsers.joinToString("\n"),
-                                        onValueChange = { value -> saveReaderSettings(readerSettings.copy(ignoredUsers = value.lines().map(String::trim).filter(String::isNotEmpty).toSet())) },
+                                        onValueChange = { value -> saveReaderSettings(readerSettings.copy(ignoredUsers = value.lines().map { it.trim() }.filter { it.isNotEmpty() }.toSet())) },
                                         modifier = Modifier.fillMaxWidth(),
                                         label = { Text("Usuarios ignorados (uno por línea)") },
                                         minLines = 3
