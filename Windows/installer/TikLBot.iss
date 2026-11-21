@@ -22,3 +22,6 @@ Source: "..\build\compose\binaries\main\msi\TikLBot-{#AppVersion}.msi"; DestDir:
 
 [Run]
 Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\TikLBot-{#AppVersion}.msi"" /qn /norestart"; StatusMsg: "Instalando TikLBot para Windows…"; Flags: waituntilterminated
+
+[Run]
+Filename: "{app}\\TikLBot.exe"; Flags: nowait postinstall
