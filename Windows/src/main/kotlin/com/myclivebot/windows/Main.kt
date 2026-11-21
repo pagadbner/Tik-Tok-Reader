@@ -228,11 +228,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             "La capa de audio Windows debe sustituir AudioTrack y las rutas de archivos Android.",
                             "La integración de Piper y los proveedores de voz se está preparando para Windows."
                         )
-                        "Automatizaciones" -> FeatureNotice(
-                            "Automatizaciones del LIVE",
-                            "Se conservarán las reglas de bienvenida, regalos, follows, comandos y filtros.",
-                            "La conexión base ya reutiliza el transporte JVM de la versión Android."
-                        )
+                        "Automatizaciones" -> AutomationPanel(readerSettings, ::saveReaderSettings)
                         else -> {
                             Text("Preferencias del lector", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                             Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
@@ -384,6 +380,65 @@ private fun CommentList(comments: List<LiveComment>, modifier: Modifier = Modifi
                         Text(comment.displayName, color = if (comment.isModerator) Cyan else Color.White, fontWeight = FontWeight.SemiBold)
                         Text(comment.text, color = Color(0xFFE5E6F0))
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AutomationPanel(settings: ReaderSettings, onChange: (ReaderSettings) -> Unit) {
+    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Alertas automáticas", fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                    Text("Activa los avisos que TikLBot debe leer durante el LIVE.", color = Muted, fontSize = 13.sp)
+                    SettingToggle("Nuevos seguidores", settings.readFollows) { onChange(settings.copy(readFollows = it)) }
+                    SettingToggle("Regalos", settings.readGifts) { onChange(settings.copy(readGifts = it)) }
+                    SettingToggle("Compartidos", settings.readShares) { onChange(settings.copy(readShares = it)) }
+                    SettingToggle("Solo seguidores para compartidos", settings.shareFollowerOnly) { onChange(settings.copy(shareFollowerOnly = it)) }
+                    SettingToggle("Entradas al LIVE", settings.readJoins) { onChange(settings.copy(readJoins = it)) }
+                    SettingToggle("Solo seguidores para entradas", settings.joinFollowerOnly) { onChange(settings.copy(joinFollowerOnly = it)) }
+                    SettingToggle("Likes", settings.readLikes) { onChange(settings.copy(readLikes = it)) }
+                    OutlinedTextField(
+                        value = settings.giftMinimumRepeatCount.toString(),
+                        onValueChange = { it.toIntOrNull()?.let { count -> onChange(settings.copy(giftMinimumRepeatCount = count.coerceIn(1, 100))) } },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Repeticiones mínimas del regalo") },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = settings.giftAlertTemplate,
+                        onValueChange = { onChange(settings.copy(giftAlertTemplate = it.take(280))) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Plantilla de regalo: {user} y {count}") },
+                        minLines = 2
+                    )
+                }
+            }
+        }
+        item {
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Bienvenidas y comandos", fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                    SettingToggle("Dar bienvenida en el primer comentario", settings.welcomeEnabled) { onChange(settings.copy(welcomeEnabled = it)) }
+                    OutlinedTextField(
+                        value = settings.welcomeTemplate,
+                        onValueChange = { onChange(settings.copy(welcomeTemplate = it.take(280))) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Mensaje de bienvenida ({user})") },
+                        minLines = 2
+                    )
+                    SettingToggle("Comandos personalizados para moderadores", settings.customCommandsEnabled) { onChange(settings.copy(customCommandsEnabled = it)) }
+                    OutlinedTextField(
+                        value = settings.customCommands.entries.joinToString("\n") { "${it.key}=${it.value}" },
+                        onValueChange = { onChange(settings.copy(customCommands = com.myclivebot.core.ChatCommandParser.parseConfig(it))) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Un comando por línea: !hola=Hola {user}") },
+                        minLines = 4
+                    )
+                    Text("Los comandos solo generan respuesta de voz local; no envían mensajes al chat.", color = Muted, fontSize = 11.sp)
                 }
             }
         }
