@@ -23,7 +23,7 @@ import com.myclivebot.core.ReaderSettings
 import com.myclivebot.core.CommentFilter
 import com.myclivebot.core.CommentPipeline
 import com.myclivebot.core.SpeechQueueWorker
-import com.myclivebot.core.EdgeTtsSpeechEngine
+import com.myclivebot.core.SelectableSpeechEngine
 import com.myclivebot.core.EdgeTtsVoiceCatalog
 import com.myclivebot.core.CommentHandlingResult
 import com.myclivebot.core.TikTokLiveConnector
@@ -66,7 +66,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     var readerSettings by remember { mutableStateOf(DesktopSettingsStore.load()) }
     var filteredComments by remember { mutableStateOf(0) }
     var voiceMuted by remember { mutableStateOf(false) }
-    val speechEngine = remember { EdgeTtsSpeechEngine(voiceId = readerSettings.edgeVoiceId, volume = readerSettings.volume, speed = readerSettings.speed) }
+    val speechEngine = remember { SelectableSpeechEngine(readerSettings) }
     val speechQueue = remember { SpeechQueueWorker(speechEngine, scope, capacity = readerSettings.maxQueueSize) }
     val commentPipeline = remember { CommentPipeline(CommentFilter(), speechQueue, readerSettings) }
     var voiceMenuExpanded by remember { mutableStateOf(false) }
@@ -75,7 +75,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
         readerSettings = next
         DesktopSettingsStore.save(next)
         commentPipeline.updateSettings(next)
-        speechEngine.update(next.edgeVoiceId, next.volume, next.speed)
+        speechEngine.update(next)
     }
     var connector by remember { mutableStateOf<TikTokLiveConnector?>(null) }
     var update by remember { mutableStateOf<DesktopUpdateInfo?>(null) }
