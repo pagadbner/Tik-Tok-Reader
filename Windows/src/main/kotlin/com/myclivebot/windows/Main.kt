@@ -44,6 +44,7 @@ fun main() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 private fun applicationWindow() = androidx.compose.ui.window.application {
+    val scope = rememberCoroutineScope()
     var selected by remember { mutableStateOf("Home") }
     var username by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Desconectado") }
@@ -67,7 +68,6 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     var update by remember { mutableStateOf<DesktopUpdateInfo?>(null) }
     var updateStatus by remember { mutableStateOf("Comprobando actualizaciones…") }
     var updateBusy by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
 
     fun stopLive() {
         connector?.close()
