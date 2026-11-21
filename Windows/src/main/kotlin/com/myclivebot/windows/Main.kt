@@ -227,6 +227,48 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                     SettingToggle("Ignorar símbolos", readerSettings.ignoreSymbols) { saveReaderSettings(readerSettings.copy(ignoreSymbols = it)) }
                                     SettingToggle("Leer solamente el nombre", readerSettings.onlyUsername) { saveReaderSettings(readerSettings.copy(onlyUsername = it)) }
                                     SettingToggle("Ignorar moderadores", readerSettings.ignoreModerators) { saveReaderSettings(readerSettings.copy(ignoreModerators = it)) }
+                                    SettingToggle("Usar @usuario del perfil", readerSettings.useProfileUsername) { saveReaderSettings(readerSettings.copy(useProfileUsername = it)) }
+                                    Divider(color = PanelRaised)
+                                    Text("Alertas del LIVE", fontWeight = FontWeight.SemiBold)
+                                    SettingToggle("Leer nuevos seguidores", readerSettings.readFollows) { saveReaderSettings(readerSettings.copy(readFollows = it)) }
+                                    SettingToggle("Leer regalos", readerSettings.readGifts) { saveReaderSettings(readerSettings.copy(readGifts = it)) }
+                                    SettingToggle("Leer compartidos", readerSettings.readShares) { saveReaderSettings(readerSettings.copy(readShares = it)) }
+                                    SettingToggle("Compartidos: solo seguidores", readerSettings.shareFollowerOnly) { saveReaderSettings(readerSettings.copy(shareFollowerOnly = it)) }
+                                    SettingToggle("Leer cuando alguien entra", readerSettings.readJoins) { saveReaderSettings(readerSettings.copy(readJoins = it)) }
+                                    SettingToggle("Entradas: solo seguidores", readerSettings.joinFollowerOnly) { saveReaderSettings(readerSettings.copy(joinFollowerOnly = it)) }
+                                    SettingToggle("Leer likes", readerSettings.readLikes) { saveReaderSettings(readerSettings.copy(readLikes = it)) }
+                                    OutlinedTextField(
+                                        value = readerSettings.giftMinimumRepeatCount.toString(),
+                                        onValueChange = { value -> value.toIntOrNull()?.let { saveReaderSettings(readerSettings.copy(giftMinimumRepeatCount = it.coerceIn(1, 100))) } },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        label = { Text("Mínimo de repeticiones para anunciar regalos") },
+                                        singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = readerSettings.giftAlertTemplate,
+                                        onValueChange = { saveReaderSettings(readerSettings.copy(giftAlertTemplate = it.take(280))) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        label = { Text("Plantilla de regalos ({user}, {count})") },
+                                        minLines = 2
+                                    )
+                                    Divider(color = PanelRaised)
+                                    Text("Automatizaciones", fontWeight = FontWeight.SemiBold)
+                                    SettingToggle("Dar bienvenida al primer comentario", readerSettings.welcomeEnabled) { saveReaderSettings(readerSettings.copy(welcomeEnabled = it)) }
+                                    OutlinedTextField(
+                                        value = readerSettings.welcomeTemplate,
+                                        onValueChange = { saveReaderSettings(readerSettings.copy(welcomeTemplate = it.take(280))) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        label = { Text("Bienvenida ({user})") },
+                                        minLines = 2
+                                    )
+                                    SettingToggle("Activar comandos personalizados (moderadores)", readerSettings.customCommandsEnabled) { saveReaderSettings(readerSettings.copy(customCommandsEnabled = it)) }
+                                    OutlinedTextField(
+                                        value = readerSettings.customCommands.entries.joinToString("\\n") { "${it.key}=${it.value}" },
+                                        onValueChange = { value -> saveReaderSettings(readerSettings.copy(customCommands = com.myclivebot.core.ChatCommandParser.parseConfig(value))) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        label = { Text("Comandos: !comando=respuesta ({user}, {command})") },
+                                        minLines = 3
+                                    )
                                     SettingToggle("Silenciar voz", voiceMuted) { voiceMuted = it; speechEngine.setMuted(it) }
                                     Text("Voz Edge TTS", color = Muted, fontSize = 12.sp)
                                     Box {
