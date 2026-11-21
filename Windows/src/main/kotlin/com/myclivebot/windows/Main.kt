@@ -30,6 +30,8 @@ import com.myclivebot.core.TikTokLiveConnector
 import com.myclivebot.core.DjMusicController
 import com.myclivebot.core.DjMusicState
 import com.myclivebot.core.DjMusicTrack
+import com.myclivebot.core.TikTokTtsVoiceCatalog
+import com.myclivebot.core.TikFinityVoiceCatalog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -69,7 +71,6 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     val speechEngine = remember { SelectableSpeechEngine(readerSettings) }
     val speechQueue = remember { SpeechQueueWorker(speechEngine, scope, capacity = readerSettings.maxQueueSize) }
     val commentPipeline = remember { CommentPipeline(CommentFilter(), speechQueue, readerSettings) }
-    var voiceMenuExpanded by remember { mutableStateOf(false) }
 
     fun saveReaderSettings(next: ReaderSettings) {
         readerSettings = next
@@ -309,28 +310,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                         label = { Text("Comandos: !comando=respuesta ({user}, {command})") },
                                         minLines = 3
                                     )
-                                    SettingToggle("Silenciar voz", voiceMuted) { voiceMuted = it; speechEngine.setMuted(it) }
-                                    Text("Voz Edge TTS", color = Muted, fontSize = 12.sp)
-                                    Box {
-                                        OutlinedButton(onClick = { voiceMenuExpanded = true }) {
-                                            Text(EdgeTtsVoiceCatalog.find(readerSettings.edgeVoiceId).name)
-                                        }
-                                        DropdownMenu(expanded = voiceMenuExpanded, onDismissRequest = { voiceMenuExpanded = false }) {
-                                            EdgeTtsVoiceCatalog.voices.forEach { voice ->
-                                                DropdownMenuItem(
-                                                    text = { Text(voice.name) },
-                                                    onClick = {
-                                                        voiceMenuExpanded = false
-                                                        saveReaderSettings(readerSettings.copy(edgeVoiceId = voice.id))
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    }
-                                    Text("Volumen", color = Muted, fontSize = 12.sp)
-                                    Slider(value = readerSettings.volume, onValueChange = { saveReaderSettings(readerSettings.copy(volume = it)) }, valueRange = 0f..1f)
-                                    Text("Velocidad", color = Muted, fontSize = 12.sp)
-                                    Slider(value = readerSettings.speed, onValueChange = { saveReaderSettings(readerSettings.copy(speed = it)) }, valueRange = 0.65f..1.5f)
+                                    Text("Configura el motor, la voz, el volumen y la velocidad en la sección Voces.", color = Muted, fontSize = 12.sp)
                                     OutlinedTextField(
                                         value = readerSettings.blockedWords.joinToString("\n"),
                                         onValueChange = { value -> saveReaderSettings(readerSettings.copy(blockedWords = value.lines().map { it.trim() }.filter { it.isNotEmpty() }.toSet())) },
@@ -421,34 +401,83 @@ private fun VoicePanel(
     onSettingsChange: (ReaderSettings) -> Unit,
     onMutedChange: (Boolean) -> Unit
 ) {
+    var providerMenuExpanded by remember { mutableStateOf(false) }
     var voiceMenuExpanded by remember { mutableStateOf(false) }
+    val provider = settings.speechProvider.takeIf { it in setOf("edge", "tiktok", "tikfinity") } ?: "edge"
+    val providerName = when (provider) {
+        "tiktok" -> "TikTok TTS"
+        "tikfinity" -> "TikFinity"
+        else -> "Microsoft Edge TTS"
+    }
+    val voiceName = when (provider) {
+        "tiktok" -> TikTokTtsVoiceCatalog.find(settings.tikTokVoiceId).name
+        "tikfinity" -> TikFinityVoiceCatalog.find(settings.apiVoiceId).name
+        else -> EdgeTtsVoiceCatalog.find(settings.edgeVoiceId).name
+    }
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("Voz del lector", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text("Motor disponible en esta compilación: Microsoft Edge TTS.", color = Muted, fontSize = 13.sp)
+            Text("Selecciona el motor de voz sin desconectar el LIVE.", color = Muted, fontSize = 13.sp)
+            Text("Motor", color = Muted, fontSize = 12.sp)
+            Box {
+                OutlinedButton(onClick = { providerMenuExpanded = true }) { Text(providerName) }
+                DropdownMenu(expanded = providerMenuExpanded, onDismissRequest = { providerMenuExpanded = false }) {
+                    DropdownMenuItem(text = { Text("Microsoft Edge TTS") }, onClick = {
+                        providerMenuExpanded = false
+                        onSettingsChange(settings.copy(speechProvider = "edge"))
+                    })
+                    DropdownMenuItem(text = { Text("TikTok TTS") }, onClick = {
+                        providerMenuExpanded = false
+                        onSettingsChange(settings.copy(speechProvider = "tiktok"))
+                    })
+                    DropdownMenuItem(text = { Text("TikFinity") }, onClick = {
+                        providerMenuExpanded = false
+                        onSettingsChange(settings.copy(speechProvider = "tikfinity"))
+                    })
+                }
+            }
             Text("Voz", color = Muted, fontSize = 12.sp)
             Box {
-                OutlinedButton(onClick = { voiceMenuExpanded = true }) {
-                    Text(EdgeTtsVoiceCatalog.find(settings.edgeVoiceId).name)
-                }
+                OutlinedButton(onClick = { voiceMenuExpanded = true }) { Text(voiceName) }
                 DropdownMenu(expanded = voiceMenuExpanded, onDismissRequest = { voiceMenuExpanded = false }) {
-                    EdgeTtsVoiceCatalog.voices.forEach { voice ->
-                        DropdownMenuItem(
-                            text = { Text(voice.name) },
-                            onClick = {
+                    when (provider) {
+                        "tiktok" -> TikTokTtsVoiceCatalog.voices.forEach { voice ->
+                            DropdownMenuItem(text = { Text(voice.name) }, onClick = {
+                                voiceMenuExpanded = false
+                                onSettingsChange(settings.copy(tikTokVoiceId = voice.id))
+                            })
+                        }
+                        "tikfinity" -> TikFinityVoiceCatalog.voices.forEach { voice ->
+                            DropdownMenuItem(text = { Text(voice.name) }, onClick = {
+                                voiceMenuExpanded = false
+                                onSettingsChange(settings.copy(apiVoiceId = voice.id))
+                            })
+                        }
+                        else -> EdgeTtsVoiceCatalog.voices.forEach { voice ->
+                            DropdownMenuItem(text = { Text(voice.name) }, onClick = {
                                 voiceMenuExpanded = false
                                 onSettingsChange(settings.copy(edgeVoiceId = voice.id))
-                            }
-                        )
+                            })
+                        }
                     }
                 }
+            }
+            if (provider == "tikfinity") {
+                OutlinedTextField(
+                    value = settings.tikFinityChannelId,
+                    onValueChange = { value -> onSettingsChange(settings.copy(tikFinityChannelId = value.filter { it.isDigit() }.take(30))) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("ID numérico de canal TikFinity") },
+                    singleLine = true
+                )
+                SettingToggle("Elegir voz aleatoria", settings.apiRandomVoice) { onSettingsChange(settings.copy(apiRandomVoice = it)) }
             }
             SettingToggle("Silenciar voz", muted, onMutedChange)
             Text("Volumen", color = Muted, fontSize = 12.sp)
             Slider(value = settings.volume, onValueChange = { onSettingsChange(settings.copy(volume = it)) }, valueRange = 0f..1f)
             Text("Velocidad", color = Muted, fontSize = 12.sp)
             Slider(value = settings.speed, onValueChange = { onSettingsChange(settings.copy(speed = it)) }, valueRange = 0.65f..1.5f)
-            Text("Los motores Piper, TikTok TTS y TikFinity todavía requieren su adaptación y pruebas específicas para Windows.", color = Muted, fontSize = 11.sp)
+            Text("Piper local aún requiere integrar ONNX Runtime y el catálogo descargable para Windows.", color = Muted, fontSize = 11.sp)
         }
     }
 }
