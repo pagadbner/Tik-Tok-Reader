@@ -25,6 +25,8 @@ import com.myclivebot.core.EdgeTtsSpeechEngine
 import com.myclivebot.core.EdgeTtsVoiceCatalog
 import com.myclivebot.core.CommentHandlingResult
 import com.myclivebot.core.TikTokLiveConnector
+import com.myclivebot.core.DjMusicController
+import com.myclivebot.core.DjMusicState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -50,6 +52,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     var status by remember { mutableStateOf("Desconectado") }
     var connected by remember { mutableStateOf(false) }
     val comments = remember { mutableStateListOf<LiveComment>() }
+    val djMusicState by DjMusicController.state.collectAsState()
     var readerSettings by remember { mutableStateOf(DesktopSettingsStore.load()) }
     var filteredComments by remember { mutableStateOf(0) }
     var voiceMuted by remember { mutableStateOf(false) }
@@ -167,6 +170,9 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                             status = "Preparando conexión…"
                                             val live = TikTokLiveConnector(
                                                 onComment = { comment ->
+                                                    if (comment.text.trim().startsWith("!play ", ignoreCase = true)) {
+                                                        DjMusicController.handleLiveComment(comment)
+                                                    }
                                                     val result = commentPipeline.onComment(comment)
                                                     SwingUtilities.invokeLater {
                                                         comments.add(0, comment)
@@ -200,11 +206,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             CommentList(comments, Modifier.weight(1f))
                         }
                         "Chat en vivo" -> CommentList(comments, Modifier.fillMaxSize())
-                        "DJ Music" -> FeatureNotice(
-                            "DJ Music",
-                            "La interfaz de escritorio y el reproductor de YouTube se están adaptando. El motor Android no se modifica.",
-                            "La cola, búsqueda, controles y reproducción se conectarán en la siguiente etapa."
-                        )
+                        "DJ Music" -> DjMusicPanel(djMusicState)
                         "Voces" -> FeatureNotice(
                             "Motores de voz",
                             "La capa de audio Windows debe sustituir AudioTrack y las rutas de archivos Android.",
@@ -325,6 +327,62 @@ private fun CommentList(comments: List<LiveComment>, modifier: Modifier = Modifi
                         Text(comment.text, color = Color(0xFFE5E6F0))
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DjMusicPanel(state: DjMusicState) {
+    var query by remember { mutableStateOf("") }
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Solicitudes musicales", fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                Text("Agrega solicitudes manuales o permite que el chat use !play canción. Se aplican los permisos configurados.", color = Muted, fontSize = 13.sp)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        label = { Text("Buscar canción o artista") },
+                        placeholder = { Text("Nombre de canción") }
+                    )
+                    Button(enabled = query.isNotBlank() && state.pendingSearches.size < 50, onClick = {
+                        DjMusicController.enqueueSearch(query)
+                        query = ""
+                    }) { Text("Solicitar") }
+                }
+                SettingToggle("Solo seguidores", state.followersOnly) { DjMusicController.setFollowersOnly(it) }
+                SettingToggle("Solo moderadores", state.moderatorsOnly) { DjMusicController.setModeratorsOnly(it) }
+                Text(state.message, color = Cyan, fontSize = 12.sp)
+                Text("Solicitudes en espera: ${state.pendingSearches.size}/50", color = Muted, fontSize = 12.sp)
+            }
+        }
+        Card(Modifier.fillMaxWidth().weight(1f), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Cola de solicitudes", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                if (state.activeSearch != null) {
+                    Text("Procesando: ${state.activeSearch.second} — ${state.activeSearch.first}", color = Cyan, fontSize = 13.sp)
+                }
+                if (state.pendingSearches.isEmpty()) {
+                    Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                        Text("Todavía no hay solicitudes. Puedes escribir !play canción en el LIVE.", color = Muted)
+                    }
+                } else {
+                    LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(state.pendingSearches) { request ->
+                            Row(Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(10.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text(request.first, color = Color.White, fontWeight = FontWeight.SemiBold)
+                                    Text("Solicitado por ${request.second}", color = Muted, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+                Text("La búsqueda de catálogo y la reproducción de audio aún no están conectadas en Windows; esta pantalla administra las solicitudes sin simular una reproducción.", color = Muted, fontSize = 11.sp)
             }
         }
     }
