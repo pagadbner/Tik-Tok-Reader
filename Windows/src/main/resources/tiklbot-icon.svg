@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="64" y1="40" x2="448" y2="480" gradientUnits="userSpaceOnUse"><stop stop-color="#17132D"/><stop offset="1" stop-color="#080B18"/></linearGradient>
+    <linearGradient id="bubble" x1="116" y1="102" x2="400" y2="402" gradientUnits="userSpaceOnUse"><stop stop-color="#A855F7"/><stop offset=".52" stop-color="#7C3AED"/><stop offset="1" stop-color="#22D3EE"/></linearGradient>
+    <linearGradient id="wave" x1="180" y1="190" x2="354" y2="326" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#BFF7FF"/></linearGradient>
+    <filter id="shadow" x="50" y="55" width="412" height="412" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="16"/></filter>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <circle cx="256" cy="248" r="154" fill="#8B5CF6" opacity=".28" filter="url(#shadow)"/>
+  <path d="M112 218c0-67 54-121 121-121h46c67 0 121 54 121 121v47c0 67-54 121-121 121h-69l-78 48 14-79c-22-22-34-52-34-84v-53Z" fill="url(#bubble)"/>
+  <path d="M166 240c0-38 31-69 69-69h42c38 0 69 31 69 69v23c0 38-31 69-69 69h-42c-38 0-69-31-69-69v-23Z" fill="#15142A" opacity=".72"/>
+  <g fill="none" stroke="url(#wave)" stroke-linecap="round" stroke-width="17"><path d="M202 246v12"/><path d="M232 220v64"/><path d="M262 198v108"/><path d="M292 226v52"/><path d="M322 240v24"/></g>
+  <circle cx="374" cy="126" r="17" fill="#22D3EE"/>
+  <circle cx="136" cy="366" r="9" fill="#C084FC" opacity=".9"/>
+</svg>
