@@ -7,8 +7,10 @@ import kotlin.test.assertTrue
 class PiperSupportTest {
     @Test
     fun windowsNativePiperLibraryLoads() {
-        PiperJNI.loadLibrary()
-        assertTrue(PiperJNI.getPiperVersion().isNotBlank())
+        PiperJNI().use { piper ->
+            piper.initialize(true)
+            assertTrue(piper.getPiperVersion().isNotBlank())
+        }
     }
 
     @Test

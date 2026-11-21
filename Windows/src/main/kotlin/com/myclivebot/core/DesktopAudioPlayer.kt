@@ -73,7 +73,7 @@ object DesktopAudioPlayer {
 
     fun playPcm(samples: ShortArray, sampleRate: Int, volume: Float, muted: Boolean) {
         if (samples.isEmpty() || muted) return
-        require(sampleRate in 8_000..48_000) { "Frecuencia de audio Piper no válida." }
+        require(sampleRate in 8_000..96_000) { "Frecuencia de audio Piper no válida." }
         stopRequested.set(false)
         var line: SourceDataLine? = null
         val gain = volume.coerceIn(0f, 1f)

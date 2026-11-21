@@ -10,8 +10,8 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
@@ -106,6 +106,7 @@ class PiperSpeechEngine(
 ) : SpeechEngine {
     private val lock = Mutex()
     @Volatile private var nativeVoice: NativePiperVoice? = null
+    @Volatile private var piperInstance: PiperJNI? = null
     @Volatile private var selectedVolume = volume.coerceIn(0f, 1f)
     @Volatile private var selectedSpeed = speed.coerceIn(0.65f, 1.5f)
     @Volatile private var muted = false
@@ -128,12 +129,11 @@ class PiperSpeechEngine(
             withContext(Dispatchers.IO) {
                 val ticket = generation.get()
                 val voice = ensureVoiceLoaded()
-                val options = voice.options.withLengthScale(
-                    (1f / selectedSpeed.coerceIn(0.65f, 1.5f)).coerceIn(0.67f, 1.54f)
-                )
-                val samples = voice.textToAudio(text.take(500), options)
+                val piper = piperInstance ?: throw IllegalStateException("El motor Piper no está inicializado.")
+                val samples = piper.textToAudio(voice, text.take(500))
+                val adjustedSampleRate = (voice.sampleRate * selectedSpeed.coerceIn(0.65f, 1.5f)).toInt()
                 if (ticket == generation.get() && samples.isNotEmpty()) {
-                    DesktopAudioPlayer.playPcm(samples, voice.sampleRate, selectedVolume, muted)
+                    DesktopAudioPlayer.playPcm(samples, adjustedSampleRate, selectedVolume, muted)
                 }
             }
         }
@@ -145,8 +145,11 @@ class PiperSpeechEngine(
         check(isVoiceInstalled(selected.id)) {
             "La voz ${selected.name} no está instalada. Descárgala desde la sección Voces."
         }
-        PiperNativeRuntime.ensureLoaded()
-        return PiperJNI.loadVoice(PiperVoiceCatalog.modelFile(selected.id), PiperVoiceCatalog.configFile(selected.id))
+        val piper = piperInstance ?: PiperJNI().also { instance ->
+            instance.initialize(true)
+            piperInstance = instance
+        }
+        return piper.loadVoice(PiperVoiceCatalog.modelFile(selected.id), PiperVoiceCatalog.configFile(selected.id))
             .also { nativeVoice = it }
     }
 
@@ -159,6 +162,8 @@ class PiperSpeechEngine(
         generation.incrementAndGet()
         runCatching { nativeVoice?.close() }
         nativeVoice = null
+        runCatching { piperInstance?.close() }
+        piperInstance = null
     }
 
     companion object {
@@ -393,14 +398,4 @@ class DynamicPiperSpeechEngine(initial: ReaderSettings) : SpeechEngine {
         settings.speed.coerceIn(0.65f, 1.5f),
         settings.randomVoices
     )
-}
-
-private object PiperNativeRuntime {
-    private val loaded = AtomicBoolean(false)
-    @Synchronized fun ensureLoaded() {
-        if (!loaded.get()) {
-            PiperJNI.loadLibrary()
-            loaded.set(true)
-        }
-    }
 }
