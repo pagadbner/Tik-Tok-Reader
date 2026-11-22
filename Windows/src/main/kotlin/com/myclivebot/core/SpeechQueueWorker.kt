@@ -108,11 +108,8 @@ class SpeechQueueWorker(
             if (closed) return
             commentCapacity = next
             normalCapacity = next
-            while (commentQueue.size > commentCapacity) {
-                commentQueue.removeLast()
-                rejectedComments++
-            }
-            while (normalQueue.size > normalCapacity) normalQueue.removeFirst()
+            // Keep every already-accepted comment. A lower limit only pauses
+            // new admissions until the existing FIFO backlog drains below it.
             if (commentQueue.size <= commentCapacity / 2) commentOverflowWarningActive = false
         }
     }
