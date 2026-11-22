@@ -107,6 +107,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
         readerSettings = next
         DesktopSettingsStore.save(next)
         commentPipeline.updateSettings(next)
+        speechQueue.updateCapacity(next.maxQueueSize)
         speechEngine.update(next)
     }
     var connector by remember { mutableStateOf<TikTokLiveConnector?>(null) }
@@ -448,6 +449,20 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                     SettingToggle("Leer solamente el nombre", readerSettings.onlyUsername) { saveReaderSettings(readerSettings.copy(onlyUsername = it)) }
                                     SettingToggle("Ignorar moderadores", readerSettings.ignoreModerators) { saveReaderSettings(readerSettings.copy(ignoreModerators = it)) }
                                     SettingToggle("Usar @usuario del perfil", readerSettings.useProfileUsername) { saveReaderSettings(readerSettings.copy(useProfileUsername = it)) }
+                                    OutlinedTextField(
+                                        value = readerSettings.maxQueueSize.toString(),
+                                        onValueChange = { it.toIntOrNull()?.let { value -> saveReaderSettings(readerSettings.copy(maxQueueSize = value.coerceIn(5, 100))) } },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        label = { Text("Tamaño máximo de cola de comentarios (5–100)") },
+                                        singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = readerSettings.maxCommentLength.toString(),
+                                        onValueChange = { it.toIntOrNull()?.let { value -> saveReaderSettings(readerSettings.copy(maxCommentLength = value.coerceIn(1, 2000))) } },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        label = { Text("Longitud máxima del comentario (1–2000)") },
+                                        singleLine = true
+                                    )
                                     Divider(color = PanelRaised)
                                     Text("Alertas del LIVE", fontWeight = FontWeight.SemiBold)
                                     SettingToggle("Leer nuevos seguidores", readerSettings.readFollows) { saveReaderSettings(readerSettings.copy(readFollows = it)) }
