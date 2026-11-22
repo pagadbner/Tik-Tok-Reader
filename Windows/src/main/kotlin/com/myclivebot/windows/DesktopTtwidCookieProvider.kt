@@ -47,7 +47,7 @@ object DesktopTtwidCookieProvider {
     fun acquireTtwid(timeoutMs: Long = DEFAULT_TIMEOUT_MS): String {
         require(timeoutMs in 5_000L..60_000L) { "El tiempo de espera de cookies debe estar entre 5 y 60 segundos." }
         check(!Platform.isFxApplicationThread()) { "La recuperación ttwid debe ejecutarse fuera del hilo JavaFX." }
-        val manager = cookieManager ?: if (install()) cookieManager else null
+        val manager = cookieManager ?: (if (install()) cookieManager else null)
             ?: throw IOException("No se pudo preparar el almacén seguro de cookies del navegador.")
         val panelRef = AtomicReference<JFXPanel?>()
         val viewRef = AtomicReference<WebView?>()
