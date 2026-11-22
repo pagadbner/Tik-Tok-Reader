@@ -15,8 +15,8 @@ class DesktopAudioPlayerTest {
         )
 
         assertEquals(7, result.size)
-        assertEquals(0, result.first())
-        assertEquals(3_000, result.last())
+        assertEquals(0.toShort(), result.first())
+        assertEquals(3_000.toShort(), result.last())
         assertTrue(result.zipWithNext().all { (left, right) -> right >= left })
     }
 
