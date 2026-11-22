@@ -11,6 +11,7 @@ OutputBaseFilename=TikLBot-Windows-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\src\main\resources\tiklbot-icon.ico
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64
 CloseApplications=yes
@@ -23,5 +24,4 @@ Source: "..\build\compose\binaries\main\msi\TikLBot-{#AppVersion}.msi"; DestDir:
 [Run]
 Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\TikLBot-{#AppVersion}.msi"" /qn /norestart"; StatusMsg: "Instalando TikLBot para Windows…"; Flags: waituntilterminated
 
-[Run]
 Filename: "{app}\\TikLBot.exe"; Flags: nowait postinstall
