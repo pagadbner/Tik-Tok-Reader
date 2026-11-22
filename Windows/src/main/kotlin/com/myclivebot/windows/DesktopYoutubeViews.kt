@@ -27,6 +27,7 @@ class DesktopYoutubeSearchView(
     private val activeRequest = AtomicInteger(0)
     @Volatile private var engine: WebEngine? = null
     @Volatile private var pendingSearch: Pair<String, Int>? = null
+    @Volatile private var loadingRequestId: Int = 0
 
     init {
         Platform.setImplicitExit(false)
@@ -37,16 +38,21 @@ class DesktopYoutubeSearchView(
             view.engine.loadWorker.stateProperty().addListener { _, _, state ->
                 when (state) {
                     Worker.State.SUCCEEDED -> {
-                        val id = activeRequest.get()
-                        runCatching {
-                            val window = view.engine.executeScript("window") as JSObject
-                            window.setMember("TikLBotMusicSearch", SearchBridge())
-                            view.engine.executeScript(searchScript(id))
-                        }.onFailure {
-                            dispatchResults(id, "[]")
+                        val id = loadingRequestId
+                        if (id == activeRequest.get()) {
+                            runCatching {
+                                val window = view.engine.executeScript("window") as JSObject
+                                window.setMember("TikLBotMusicSearch", SearchBridge())
+                                view.engine.executeScript(searchScript(id))
+                            }.onFailure {
+                                dispatchResults(id, "[]")
+                            }
                         }
                     }
-                    Worker.State.FAILED -> dispatchResults(activeRequest.get(), "[]")
+                    Worker.State.FAILED -> {
+                        val id = loadingRequestId
+                        if (id == activeRequest.get()) dispatchResults(id, "[]")
+                    }
                     else -> Unit
                 }
             }
@@ -68,6 +74,7 @@ class DesktopYoutubeSearchView(
 
     private fun loadSearch(target: WebEngine, query: String, requestId: Int) {
         if (requestId != activeRequest.get()) return
+        loadingRequestId = requestId
         val videoId = Regex("""(?:v=|youtu\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{11})""")
             .find(query)?.groupValues?.get(1)
         val url = if (videoId != null) {
