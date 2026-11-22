@@ -8,6 +8,7 @@ import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
+import org.json.JSONArray
 
 data class DesktopUpdateInfo(
     val versionName: String,
@@ -32,22 +33,8 @@ object DesktopUpdateManager {
             if (!response.isSuccessful) error("GitHub respondió HTTP ${response.code}.")
             JSONObject(response.body?.string().orEmpty())
         }
-        val body = json.optString("body")
-        val version = Regex("(?m)^WindowsVersionName:\\s*(\\S+)").find(body)?.groupValues?.get(1)
-            ?: return null
-        if (compareVersions(version, currentVersion) <= 0) return null
         val assets = json.optJSONArray("assets") ?: return null
-        var installer: String? = null
-        var checksum: String? = null
-        for (index in 0 until assets.length()) {
-            val asset = assets.getJSONObject(index)
-            when (asset.optString("name")) {
-                "TikLBot-Windows-Setup.exe" -> installer = asset.optString("browser_download_url")
-                "TikLBot-Windows-Setup.exe.sha256" -> checksum = asset.optString("browser_download_url")
-            }
-        }
-        if (installer.isNullOrBlank() || checksum.isNullOrBlank()) return null
-        return DesktopUpdateInfo(version, installer!!, checksum!!)
+        return parseDesktopUpdateInfo(json.optString("body"), assets, currentVersion)
     }
 
     fun downloadAndVerify(update: DesktopUpdateInfo): File {
@@ -115,7 +102,7 @@ object DesktopUpdateManager {
         ).start()
     }
 
-    private fun compareVersions(left: String, right: String): Int {
+    internal fun compareVersions(left: String, right: String): Int {
         val a = left.split('.').map { it.toIntOrNull() ?: 0 }
         val b = right.split('.').map { it.toIntOrNull() ?: 0 }
         for (index in 0 until maxOf(a.size, b.size)) {
@@ -124,4 +111,28 @@ object DesktopUpdateManager {
         }
         return 0
     }
+}
+
+
+/** Pure release-metadata parser so updater decisions can be regression-tested without network access. */
+internal fun parseDesktopUpdateInfo(
+    releaseBody: String,
+    assets: JSONArray,
+    currentVersion: String
+): DesktopUpdateInfo? {
+    val version = Regex("(?m)^WindowsVersionName:\\s*(\\S+)").find(releaseBody)
+        ?.groupValues?.get(1) ?: return null
+    if (DesktopUpdateManager.compareVersions(version, currentVersion) <= 0) return null
+
+    var installer: String? = null
+    var checksum: String? = null
+    for (index in 0 until assets.length()) {
+        val asset = assets.optJSONObject(index) ?: continue
+        when (asset.optString("name")) {
+            "TikLBot-Windows-Setup.exe" -> installer = asset.optString("browser_download_url")
+            "TikLBot-Windows-Setup.exe.sha256" -> checksum = asset.optString("browser_download_url")
+        }
+    }
+    if (installer.isNullOrBlank() || checksum.isNullOrBlank()) return null
+    return DesktopUpdateInfo(version, installer, checksum)
 }
