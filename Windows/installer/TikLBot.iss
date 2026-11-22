@@ -22,6 +22,6 @@ UninstallDisplayIcon={app}\TikLBot.exe
 Source: "..\build\compose\binaries\main\msi\Tik Tok Reader-{#AppVersion}.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Run]
-Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\TikLBot-{#AppVersion}.msi"" /qn /norestart"; StatusMsg: "Instalando Tik Tok Reader para Windows…"; Flags: waituntilterminated
+Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\Tik Tok Reader-{#AppVersion}.msi"" /qn /norestart"; StatusMsg: "Instalando Tik Tok Reader para Windows…"; Flags: waituntilterminated
 
 Filename: "{app}\\TikLBot.exe"; Flags: nowait postinstall
