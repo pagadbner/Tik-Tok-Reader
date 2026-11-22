@@ -119,6 +119,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $body = gh release view latest --json body --jq .body
-          $body = [regex]::Replace($body, '(?m)^WindowsVersionName:.*\\r?\\n?', '')
+          $body = [regex]::Replace($body, '(?m)^WindowsVersionName:.*\r?\n?', '')
           $body = $body.TrimEnd() + "`n`nWindowsVersionName: 0.13.16"
           gh release edit latest --notes $body
