@@ -528,6 +528,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             skippedCommentIds = skippedCommentIds.toSet()
                         )
                         "Historial" -> {
+                            Column(Modifier.fillMaxSize()) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text("Historial guardado localmente", color = Muted)
                                 Button(onClick = { scope.launch { historyComments = withContext(Dispatchers.IO) { runtimeServices.loadRecentHistory() } } }) {
@@ -548,6 +549,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                         }
                                     }
                                 }
+                            }
                             }
                         }
                         "DJ Music" -> DjMusicPanel(djMusicState)
