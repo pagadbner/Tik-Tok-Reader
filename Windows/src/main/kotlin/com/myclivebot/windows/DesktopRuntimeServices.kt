@@ -57,6 +57,14 @@ class DesktopRuntimeServices : AutoCloseable {
             .getOrDefault(emptyList())
     }
 
+    fun clearHistory(): Boolean {
+        if (closed) return false
+        return runCatching {
+            history?.clear()
+            true
+        }.getOrDefault(false)
+    }
+
     override fun close() {
         if (closed) return
         closed = true
