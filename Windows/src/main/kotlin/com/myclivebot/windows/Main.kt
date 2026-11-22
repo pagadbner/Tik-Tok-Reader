@@ -64,6 +64,7 @@ import javax.swing.JFrame
 import javax.swing.WindowConstants
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.LinkedHashSet
+import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONArray
 import javax.swing.SwingUtilities
 
@@ -494,7 +495,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                                 AssistChip(
                                                     onClick = { username = profile.username },
                                                     label = { Text("@${profile.username}") },
-                                                    leadingIcon = { Icon(Icons.Default.Person, null) }
+                                                    leadingIcon = { RemoteAvatar(profile.avatarUrl, profile.username, 24.dp) }
                                                 )
                                             }
                                         }
@@ -649,7 +650,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                     SettingToggle("Leer likes", readerSettings.readLikes) { saveReaderSettings(readerSettings.copy(readLikes = it)) }
                                     OutlinedTextField(
                                         value = readerSettings.giftMinimumRepeatCount.toString(),
-                                        onValueChange = { value -> value.toIntOrNull()?.let { saveReaderSettings(readerSettings.copy(giftMinimumRepeatCount = it.coerceIn(1, 100))) } },
+                                        onValueChange = { value -> value.toIntOrNull()?.let { saveReaderSettings(readerSettings.copy(giftMinimumRepeatCount = it.coerceIn(1, 999))) } },
                                         modifier = Modifier.fillMaxWidth(),
                                         label = { Text("Mínimo de repeticiones para anunciar regalos") },
                                         singleLine = true
@@ -672,27 +673,23 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                         minLines = 2
                                     )
                                     SettingToggle("Activar comandos personalizados (moderadores)", readerSettings.customCommandsEnabled) { saveReaderSettings(readerSettings.copy(customCommandsEnabled = it)) }
-                                    OutlinedTextField(
-                                        value = readerSettings.customCommands.entries.joinToString("\n") { "${it.key}=${it.value}" },
-                                        onValueChange = { value -> saveReaderSettings(readerSettings.copy(customCommands = com.myclivebot.core.ChatCommandParser.parseConfig(value))) },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        label = { Text("Comandos: !comando=respuesta ({user}, {command})") },
-                                        minLines = 3
+                                    CustomCommandEditor(
+                                        commands = readerSettings.customCommands,
+                                        onCommandsChange = { saveReaderSettings(readerSettings.copy(customCommands = it)) }
                                     )
                                     Text("Configura el motor, la voz, el volumen y la velocidad en la sección Voces.", color = Muted, fontSize = 12.sp)
-                                    OutlinedTextField(
-                                        value = readerSettings.blockedWords.joinToString("\n"),
-                                        onValueChange = { value -> saveReaderSettings(readerSettings.copy(blockedWords = value.lines().map { it.trim() }.filter { it.isNotEmpty() }.toSet())) },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        label = { Text("Palabras bloqueadas (una por línea)") },
-                                        minLines = 3
+                                    EditableStringList(
+                                        title = "Palabras bloqueadas",
+                                        placeholder = "Añadir palabra o frase",
+                                        items = readerSettings.blockedWords,
+                                        onItemsChange = { saveReaderSettings(readerSettings.copy(blockedWords = it)) }
                                     )
-                                    OutlinedTextField(
-                                        value = readerSettings.ignoredUsers.joinToString("\n"),
-                                        onValueChange = { value -> saveReaderSettings(readerSettings.copy(ignoredUsers = value.lines().map { it.trim() }.filter { it.isNotEmpty() }.toSet())) },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        label = { Text("Usuarios ignorados (uno por línea)") },
-                                        minLines = 3
+                                    EditableStringList(
+                                        title = "Usuarios ignorados",
+                                        placeholder = "@usuario",
+                                        items = readerSettings.ignoredUsers,
+                                        normalize = { it.trim().removePrefix("@") },
+                                        onItemsChange = { saveReaderSettings(readerSettings.copy(ignoredUsers = it)) }
                                     )
                                 }
                             }
@@ -774,6 +771,159 @@ private fun createTrayIcon(
 }
 
 @Composable
+private fun CustomCommandEditor(
+    commands: Map<String, String>,
+    onCommandsChange: (Map<String, String>) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var trigger by remember { mutableStateOf("!") }
+    var response by remember { mutableStateOf("") }
+    var validation by remember { mutableStateOf("") }
+    var editingTrigger by remember { mutableStateOf<String?>(null) }
+    var titles by remember { mutableStateOf(DesktopCommandTitleStore.load()) }
+
+    fun clearEditor() {
+        title = ""
+        trigger = "!"
+        response = ""
+        validation = ""
+        editingTrigger = null
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Text("COMANDOS PERSONALIZADOS", color = Cyan, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+        OutlinedTextField(
+            value = title,
+            onValueChange = { title = it.take(40) },
+            label = { Text("Título del comando") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        OutlinedTextField(
+            value = trigger,
+            onValueChange = { trigger = it.lowercase().filter { ch -> ch.isLetterOrDigit() || ch == '_' || ch == '!' }.take(25) },
+            label = { Text("Activador (ej. !discord)") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        OutlinedTextField(
+            value = response,
+            onValueChange = { response = it.take(280) },
+            label = { Text("Respuesta que dirá la voz") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 2
+        )
+        if (validation.isNotBlank()) Text(validation, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            enabled = title.isNotBlank() && Regex("^![a-z0-9_]{1,24}$").matches(trigger.trim()) &&
+                response.isNotBlank() && (editingTrigger != null || commands.size < 40),
+            onClick = {
+                val key = trigger.trim()
+                val previous = editingTrigger
+                val duplicate = commands.keys.any { it == key && it != previous }
+                if (duplicate) {
+                    validation = "Ya existe un comando con ese activador."
+                } else {
+                    val next = commands.filterKeys { it != previous && it != key } + (key to response.trim())
+                    val nextTitles = titles.filterKeys { it != previous && it != key } + (key to title.trim())
+                    onCommandsChange(next)
+                    titles = nextTitles
+                    DesktopCommandTitleStore.save(nextTitles)
+                    clearEditor()
+                }
+            }
+        ) {
+            Icon(Icons.Default.Save, contentDescription = null)
+            Spacer(Modifier.width(7.dp))
+            Text(if (editingTrigger == null) "Guardar comando" else "Guardar cambios")
+        }
+        if (editingTrigger != null) {
+            OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { clearEditor() }) {
+                Icon(Icons.Default.Close, contentDescription = null)
+                Spacer(Modifier.width(7.dp))
+                Text("Cancelar edición")
+            }
+        }
+        commands.entries.forEach { (key, value) ->
+            Card(colors = CardDefaults.cardColors(containerColor = PanelRaised), shape = RoundedCornerShape(12.dp)) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(titles[key] ?: key, color = Color.White, fontWeight = FontWeight.SemiBold)
+                            Text(key, color = Cyan, fontSize = 11.sp)
+                        }
+                        IconButton(onClick = {
+                            title = titles[key] ?: key.removePrefix("!").replaceFirstChar { it.uppercase() }
+                            trigger = key
+                            response = value
+                            validation = ""
+                            editingTrigger = key
+                        }) { Icon(Icons.Default.Edit, contentDescription = "Editar comando", tint = Cyan) }
+                        IconButton(onClick = {
+                            onCommandsChange(commands - key)
+                            titles = titles - key
+                            DesktopCommandTitleStore.save(titles)
+                            if (editingTrigger == key) clearEditor()
+                        }) { Icon(Icons.Default.DeleteOutline, contentDescription = "Eliminar comando", tint = Muted) }
+                    }
+                    Text(value, color = Muted, fontSize = 12.sp)
+                }
+            }
+        }
+        Text("${commands.size}/40 comandos", color = Muted, fontSize = 11.sp)
+        Text("Cada activador se reconoce al inicio del comentario. La respuesta se reproduce localmente; no se publica en TikTok.", color = Muted, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun EditableStringList(
+    title: String,
+    placeholder: String,
+    items: Set<String>,
+    normalize: (String) -> String = { it.trim() },
+    onItemsChange: (Set<String>) -> Unit
+) {
+    var draft by remember(title) { mutableStateOf("") }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, color = Color.White, fontWeight = FontWeight.SemiBold)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { draft = it.take(80) },
+                placeholder = { Text(placeholder) },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            FilledTonalButton(
+                enabled = normalize(draft).isNotBlank() && items.none { it.equals(normalize(draft), true) },
+                onClick = {
+                    val value = normalize(draft)
+                    if (value.isNotBlank()) onItemsChange(items + value)
+                    draft = ""
+                }
+            ) { Icon(Icons.Default.Add, contentDescription = "Añadir") }
+        }
+        if (items.isEmpty()) Text("Todavía no hay elementos.", color = Muted, fontSize = 11.sp)
+        items.sorted().forEach { item ->
+            Row(
+                Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(9.dp)).padding(start = 10.dp, end = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(item, modifier = Modifier.weight(1f), color = Color.White, fontSize = 12.sp)
+                IconButton(onClick = { onItemsChange(items - item) }) {
+                    Icon(Icons.Default.Close, contentDescription = "Eliminar $item", tint = Muted)
+                }
+            }
+        }
+    }
+}
+
+private object RemoteAvatarCache {
+    val images = ConcurrentHashMap<String, ImageBitmap>()
+}
+
+@Composable
 private fun ProfileAvatar(icon: ImageIcon?) {
     val bitmap = remember(icon) {
         val source = icon?.image
@@ -793,28 +943,37 @@ private fun ProfileAvatar(icon: ImageIcon?) {
 }
 
 @Composable
-private fun RemoteAvatar(url: String?, displayName: String) {
-    var bitmap by remember(url) { mutableStateOf<ImageBitmap?>(null) }
+private fun RemoteAvatar(url: String?, displayName: String, size: androidx.compose.ui.unit.Dp = 42.dp) {
+    var bitmap by remember(url) { mutableStateOf(url?.let { RemoteAvatarCache.images[it] }) }
     LaunchedEffect(url) {
-        bitmap = null
         if (!url.isNullOrBlank()) {
-            try {
-                bitmap = withContext(Dispatchers.IO) {
-                    val connection = URL(url).openConnection().apply {
-                        connectTimeout = 5_000
-                        readTimeout = 5_000
-                        setRequestProperty("User-Agent", "Mozilla/5.0")
+            val cached = RemoteAvatarCache.images[url]
+            if (cached != null) {
+                bitmap = cached
+            } else {
+                try {
+                    val loaded = withContext(Dispatchers.IO) {
+                        val connection = URL(url).openConnection().apply {
+                            connectTimeout = 5_000
+                            readTimeout = 5_000
+                            setRequestProperty("User-Agent", "Mozilla/5.0")
+                        }
+                        connection.getInputStream().use { ImageIO.read(it) }?.toComposeImageBitmap()
                     }
-                    connection.getInputStream().use { ImageIO.read(it) }?.toComposeImageBitmap()
+                    if (loaded != null) {
+                        if (RemoteAvatarCache.images.size > 300) RemoteAvatarCache.images.clear()
+                        RemoteAvatarCache.images[url] = loaded
+                    }
+                    bitmap = loaded
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    bitmap = null
                 }
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                bitmap = null
             }
-        }
+        } else bitmap = null
     }
-    Box(Modifier.size(42.dp).clip(CircleShape).background(Panel), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(size).clip(CircleShape).background(Panel), contentAlignment = Alignment.Center) {
         val image = bitmap
         if (image != null) Image(image, contentDescription = "Avatar de $displayName", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         else Text(displayName.trim().firstOrNull()?.uppercase() ?: "?", color = Cyan, fontWeight = FontWeight.Bold)
@@ -1138,7 +1297,7 @@ private fun AutomationPanel(settings: ReaderSettings, onChange: (ReaderSettings)
                     SettingToggle("Likes", settings.readLikes) { onChange(settings.copy(readLikes = it)) }
                     OutlinedTextField(
                         value = settings.giftMinimumRepeatCount.toString(),
-                        onValueChange = { it.toIntOrNull()?.let { count -> onChange(settings.copy(giftMinimumRepeatCount = count.coerceIn(1, 100))) } },
+                        onValueChange = { it.toIntOrNull()?.let { count -> onChange(settings.copy(giftMinimumRepeatCount = count.coerceIn(1, 999))) } },
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Repeticiones mínimas del regalo") },
                         singleLine = true
@@ -1166,12 +1325,9 @@ private fun AutomationPanel(settings: ReaderSettings, onChange: (ReaderSettings)
                         minLines = 2
                     )
                     SettingToggle("Comandos personalizados para moderadores", settings.customCommandsEnabled) { onChange(settings.copy(customCommandsEnabled = it)) }
-                    OutlinedTextField(
-                        value = settings.customCommands.entries.joinToString("\n") { "${it.key}=${it.value}" },
-                        onValueChange = { onChange(settings.copy(customCommands = com.myclivebot.core.ChatCommandParser.parseConfig(it))) },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Un comando por línea: !hola=Hola {user}") },
-                        minLines = 4
+                    CustomCommandEditor(
+                        commands = settings.customCommands,
+                        onCommandsChange = { onChange(settings.copy(customCommands = it)) }
                     )
                     Text("Los comandos solo generan respuesta de voz local; no envían mensajes al chat.", color = Muted, fontSize = 11.sp)
                 }
