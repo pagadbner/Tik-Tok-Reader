@@ -1,13 +1,13 @@
 #define AppVersion "0.13.15"
 [Setup]
 AppId={{7C1B4E21-65F0-4B79-A6B7-9A8A3F9A13D2}
-AppName=TikLBot
+AppName=Tik Tok Reader
 AppVersion={#AppVersion}
-AppPublisher=TikLBot
+AppPublisher=Tik Tok Reader
 DefaultDirName={autopf}\TikLBot
-DefaultGroupName=TikLBot
+DefaultGroupName=Tik Tok Reader
 OutputDir=..\build\installer
-OutputBaseFilename=TikLBot-Windows-Setup
+OutputBaseFilename=TikTokReader-Windows-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -19,9 +19,9 @@ RestartApplications=no
 UninstallDisplayIcon={app}\TikLBot.exe
 
 [Files]
-Source: "..\build\compose\binaries\main\msi\TikLBot-{#AppVersion}.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "..\build\compose\binaries\main\msi\Tik Tok Reader-{#AppVersion}.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Run]
-Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\TikLBot-{#AppVersion}.msi"" /qn /norestart"; StatusMsg: "Instalando TikLBot para Windows…"; Flags: waituntilterminated
+Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\TikLBot-{#AppVersion}.msi"" /qn /norestart"; StatusMsg: "Instalando Tik Tok Reader para Windows…"; Flags: waituntilterminated
 
 Filename: "{app}\\TikLBot.exe"; Flags: nowait postinstall
