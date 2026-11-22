@@ -19,7 +19,6 @@ import java.util.concurrent.atomic.AtomicBoolean
  * so audio is normalized to a common PCM output rate before it reaches Java Sound.
  */
 object DesktopAudioPlayer {
-    private const val PREFERRED_OUTPUT_RATE = 44_100
     private val outputRates = listOf(44_100, 48_000, 22_050)
     private val stopRequested = AtomicBoolean(false)
     @Volatile private var activeLine: SourceDataLine? = null
@@ -33,7 +32,8 @@ object DesktopAudioPlayer {
         val decodedPcm = ByteArrayOutputStream()
         var sourceRate = 0
 
-        Bitstream(ByteArrayInputStream(mp3)).use { bitstream ->
+        val bitstream = Bitstream(ByteArrayInputStream(mp3))
+        try {
             val decoder = Decoder()
             while (!stopRequested.get()) {
                 val frame = bitstream.readFrame() ?: break
@@ -58,6 +58,8 @@ object DesktopAudioPlayer {
                     bitstream.closeFrame()
                 }
             }
+        } finally {
+            runCatching { bitstream.close() }
         }
 
         if (stopRequested.get()) return
