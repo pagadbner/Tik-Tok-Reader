@@ -96,7 +96,7 @@ object DesktopTtwidCookieProvider {
                 } else {
                     Thread.sleep(250)
                 }
-                findTtwid(manager.cookieStore.cookies)?.let { return it }
+                findTtwidCookie(manager.cookieStore.get(URI(HOME_URL)))?.let { return it }
                 if (loaded && loadFailure.get() != null) {
                     throw IOException("No se pudo cargar TikTok en el navegador integrado: ${loadFailure.get()}")
                 }
