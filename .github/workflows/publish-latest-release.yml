@@ -1,4 +1,4 @@
-name: Publish latest TikLBot release
+name: Publish latest Tik Tok Reader release
 
 on:
   workflow_run:
@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: tiklbot-latest-release
+  group: tiktokreader-latest-release
   cancel-in-progress: false
 
 jobs:
@@ -42,7 +42,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: TikLBot — Última versión
+          name: Tik Tok Reader — Última versión
           target_commitish: ${{ github.event.workflow_run.head_sha }}
           body_path: release-assets/release-info.txt
           files: |

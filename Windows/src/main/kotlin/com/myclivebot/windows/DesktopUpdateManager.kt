@@ -17,7 +17,7 @@ data class DesktopUpdateInfo(
 )
 
 object DesktopUpdateManager {
-    const val CURRENT_VERSION = "0.13.15"
+    const val CURRENT_VERSION = "0.13.16"
     private const val RELEASE_URL = "https://api.github.com/repos/pagadbner/Tik-Tok-Reader/releases/tags/latest"
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
