@@ -80,6 +80,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     var profileAvatar by remember { mutableStateOf<ImageIcon?>(null) }
     var selected by remember { mutableStateOf("Home") }
     var username by remember { mutableStateOf("") }
+    val latestProfileUsername = rememberUpdatedState(username)
     var status by remember { mutableStateOf("Desconectado") }
     var connected by remember { mutableStateOf(false) }
     var connecting by remember { mutableStateOf(false) }
@@ -150,19 +151,21 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                 }
             }
             val liveState = TikTokProfileLookup.fetchLiveStatus(cleanUsername)
-            val currentUsername = username.trim().removePrefix("@").substringBefore("/").lowercase()
+            val currentUsername = latestProfileUsername.value.trim().removePrefix("@").substringBefore("/").lowercase()
             if (currentUsername == cleanUsername) {
                 profileAvatar = avatar
                 profileLive = liveState
             }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
-            val currentUsername = username.trim().removePrefix("@").substringBefore("/").lowercase()
+            val currentUsername = latestProfileUsername.value.trim().removePrefix("@").substringBefore("/").lowercase()
             if (currentUsername == cleanUsername) {
                 profileAvatar = null
                 profileLive = null
             }
         } finally {
-            val currentUsername = username.trim().removePrefix("@").substringBefore("/").lowercase()
+            val currentUsername = latestProfileUsername.value.trim().removePrefix("@").substringBefore("/").lowercase()
             if (currentUsername == cleanUsername) profileBusy = false
         }
     }
