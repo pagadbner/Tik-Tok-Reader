@@ -78,6 +78,8 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     var profileLookupRequest by remember { mutableIntStateOf(0) }
     var profileLive by remember { mutableStateOf<Boolean?>(null) }
     var profileAvatar by remember { mutableStateOf<ImageIcon?>(null) }
+    var profileAvatarUrl by remember { mutableStateOf<String?>(null) }
+    var recentProfiles by remember { mutableStateOf(DesktopProfileStore.load()) }
     var selected by remember { mutableStateOf("Home") }
     var username by remember { mutableStateOf("") }
     val latestProfileUsername = rememberUpdatedState(username)
@@ -143,10 +145,12 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
         val cleanUsername = username.trim().removePrefix("@").substringBefore("/").lowercase()
         if (!cleanUsername.matches(Regex("[a-z0-9._]{1,24}"))) {
             profileAvatar = null
+            profileAvatarUrl = null
             profileLive = null
             return@LaunchedEffect
         }
         profileAvatar = null
+        profileAvatarUrl = recentProfiles.firstOrNull { it.username.equals(cleanUsername, true) }?.avatarUrl
         profileLive = null
         delay(550)
         profileBusy = true
@@ -168,7 +172,9 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
             val currentUsername = latestProfileUsername.value.trim().removePrefix("@").substringBefore("/").lowercase()
             if (currentUsername == cleanUsername) {
                 profileAvatar = avatar
+                profileAvatarUrl = avatarUrl
                 profileLive = liveState
+                recentProfiles = DesktopProfileStore.save(cleanUsername, avatarUrl)
             }
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
@@ -284,6 +290,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                             synchronized(commentSideEffectLock) { processedCommentSideEffects.clear() }
                                             connecting = true
                                             connected = false
+                                            recentProfiles = DesktopProfileStore.save(username, profileAvatarUrl)
                                             status = "Preparando conexión…"
                                             val live = TikTokLiveConnector(
                                                 onComment = { comment ->
@@ -353,6 +360,23 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                     }
                                     OutlinedButton(enabled = username.isNotBlank() && !profileBusy, onClick = { profileLookupRequest++ }) {
                                         Text(if (profileBusy) "Buscando…" else "Actualizar")
+                                    }
+                                }
+                            }
+                            if (recentProfiles.isNotEmpty()) {
+                                Spacer(Modifier.height(12.dp))
+                                Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(14.dp)) {
+                                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("Perfiles recientes", color = Cyan, fontWeight = FontWeight.SemiBold)
+                                        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            items(recentProfiles, key = { it.username }) { profile ->
+                                                AssistChip(
+                                                    onClick = { username = profile.username },
+                                                    label = { Text("@${profile.username}") },
+                                                    leadingIcon = { Icon(Icons.Default.Person, null) }
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
