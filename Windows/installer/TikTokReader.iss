@@ -1,4 +1,4 @@
-#define AppVersion "0.13.15"
+#define AppVersion "0.13.16"
 [Setup]
 AppId={{7C1B4E21-65F0-4B79-A6B7-9A8A3F9A13D2}
 AppName=Tik Tok Reader
