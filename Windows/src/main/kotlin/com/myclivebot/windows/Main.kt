@@ -1711,6 +1711,16 @@ private fun DjMusicPanel(state: DjMusicState) {
                                 if (focus.isFocused) playerView?.releaseKeyboardFocus()
                             },
                         singleLine = true,
+                        trailingIcon = {
+                            if (query.isNotEmpty()) {
+                                IconButton(onClick = {
+                                    query = ""
+                                    searchFocusRequester.requestFocus()
+                                }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Borrar búsqueda")
+                                }
+                            }
+                        },
                         label = { Text("Canción, artista o URL de YouTube") },
                         placeholder = { Text("José José - Volcán") }
                     )
