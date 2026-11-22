@@ -34,11 +34,17 @@ import com.myclivebot.core.TikTokTtsVoiceCatalog
 import com.myclivebot.core.TikFinityVoiceCatalog
 import com.myclivebot.core.PiperVoiceCatalog
 import com.myclivebot.core.PiperSpeechEngine
+import com.myclivebot.core.TikTokProfileLookup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.Desktop
 import java.net.URI
+import java.net.URL
+import java.awt.Image
+import javax.imageio.ImageIO
+import javax.swing.ImageIcon
+import javax.swing.JLabel
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.LinkedHashSet
 import org.json.JSONArray
@@ -60,6 +66,9 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     val scope = rememberCoroutineScope()
     val runtimeServices = remember { DesktopRuntimeServices() }
     var historyComments by remember { mutableStateOf<List<LiveComment>>(emptyList()) }
+    var profileBusy by remember { mutableStateOf(false) }
+    var profileLive by remember { mutableStateOf<Boolean?>(null) }
+    var profileAvatar by remember { mutableStateOf<ImageIcon?>(null) }
     var selected by remember { mutableStateOf("Home") }
     var username by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Desconectado") }
@@ -249,6 +258,31 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                             Icon(Icons.Default.Stop, null); Spacer(Modifier.width(6.dp)); Text("Desconectar")
                                         }
                                     }
+                                }
+                            }
+                            Spacer(Modifier.height(16.dp))
+                            Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
+                                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                    SwingPanel(factory = { JLabel().apply { horizontalAlignment = JLabel.CENTER; verticalAlignment = JLabel.CENTER } }, update = { it.icon = profileAvatar }, modifier = Modifier.size(64.dp))
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(if (username.isBlank()) "Perfil de TikTok" else "@$username", fontWeight = FontWeight.SemiBold)
+                                        Text(when (profileLive) { true -> "Transmitiendo en LIVE"; false -> "No está en LIVE"; null -> "Consulta el avatar y estado público del perfil" }, color = if (profileLive == true) Cyan else Muted, fontSize = 12.sp)
+                                    }
+                                    OutlinedButton(enabled = username.isNotBlank() && !profileBusy, onClick = {
+                                        scope.launch {
+                                            profileBusy = true
+                                            profileLive = null
+                                            try {
+                                                val avatarUrl = TikTokProfileLookup.fetchAvatarUrl(username)
+                                                profileAvatar = withContext(Dispatchers.IO) {
+                                                    avatarUrl?.let { url ->
+                                                        ImageIO.read(URL(url))?.getScaledInstance(128, 128, Image.SCALE_SMOOTH)?.let(::ImageIcon)
+                                                    }
+                                                }
+                                                profileLive = TikTokProfileLookup.fetchLiveStatus(username)
+                                            } finally { profileBusy = false }
+                                        }
+                                    }) { Text(if (profileBusy) "Consultando…" else "Consultar") }
                                 }
                             }
                             Spacer(Modifier.height(16.dp))
