@@ -26,6 +26,8 @@ class DesktopYoutubeSearchView(
 ) : JFXPanel(), AutoCloseable {
     private val activeRequest = AtomicInteger(0)
     @Volatile private var engine: WebEngine? = null
+    @Volatile private var pendingSearch: Pair<String, Int>? = null
+    @Volatile private var loadingRequestId: Int = 0
 
     init {
         Platform.setImplicitExit(false)
@@ -34,22 +36,45 @@ class DesktopYoutubeSearchView(
             engine = view.engine
             scene = Scene(view)
             view.engine.loadWorker.stateProperty().addListener { _, _, state ->
-                if (state == Worker.State.SUCCEEDED) {
-                    val id = activeRequest.get()
-                    runCatching {
-                        val window = view.engine.executeScript("window") as JSObject
-                        window.setMember("TikLBotMusicSearch", SearchBridge())
-                        view.engine.executeScript(searchScript(id))
-                    }.onFailure {
-                        dispatchResults(id, "[]")
+                when (state) {
+                    Worker.State.SUCCEEDED -> {
+                        val id = loadingRequestId
+                        if (id == activeRequest.get()) {
+                            runCatching {
+                                val window = view.engine.executeScript("window") as JSObject
+                                window.setMember("TikLBotMusicSearch", SearchBridge())
+                                view.engine.executeScript(searchScript(id))
+                            }.onFailure {
+                                dispatchResults(id, "[]")
+                            }
+                        }
                     }
+                    Worker.State.FAILED -> {
+                        val id = loadingRequestId
+                        if (id == activeRequest.get()) dispatchResults(id, "[]")
+                    }
+                    else -> Unit
                 }
+            }
+            pendingSearch?.let { (query, requestId) ->
+                pendingSearch = null
+                loadSearch(view.engine, query, requestId)
             }
         }
     }
 
     fun search(query: String, requestId: Int) {
         activeRequest.set(requestId)
+        Platform.runLater {
+            val current = engine
+            if (current == null) pendingSearch = query to requestId
+            else loadSearch(current, query, requestId)
+        }
+    }
+
+    private fun loadSearch(target: WebEngine, query: String, requestId: Int) {
+        if (requestId != activeRequest.get()) return
+        loadingRequestId = requestId
         val videoId = Regex("""(?:v=|youtu\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{11})""")
             .find(query)?.groupValues?.get(1)
         val url = if (videoId != null) {
@@ -57,7 +82,7 @@ class DesktopYoutubeSearchView(
         } else {
             "https://www.youtube.com/results?search_query=" + URLEncoder.encode(query, "UTF-8")
         }
-        Platform.runLater { engine?.load(url) }
+        target.load(url)
     }
 
     inner class SearchBridge {
@@ -74,6 +99,7 @@ class DesktopYoutubeSearchView(
 
     override fun close() {
         activeRequest.incrementAndGet()
+        pendingSearch = null
         Platform.runLater { runCatching { engine?.load("about:blank") } }
     }
 
@@ -136,7 +162,7 @@ class DesktopYoutubeSearchView(
             }
             return send(found);
           }
-          function poll(){attempts++;if(scan())return;if(attempts<30)setTimeout(poll,500);
+          function poll(){attempts++;if(scan())return;if(attempts<60)setTimeout(poll,500);
             else TikLBotMusicSearch.onResults(requestId,'[]');}
           poll();
         })();
@@ -157,6 +183,7 @@ class DesktopYoutubePlayerView(
     private val origin = "http://127.0.0.1:${server.localPort}"
     @Volatile private var engine: WebEngine? = null
     @Volatile private var html = ""
+    @Volatile private var pendingPlayerUrl: String? = null
     @Volatile private var closed = false
 
     init {
@@ -180,7 +207,13 @@ class DesktopYoutubePlayerView(
                             window.__tiklbotPending=[];
                         """.trimIndent())
                     }
+                } else if (state == Worker.State.FAILED) {
+                    SwingUtilities.invokeLater { onError(5) }
                 }
+            }
+            pendingPlayerUrl?.let { url ->
+                pendingPlayerUrl = null
+                view.engine.load(url)
             }
         }
     }
@@ -188,7 +221,12 @@ class DesktopYoutubePlayerView(
     fun loadTrack(track: DjMusicTrack, volume: Int, muted: Boolean) {
         require(track.videoId.matches(Regex("[A-Za-z0-9_-]{11}"))) { "ID de video de YouTube no válido." }
         html = playerHtml(track.videoId, volume.coerceIn(0, 100), muted)
-        Platform.runLater { engine?.load("$origin/player?video=${track.videoId}") }
+        val url = "$origin/player?video=${track.videoId}"
+        Platform.runLater {
+            val current = engine
+            if (current == null) pendingPlayerUrl = url
+            else current.load(url)
+        }
     }
 
     fun clearTrack() = evaluate("clearPlayer()")
@@ -278,6 +316,7 @@ function seekBy(s){if(player)player.seekTo(Math.max(0,player.getCurrentTime()+s)
 
     override fun close() {
         closed = true
+        pendingPlayerUrl = null
         runCatching { server.close() }
         Platform.runLater { runCatching { engine?.load("about:blank") } }
     }

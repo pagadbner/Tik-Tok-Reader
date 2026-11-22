@@ -171,6 +171,30 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
         }
     }
 
+    fun checkForUpdates() {
+        if (updateBusy) return
+        scope.launch {
+            updateBusy = true
+            updateStatus = "Buscando actualizaciones…"
+            try {
+                val available = withContext(Dispatchers.IO) {
+                    DesktopUpdateManager.checkForUpdate(DesktopUpdateManager.CURRENT_VERSION)
+                }
+                update = available
+                updateStatus = if (available == null) {
+                    "Tik Tok Reader está actualizado."
+                } else {
+                    "Disponible la versión ${available.versionName}"
+                }
+                updatePromptShown = available != null
+            } catch (error: Exception) {
+                updateStatus = "No se pudo comprobar: ${error.message ?: "error de red"}"
+            } finally {
+                updateBusy = false
+            }
+        }
+    }
+
     fun skipQueuedComment(commentId: String) {
         if (speechQueue.skipComment(commentId) && commentId !in skippedCommentIds) {
             skippedCommentIds.add(commentId)
@@ -277,14 +301,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                 voiceStatus = "No se pudo preparar el motor de voz: ${error.message ?: "revisa el proveedor y la voz seleccionada"}"
             }
         }
-        updateBusy = true
-        try {
-            update = withContext(Dispatchers.IO) { DesktopUpdateManager.checkForUpdate(DesktopUpdateManager.CURRENT_VERSION) }
-            updateStatus = if (update == null) "Tik Tok Reader está actualizado." else "Disponible Tik Tok Reader ${update!!.versionName}"
-                                                    updatePromptShown = update != null
-        } catch (error: Exception) {
-            updateStatus = "No se pudo comprobar la actualización: ${error.message ?: "error de red"}"
-        } finally { updateBusy = false }
+        checkForUpdates()
     }
 
     MaterialTheme(colorScheme = darkColorScheme(
@@ -365,8 +382,32 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                         )
                     }
                     Spacer(Modifier.weight(1f))
-                    Text("Tik Tok Reader para Windows", color = Muted, fontSize = 11.sp)
-                    Text("La conexión LIVE usa el transporte JVM compartido.", color = Muted, fontSize = 10.sp)
+                    Divider(color = PanelRaised)
+                    Surface(color = PanelRaised, shape = RoundedCornerShape(12.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            IconButton(
+                                enabled = !updateBusy,
+                                onClick = {
+                                    if (update != null) updatePromptShown = true
+                                    else checkForUpdates()
+                                }
+                            ) {
+                                Icon(
+                                    Icons.Default.Download,
+                                    contentDescription = "Buscar o instalar actualizaciones",
+                                    tint = Cyan
+                                )
+                            }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("Actualizaciones", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text(updateStatus, color = Muted, fontSize = 10.sp, maxLines = 2)
+                            }
+                        }
+                    }
                 }
                 Column(Modifier.fillMaxSize().padding(28.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -696,29 +737,6 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                 }
                             }
                             Spacer(Modifier.height(14.dp))
-                            Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
-                                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("Actualizaciones", fontWeight = FontWeight.SemiBold)
-                                    Text(updateStatus, color = Muted)
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        OutlinedButton(enabled = !updateBusy, onClick = {
-                                            scope.launch {
-                                                updateBusy = true
-                                                try {
-                                                    update = withContext(Dispatchers.IO) { DesktopUpdateManager.checkForUpdate(DesktopUpdateManager.CURRENT_VERSION) }
-                                                    updateStatus = if (update == null) "Tik Tok Reader está actualizado." else "Disponible Tik Tok Reader ${update!!.versionName}"
-                                                    updatePromptShown = update != null
-                                                } catch (error: Exception) { updateStatus = error.message ?: "Error de actualización" }
-                                                finally { updateBusy = false }
-                                            }
-                                        }) { Text("Buscar actualizaciones") }
-                                        Button(enabled = update != null && !updateBusy, onClick = {
-                                            val target = update ?: return@Button
-                                            installUpdate(target)
-                                        }) { Text("Descargar e instalar") }
-                                    }
-                                }
-                            }
                             }
                         }
                     }
@@ -923,6 +941,43 @@ private fun EditableStringList(
 
 private object RemoteAvatarCache {
     val images = ConcurrentHashMap<String, ImageBitmap>()
+    val userUrls = ConcurrentHashMap<String, String>()
+    private val client = okhttp3.OkHttpClient.Builder()
+        .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+        .callTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
+        .followRedirects(true)
+        .build()
+
+    suspend fun load(url: String): ImageBitmap? = withContext(Dispatchers.IO) {
+        runCatching {
+            val request = okhttp3.Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36")
+                .header("Referer", "https://www.tiktok.com/")
+                .header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) null
+                else {
+                    val source = response.body?.byteStream()?.use { ImageIO.read(it) }
+                    if (source == null) null
+                    else {
+                        val target = BufferedImage(128, 128, BufferedImage.TYPE_INT_ARGB)
+                        val graphics = target.createGraphics()
+                        try {
+                            graphics.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+                            graphics.drawImage(source, 0, 0, 128, 128, null)
+                        } finally {
+                            graphics.dispose()
+                            source.flush()
+                        }
+                        target.toComposeImageBitmap()
+                    }
+                }
+            }
+        }.getOrNull()
+    }
 }
 
 @Composable
@@ -945,35 +1000,38 @@ private fun ProfileAvatar(icon: ImageIcon?) {
 }
 
 @Composable
-private fun RemoteAvatar(url: String?, displayName: String, size: androidx.compose.ui.unit.Dp = 42.dp) {
-    var bitmap by remember(url) { mutableStateOf(url?.let { RemoteAvatarCache.images[it] }) }
-    LaunchedEffect(url) {
-        if (!url.isNullOrBlank()) {
-            val cached = RemoteAvatarCache.images[url]
-            if (cached != null) {
-                bitmap = cached
-            } else {
-                try {
-                    val loaded = withContext(Dispatchers.IO) {
-                        val connection = URL(url).openConnection().apply {
-                            connectTimeout = 5_000
-                            readTimeout = 5_000
-                            setRequestProperty("User-Agent", "Mozilla/5.0")
-                        }
-                        connection.getInputStream().use { ImageIO.read(it) }?.toComposeImageBitmap()
-                    }
-                    if (loaded != null) {
-                        if (RemoteAvatarCache.images.size > 300) RemoteAvatarCache.images.clear()
-                        RemoteAvatarCache.images[url] = loaded
-                    }
-                    bitmap = loaded
-                } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    bitmap = null
-                }
+private fun RemoteAvatar(
+    url: String?,
+    displayName: String,
+    size: androidx.compose.ui.unit.Dp = 42.dp,
+    profileUsername: String = ""
+) {
+    val cleanUsername = profileUsername.trim().removePrefix("@").substringBefore("/")
+        .takeIf { it.matches(Regex("[A-Za-z0-9._]{1,24}")) }.orEmpty()
+    var bitmap by remember(url, cleanUsername) {
+        mutableStateOf(
+            url?.takeIf { it.isNotBlank() }?.let { RemoteAvatarCache.images[it] }
+                ?: cleanUsername.takeIf { it.isNotBlank() }?.let { RemoteAvatarCache.userUrls[it] }?.let { RemoteAvatarCache.images[it] }
+        )
+    }
+    LaunchedEffect(url, cleanUsername) {
+        val requestedUrl = url?.takeIf { it.startsWith("https://") }
+            ?: cleanUsername.takeIf { it.isNotBlank() }?.let { RemoteAvatarCache.userUrls[it] }
+        var resolvedUrl = requestedUrl
+        var loaded = requestedUrl?.let { RemoteAvatarCache.images[it] ?: RemoteAvatarCache.load(it) }
+        if (loaded == null && cleanUsername.isNotBlank()) {
+            val fallbackUrl = TikTokProfileLookup.fetchAvatarUrl(cleanUsername)
+            if (!fallbackUrl.isNullOrBlank()) {
+                resolvedUrl = fallbackUrl
+                loaded = RemoteAvatarCache.images[fallbackUrl] ?: RemoteAvatarCache.load(fallbackUrl)
             }
-        } else bitmap = null
+        }
+        if (loaded != null && !resolvedUrl.isNullOrBlank()) {
+            if (RemoteAvatarCache.images.size > 300) RemoteAvatarCache.images.clear()
+            RemoteAvatarCache.images[resolvedUrl] = loaded
+            if (cleanUsername.isNotBlank()) RemoteAvatarCache.userUrls[cleanUsername] = resolvedUrl
+        }
+        bitmap = loaded
     }
     Box(Modifier.size(size).clip(CircleShape).background(Panel), contentAlignment = Alignment.Center) {
         val image = bitmap
@@ -1025,7 +1083,7 @@ private fun CommentList(
                             verticalAlignment = Alignment.Top,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            RemoteAvatar(comment.avatarUrl, comment.displayName)
+                            RemoteAvatar(comment.avatarUrl, comment.displayName, profileUsername = comment.profileUsername)
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 if (comment.isModerator || comment.isFollower == true) {
                                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1397,6 +1455,17 @@ private fun DjMusicPanel(state: DjMusicState) {
         val search = DesktopYoutubeSearchView { requestId, json ->
             handleSearchResults.value(requestId, json)
         }
+        // JavaFX WebView needs a displayable Swing host to execute YouTube's page scripts.
+        // Keep this helper frame off-screen; it is never shown to the user.
+        val searchWindow = JFrame("Tik Tok Reader · YouTube Search").apply {
+            defaultCloseOperation = WindowConstants.DO_NOTHING_ON_CLOSE
+            type = java.awt.Window.Type.UTILITY
+            isUndecorated = true
+            contentPane.add(search, BorderLayout.CENTER)
+            setSize(640, 480)
+            setLocation(-32000, -32000)
+            isVisible = true
+        }
         val player = DesktopYoutubePlayerView(
             onEnded = { DjMusicController.skip("La canción terminó.") },
             onError = { code ->
@@ -1429,7 +1498,10 @@ private fun DjMusicPanel(state: DjMusicState) {
         onDispose {
             runCatching { search.close() }
             runCatching { player.close() }
-            SwingUtilities.invokeLater { window.dispose() }
+            SwingUtilities.invokeLater {
+                searchWindow.dispose()
+                window.dispose()
+            }
             searchView = null
             playerView = null
             playerWindow = null
@@ -1455,7 +1527,7 @@ private fun DjMusicPanel(state: DjMusicState) {
     LaunchedEffect(searching, activeSearchId) {
         if (searching) {
             val requestId = activeSearchId
-            kotlinx.coroutines.delay(20_000)
+            kotlinx.coroutines.delay(45_000)
             if (searching && activeSearchId == requestId) {
                 searching = false
                 searchCounter.incrementAndGet()
