@@ -200,7 +200,7 @@ class DesktopYoutubeSearchView(
             }
             return send(found);
           }
-          function poll(){attempts++;if(scan())return;if(attempts<60)setTimeout(poll,500);
+          function poll(){attempts++;if(scan())return;if(attempts<30)setTimeout(poll,500);
             else TikLBotMusicSearch.onResults(requestId,'[]');}
           poll();
         })();
