@@ -1535,7 +1535,6 @@ private fun DjMusicPanel(state: DjMusicState) {
         val disposed = java.util.concurrent.atomic.AtomicBoolean(false)
         val searchRef = java.util.concurrent.atomic.AtomicReference<DesktopYoutubeSearchView?>(null)
         val playerRef = java.util.concurrent.atomic.AtomicReference<DesktopYoutubePlayerView?>(null)
-        val searchWindowRef = java.util.concurrent.atomic.AtomicReference<JFrame?>(null)
         val playerWindowRef = java.util.concurrent.atomic.AtomicReference<JFrame?>(null)
 
         DjMusicController.setMessage("Preparando el motor Chromium para DJ Music…")
@@ -1549,18 +1548,22 @@ private fun DjMusicPanel(state: DjMusicState) {
                 SwingUtilities.invokeLater {
                     if (!disposed.get()) {
                         try {
-                            val search = DesktopYoutubeSearchView(cefApp) { requestId, json ->
-                                handleSearchResults.value(requestId, json)
-                            }
-                            val searchWindow = JFrame("Tik Tok Reader · YouTube Search").apply {
-                                defaultCloseOperation = WindowConstants.DO_NOTHING_ON_CLOSE
-                                type = java.awt.Window.Type.UTILITY
-                                isUndecorated = true
-                                contentPane.add(search, BorderLayout.CENTER)
-                                setSize(640, 480)
-                                setLocation(-32000, -32000)
-                                isVisible = true
-                            }
+                            val search = DesktopYoutubeSearchView(
+                                onResults = { requestId, json ->
+                                    handleSearchResults.value(requestId, json)
+                                },
+                                onError = { requestId, message ->
+                                    if (requestId == searchCounter.get()) {
+                                        val requester = activeSearch
+                                        searching = false
+                                        activeSearch = null
+                                        requester?.let {
+                                            DjMusicController.completeSearch(it.first, it.second)
+                                        }
+                                        DjMusicController.setMessage("No se pudo buscar en YouTube: $message")
+                                    }
+                                }
+                            )
                             val player = DesktopYoutubePlayerView(
                                 cefApp,
                                 onEnded = { DjMusicController.skip("La canción terminó.") },
@@ -1592,12 +1595,10 @@ private fun DjMusicPanel(state: DjMusicState) {
                             if (disposed.get()) {
                                 search.close()
                                 player.close()
-                                searchWindow.dispose()
                                 window.dispose()
                             } else {
                                 searchRef.set(search)
                                 playerRef.set(player)
-                                searchWindowRef.set(searchWindow)
                                 playerWindowRef.set(window)
                                 searchView = search
                                 playerView = player
