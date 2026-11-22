@@ -21,29 +21,29 @@ class DesktopUpdateManagerTest {
     @Test
     fun detectsNewerWindowsReleaseFromSharedReleaseMetadata() {
         val update = parseDesktopUpdateInfo(
-            "AndroidVersionName: 0.13.16\nWindowsVersionName: 0.13.16",
+            "AndroidVersionName: 0.13.15\nWindowsVersionName: 0.13.17",
             assets(),
-            "0.13.15"
+            "0.13.16"
         )
-        assertEquals("0.13.16", update?.versionName)
+        assertEquals("0.13.17", update?.versionName)
         assertEquals("https://example.invalid/TikTokReader-Windows-Setup.exe", update?.installerUrl)
         assertEquals("https://example.invalid/TikTokReader-Windows-Setup.exe.sha256", update?.checksumUrl)
     }
 
     @Test
     fun ignoresSameOrOlderWindowsVersion() {
-        assertNull(parseDesktopUpdateInfo("WindowsVersionName: 0.13.15", assets(), "0.13.15"))
-        assertNull(parseDesktopUpdateInfo("WindowsVersionName: 0.13.14", assets(), "0.13.15"))
+        assertNull(parseDesktopUpdateInfo("WindowsVersionName: 0.13.16", assets(), "0.13.16"))
+        assertNull(parseDesktopUpdateInfo("WindowsVersionName: 0.13.15", assets(), "0.13.16"))
     }
 
     @Test
     fun requiresBothInstallerAndChecksumAssets() {
-        assertNull(parseDesktopUpdateInfo("WindowsVersionName: 0.13.16", assets(false), "0.13.15"))
+        assertNull(parseDesktopUpdateInfo("WindowsVersionName: 0.13.17", assets(false), "0.13.16"))
     }
 
     @Test
     fun ignoresAndroidOnlyReleaseMetadata() {
-        assertNull(parseDesktopUpdateInfo("AndroidVersionName: 0.13.16", assets(), "0.13.15"))
+        assertNull(parseDesktopUpdateInfo("AndroidVersionName: 0.13.17", assets(), "0.13.16"))
     }
 
     @Test
