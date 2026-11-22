@@ -1,321 +1,341 @@
 package com.myclivebot.windows
 
 import com.myclivebot.core.DjMusicTrack
-import javafx.application.Platform
-import javafx.animation.KeyFrame
-import javafx.animation.Timeline
-import javafx.util.Duration
-import javafx.concurrent.Worker
-import javafx.embed.swing.JFXPanel
-import javafx.scene.Scene
-import javafx.scene.web.WebEngine
-import javafx.scene.web.WebView
-import netscape.javascript.JSObject
+import me.friwi.jcefmaven.CefAppBuilder
+import me.friwi.jcefmaven.MavenCefAppHandlerAdapter
+import org.cef.CefApp
+import org.cef.CefClient
+import org.cef.browser.CefBrowser
+import org.cef.browser.CefFrame
+import org.cef.browser.CefMessageRouter
+import org.cef.callback.CefQueryCallback
+import org.cef.handler.CefLoadHandlerAdapter
+import org.cef.handler.CefMessageRouterHandlerAdapter
+import org.json.JSONObject
+import java.awt.BorderLayout
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicInteger
+import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
 /**
- * Hidden JavaFX browser used only for YouTube's own search page.
- * Search results are read from YouTube's page data; no third-party search API is used.
+ * Shared Chromium runtime for Windows DJ Music.
+ *
+ * Android uses Chromium WebView. JavaFX WebView uses a different, older WebKit
+ * engine that is not a reliable target for YouTube's current search/player pages.
+ * JCEF supplies Chromium while keeping the existing Swing window integration.
  */
-class DesktopYoutubeSearchView(
-    private val onResults: (Int, String) -> Unit
-) : JFXPanel(), AutoCloseable {
-    private val activeRequest = AtomicInteger(0)
-    @Volatile private var engine: WebEngine? = null
-    @Volatile private var pendingSearch: Pair<String, Int>? = null
-    @Volatile private var loadingRequestId: Int = 0
-    @Volatile private var injectedRequestId: Int = 0
-    private var injectionTimer: Timeline? = null
+object DesktopJcefRuntime {
+    private val lock = Any()
+    @Volatile private var app: CefApp? = null
+    private var initialization: CompletableFuture<CefApp>? = null
 
-    init {
-        Platform.setImplicitExit(false)
-        Platform.runLater {
-            val view = WebView()
-            engine = view.engine
-            scene = Scene(view)
-            view.engine.loadWorker.stateProperty().addListener { _, _, state ->
-                val id = loadingRequestId
-                if (id == activeRequest.get() &&
-                    (state == Worker.State.RUNNING || state == Worker.State.SUCCEEDED)
-                ) {
-                    tryInjectSearch(view.engine, id)
+    fun initialize(): CompletableFuture<CefApp> = synchronized(lock) {
+        app?.let { return@synchronized CompletableFuture.completedFuture(it) }
+        initialization?.let { return@synchronized it }
+
+        val future = CompletableFuture.supplyAsync {
+            val appData = System.getenv("LOCALAPPDATA")
+                ?.takeIf { it.isNotBlank() }
+                ?: System.getProperty("user.home")
+            val installDirectory = File(File(appData, "TikTokReader"), "jcef")
+            val builder = CefAppBuilder()
+            builder.setInstallDir(installDirectory)
+            builder.getCefSettings().windowless_rendering_enabled = false
+            builder.setAppHandler(object : MavenCefAppHandlerAdapter() {})
+            builder.build()
+        }
+        initialization = future
+        future.whenComplete { created, error ->
+            synchronized(lock) {
+                if (error == null) {
+                    app = created
+                } else if (initialization === future) {
+                    initialization = null
                 }
             }
-            pendingSearch?.let { (query, requestId) ->
-                pendingSearch = null
-                loadSearch(view.engine, query, requestId)
+        }
+        future
+    }
+}
+
+private fun createDjMusicMessageRouter(
+    client: CefClient,
+    onMessage: (JSONObject) -> Unit
+): CefMessageRouter {
+    val router = CefMessageRouter.create()
+    router.addHandler(object : CefMessageRouterHandlerAdapter() {
+        override fun onQuery(
+            browser: CefBrowser,
+            frame: CefFrame,
+            queryId: Long,
+            request: String,
+            persistent: Boolean,
+            callback: CefQueryCallback
+        ): Boolean {
+            runCatching { JSONObject(request) }
+                .onSuccess { payload ->
+                    callback.success("{}")
+                    onMessage(payload)
+                }
+                .onFailure {
+                    callback.failure(-1, "Invalid DJ Music message")
+                }
+            return true
+        }
+    }, true)
+    client.addMessageRouter(router)
+    return router
+}
+
+/**
+ * Hidden Chromium browser that reads YouTube's own ytInitialData and DOM,
+ * following the same extraction strategy as Android's WebView search.
+ */
+class DesktopYoutubeSearchView(
+    cefApp: CefApp,
+    private val onResults: (Int, String) -> Unit
+) : JPanel(BorderLayout()), AutoCloseable {
+    private val activeRequest = AtomicInteger(0)
+    @Volatile private var loadingRequestId = 0
+    @Volatile private var closed = false
+    private val client = cefApp.createClient()
+    private val router = createDjMusicMessageRouter(client) { payload ->
+        if (payload.optString("type") == "searchResults") {
+            val requestId = payload.optInt("requestId")
+            val json = payload.optString("json", "[]")
+            if (!closed && requestId == activeRequest.get()) {
+                SwingUtilities.invokeLater {
+                    if (!closed && requestId == activeRequest.get()) onResults(requestId, json)
+                }
             }
         }
+    }
+    private val browser = client.createBrowser("about:blank", false, false)
+
+    init {
+        add(browser.uiComponent, BorderLayout.CENTER)
+        client.addLoadHandler(object : CefLoadHandlerAdapter() {
+            override fun onLoadEnd(browser: CefBrowser, frame: CefFrame, httpStatusCode: Int) {
+                if (!frame.isMain || closed) return
+                val requestId = loadingRequestId
+                if (requestId == 0 || requestId != activeRequest.get()) return
+                if (!frame.url.contains("youtube.com", ignoreCase = true)) return
+                browser.executeJavaScript(searchScript(requestId), frame.url, 0)
+            }
+        })
     }
 
     fun search(query: String, requestId: Int) {
+        if (closed) return
         activeRequest.set(requestId)
-        Platform.runLater {
-            val current = engine
-            if (current == null) pendingSearch = query to requestId
-            else loadSearch(current, query, requestId)
-        }
-    }
-
-    private fun loadSearch(target: WebEngine, query: String, requestId: Int) {
-        if (requestId != activeRequest.get()) return
         loadingRequestId = requestId
-        injectedRequestId = 0
-        injectionTimer?.stop()
         val videoId = Regex("""(?:v=|youtu\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{11})""")
             .find(query)?.groupValues?.get(1)
-        val url = if (videoId != null) {
-            "https://www.youtube.com/watch?v=$videoId&tklbot_request=$requestId"
+        val target = if (videoId != null) {
+            "https://www.youtube.com/watch?v=$videoId"
         } else {
-            "https://www.youtube.com/results?search_query=" + URLEncoder.encode(query, "UTF-8") + "&tklbot_request=$requestId"
+            "https://www.youtube.com/results?search_query=" + URLEncoder.encode(query, "UTF-8")
         }
-        target.load(url)
-        startSearchInjectionPolling(target, requestId)
-    }
-
-    inner class SearchBridge {
-        fun onResults(requestId: Int, json: String) {
-            if (requestId == activeRequest.get()) dispatchResults(requestId, json)
-        }
-    }
-
-    private fun dispatchResults(requestId: Int, json: String) {
         SwingUtilities.invokeLater {
-            if (requestId == activeRequest.get()) onResults(requestId, json)
+            if (!closed && requestId == activeRequest.get()) browser.loadURL(target)
         }
     }
 
     override fun close() {
+        if (closed) return
+        closed = true
         activeRequest.incrementAndGet()
-        pendingSearch = null
-        Platform.runLater {
-            injectionTimer?.stop()
-            injectionTimer = null
-            runCatching { engine?.load("about:blank") }
+        SwingUtilities.invokeLater {
+            runCatching { browser.close(true) }
+            runCatching { router.dispose() }
+            runCatching { client.dispose() }
+            removeAll()
         }
-    }
-
-    private fun tryInjectSearch(target: WebEngine, requestId: Int): Boolean {
-        if (requestId != activeRequest.get() || requestId != loadingRequestId) return false
-        if (injectedRequestId == requestId) return true
-        return runCatching {
-            val currentUrl = target.location.orEmpty()
-            val documentUrl = target.executeScript("document.location.href") as? String ?: return@runCatching false
-            if (!currentUrl.contains("youtube.com") ||
-                !documentUrl.contains("youtube.com") ||
-                documentUrl.substringBefore("#") != currentUrl.substringBefore("#")
-            ) return@runCatching false
-            val window = target.executeScript("window") as JSObject
-            window.setMember("TikLBotMusicSearch", SearchBridge())
-            target.executeScript(searchScript(requestId))
-            injectedRequestId = requestId
-            true
-        }.getOrDefault(false)
-    }
-
-    private fun startSearchInjectionPolling(target: WebEngine, requestId: Int) {
-        var attempts = 0
-        val timer = Timeline()
-        timer.keyFrames.add(KeyFrame(Duration.millis(500.0), javafx.event.EventHandler {
-            if (requestId != activeRequest.get() || requestId != loadingRequestId) {
-                timer.stop()
-            } else {
-                attempts++
-                if (tryInjectSearch(target, requestId)) {
-                    timer.stop()
-                } else if (attempts >= 50) {
-                    timer.stop()
-                    dispatchResults(requestId, "[]")
-                }
-            }
-        }))
-        timer.cycleCount = Timeline.INDEFINITE
-        injectionTimer = timer
-        timer.play()
     }
 
     private fun searchScript(requestId: Int): String = """
         (function(){
-          var requestId=$requestId, attempts=0;
-          function clean(v){return String(v||'').replace(/\s+/g,' ').trim();}
-          function duration(v){return /^\d{1,2}:\d{2}(?::\d{2})?$/.test(clean(v));}
-          function send(items){
-            var seen={},out=[];
-            (items||[]).forEach(function(x){
-              if(!x||!x.id||!clean(x.title)||duration(x.title)||seen[x.id]||out.length>=8)return;
-              seen[x.id]=1;
+          var requestId=$requestId, attempts=0, sent=false;
+          function cleanTitle(value){return String(value||'').replace(/\s+/g,' ').trim();}
+          function isDuration(value){return /^\d{1,2}:\d{2}(?::\d{2})?$/.test(cleanTitle(value));}
+          function rendererTitle(video){
+            var t=video&&video.title;if(!t)return '';
+            var value=(t.runs||[]).map(function(r){return r.text||'';}).join('');
+            if(!value)value=t.simpleText||'';
+            value=cleanTitle(value);return isDuration(value)?'':value;
+          }
+          function rendererDuration(video){
+            var value=video&&video.lengthText&&(video.lengthText.simpleText||(video.lengthText.runs||[]).map(function(r){return r.text||'';}).join(''));
+            if(!value&&video&&video.thumbnailOverlays){
+              video.thumbnailOverlays.forEach(function(o){
+                var t=o.thumbnailOverlayTimeStatusRenderer&&o.thumbnailOverlayTimeStatusRenderer.text;
+                if(!value&&t)value=t.simpleText||(t.runs||[]).map(function(r){return r.text||'';}).join('');
+              });
+            }
+            return cleanTitle(value);
+          }
+          function emit(items){
+            if(sent)return true;
+            var valid=(items||[]).filter(function(item){return item&&item.videoId&&cleanTitle(item.title)&&!isDuration(item.title);});
+            var seen={},list=[];
+            valid.forEach(function(x){
+              if(seen[x.videoId]||list.length>=8)return;
+              seen[x.videoId]=true;
               var thumbs=x.thumbnails||[];
               thumbs.sort(function(a,b){return (b.width||0)-(a.width||0);});
-              out.push({id:x.id,title:clean(x.title),thumbnail:(thumbs[0]&&thumbs[0].url)||'',
-                duration:clean(x.duration),artistName:clean(x.artistName),artistUrl:x.artistUrl||'',
-                artistThumbnail:x.artistThumbnail||''});
+              list.push({
+                id:x.videoId,title:cleanTitle(x.title),
+                thumbnail:(thumbs[0]&&thumbs[0].url)||'',
+                duration:x.duration||'',
+                artistName:cleanTitle(x.artistName||''),
+                artistUrl:x.artistUrl||'',
+                artistThumbnail:x.artistThumbnail||''
+              });
             });
-            if(out.length){TikLBotMusicSearch.onResults(requestId,JSON.stringify(out));return true;}
-            return false;
+            sent=true;
+            window.cefQuery({
+              request:JSON.stringify({type:'searchResults',requestId:requestId,json:JSON.stringify(list)}),
+              persistent:false,onSuccess:function(){},onFailure:function(){}
+            });
+            return true;
           }
           function scan(){
             if(location.pathname.indexOf('/watch')===0){
               var d=window.ytInitialPlayerResponse&&window.ytInitialPlayerResponse.videoDetails;
-              if(d&&send([{id:d.videoId,title:d.title,thumbnails:d.thumbnail&&d.thumbnail.thumbnails,
+              if(d&&emit([{videoId:d.videoId,title:d.title,thumbnails:d.thumbnail&&d.thumbnail.thumbnails,
                 duration:d.lengthSeconds||'',artistName:d.author||'',
                 artistUrl:d.channelId?('https://www.youtube.com/channel/'+d.channelId):''}]))return true;
             }
-            var found=[];
+            var found=[],data=window.ytInitialData;
             function walk(o){
               if(!o||typeof o!=='object')return;
-              var v=o.videoRenderer;
-              if(v&&v.videoId){
+              if(o.videoRenderer&&o.videoRenderer.videoId){
+                var v=o.videoRenderer;
                 var owner=(v.ownerText&&v.ownerText.runs&&v.ownerText.runs[0])||{};
-                var endpoint=owner.navigationEndpoint&&owner.navigationEndpoint.browseEndpoint||{};
+                var channel=(owner.navigationEndpoint&&owner.navigationEndpoint.browseEndpoint)||{};
                 var channelThumb=v.channelThumbnailSupportedRenderers&&v.channelThumbnailSupportedRenderers.channelThumbnailWithLinkRenderer;
-                var thumbs=channelThumb&&channelThumb.thumbnail&&channelThumb.thumbnail.thumbnails||[];
-                var title=v.title&&((v.title.runs||[]).map(function(r){return r.text||'';}).join('')||v.title.simpleText)||'';
-                var len=v.lengthText&&(v.lengthText.simpleText||(v.lengthText.runs||[]).map(function(r){return r.text||'';}).join(''))||'';
-                found.push({id:v.videoId,title:title,thumbnails:v.thumbnail&&v.thumbnail.thumbnails||[],duration:len,
-                  artistName:owner.text||'',artistUrl:endpoint.canonicalBaseUrl?('https://www.youtube.com'+endpoint.canonicalBaseUrl):
-                    (endpoint.browseId?('https://www.youtube.com/channel/'+endpoint.browseId):''),
-                  artistThumbnail:thumbs.length?thumbs[thumbs.length-1].url:''});
+                var channelThumbs=channelThumb&&channelThumb.thumbnail&&channelThumb.thumbnail.thumbnails||[];
+                channelThumbs.sort(function(a,b){return (b.width||0)-(a.width||0);});
+                found.push({
+                  videoId:v.videoId,title:rendererTitle(v),
+                  thumbnails:(v.thumbnail&&v.thumbnail.thumbnails)||[],
+                  duration:rendererDuration(v),artistName:owner.text||'',
+                  artistUrl:channel.canonicalBaseUrl?('https://www.youtube.com'+channel.canonicalBaseUrl):
+                    (channel.browseId?('https://www.youtube.com/channel/'+channel.browseId):''),
+                  artistThumbnail:channelThumbs[0]&&channelThumbs[0].url||''
+                });
               }
               Object.keys(o).forEach(function(k){if(k!=='videoRenderer')walk(o[k]);});
             }
-            walk(window.ytInitialData);
+            walk(data);
+            found=found.filter(function(item){return item&&item.title&&!isDuration(item.title);});
             if(!found.length){
               document.querySelectorAll('a#video-title,a[href*="watch?v="]').forEach(function(a){
-                var m=(a.href||'').match(/[?&]v=([A-Za-z0-9_-]{11})/);if(!m)return;
-                var card=a.closest('ytd-video-renderer,ytd-rich-item-renderer')||a.parentElement;
+                var m=(a.href||'').match(/[?&]v=([^&]+)/);if(!m)return;
+                var card=a.closest('ytd-video-renderer,ytd-rich-item-renderer,ytm-video-with-context-renderer')||a.parentElement;
+                var im=card&&card.querySelector('img');
                 var titleNode=card&&(card.querySelector('a#video-title')||card.querySelector('#video-title')||card.querySelector('h3'));
-                var title=clean(titleNode&&(titleNode.getAttribute('title')||titleNode.textContent)||a.getAttribute('title'));
-                var img=card&&card.querySelector('img');
-                var owner=card&&card.querySelector('ytd-channel-name a,#channel-name a,a[href^="/channel/"],a[href^="/@"]');
-                found.push({id:m[1],title:title,thumbnails:img?[{url:img.currentSrc||img.src,width:640}]:[],
-                  duration:'',artistName:owner?clean(owner.textContent):'',artistUrl:owner?new URL(owner.href,location.origin).href:''});
+                var title=cleanTitle(titleNode&&(titleNode.getAttribute('title')||titleNode.getAttribute('aria-label')||titleNode.textContent));
+                if(!title||isDuration(title))title=cleanTitle(a.getAttribute('title')||a.getAttribute('aria-label'));
+                if(!title||isDuration(title))return;
+                var durationNode=card&&card.querySelector('ytd-thumbnail-overlay-time-status-renderer, .ytd-thumbnail-overlay-time-status-renderer');
+                var ownerLink=card&&card.querySelector('ytd-channel-name a, #channel-name a, a[href^="/channel/"], a[href^="/@"]');
+                var ownerName=ownerLink?cleanTitle(ownerLink.textContent):'';
+                found.push({
+                  videoId:m[1],title:title,
+                  thumbnails:im?[{url:im.currentSrc||im.src,width:640}]:[],
+                  duration:durationNode?(durationNode.innerText||'').trim():'',
+                  artistName:ownerName,
+                  artistUrl:ownerLink?new URL(ownerLink.href,location.origin).href:'',
+                  artistThumbnail:''
+                });
               });
             }
-            return send(found);
+            return found.length ? emit(found) : false;
           }
-          function poll(){attempts++;if(scan())return;if(attempts<30)setTimeout(poll,500);
-            else TikLBotMusicSearch.onResults(requestId,'[]');}
+          function poll(){
+            if(sent)return;
+            attempts++;
+            if(scan())return;
+            if(attempts<30)setTimeout(poll,500);
+            else emit([]);
+          }
           poll();
         })();
     """.trimIndent()
 }
 
-/**
- * Visible YouTube IFrame player. A loopback-only HTTP origin supplies a real Referer
- * to YouTube, matching the Android WebView's base-URL behavior.
- */
+/** Visible Chromium YouTube IFrame player hosted in the existing Swing player window. */
 class DesktopYoutubePlayerView(
+    cefApp: CefApp,
     private val onEnded: () -> Unit,
     private val onError: (Int) -> Unit,
     private val onReady: () -> Unit,
     private val onState: (Int) -> Unit
-) : JFXPanel(), AutoCloseable {
+) : JPanel(BorderLayout()), AutoCloseable {
     private val server = ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))
-    private val origin = "http://127.0.0.1:${server.localPort}"
-    @Volatile private var engine: WebEngine? = null
+    private val origin = "http://127.0.0.1:" + server.localPort
     @Volatile private var html = ""
-    @Volatile private var pendingPlayerUrl: String? = null
     @Volatile private var closed = false
-    private var bridgeTimer: Timeline? = null
-
-    init {
-        Platform.setImplicitExit(false)
-        Thread(::serve, "TikLBot-YouTube-Local-Origin").apply { isDaemon = true }.start()
-        Platform.runLater {
-            val view = WebView()
-            engine = view.engine
-            scene = Scene(view)
-            view.engine.loadWorker.stateProperty().addListener { _, _, state ->
-                if (state == Worker.State.FAILED && !closed) {
-                    SwingUtilities.invokeLater { onError(5) }
+    private val client = cefApp.createClient()
+    private val router = createDjMusicMessageRouter(client) { payload ->
+        if (payload.optString("type") == "player") {
+            val event = payload.optString("event")
+            val args = payload.optJSONArray("args")
+            SwingUtilities.invokeLater {
+                if (closed) return@invokeLater
+                when (event) {
+                    "onPlayerEnded" -> onEnded()
+                    "onPlayerError" -> onError(args?.optInt(0) ?: 0)
+                    "onPlayerReady" -> onReady()
+                    "onPlayerState" -> onState(args?.optInt(0) ?: -1)
+                    "onAutoplayBlocked" -> onState(-1)
                 }
             }
-            pendingPlayerUrl?.let { url ->
-                pendingPlayerUrl = null
-                view.engine.load(url)
-                startPlayerBridgePolling(view.engine)
-            }
+        }
+    }
+    private val browser = client.createBrowser("about:blank", false, false)
+
+    init {
+        add(browser.uiComponent, BorderLayout.CENTER)
+        Thread(::serve, "TikLBot-YouTube-Local-Origin").apply {
+            isDaemon = true
+            start()
         }
     }
 
     fun loadTrack(track: DjMusicTrack, volume: Int, muted: Boolean) {
-        require(track.videoId.matches(Regex("[A-Za-z0-9_-]{11}"))) { "ID de video de YouTube no válido." }
+        require(track.videoId.matches(Regex("[A-Za-z0-9_-]{11}"))) {
+            "ID de video de YouTube no válido."
+        }
+        if (closed) return
         html = playerHtml(track.videoId, volume.coerceIn(0, 100), muted)
-        val url = "$origin/player?video=${track.videoId}"
-        Platform.runLater {
-            val current = engine
-            if (current == null) pendingPlayerUrl = url
-            else {
-                current.load(url)
-                startPlayerBridgePolling(current)
-            }
+        val url = origin + "/player?video=" + track.videoId
+        SwingUtilities.invokeLater {
+            if (!closed) browser.loadURL(url)
         }
     }
 
-    private fun startPlayerBridgePolling(target: WebEngine) {
-        bridgeTimer?.stop()
-        var attempts = 0
-        val timer = Timeline()
-        timer.keyFrames.add(KeyFrame(Duration.millis(150.0), javafx.event.EventHandler {
-            if (closed) {
-                timer.stop()
-            } else {
-                attempts++
-                val installed = runCatching {
-                    val ready = target.executeScript(
-                        "typeof window.notifyPlayer === 'function' && typeof window.__tiklbotPending !== 'undefined' && typeof window.TikLBotMusicPlayer !== 'undefined'"
-                    ) as? Boolean ?: false
-                    if (!ready) false
-                    else {
-                        val window = target.executeScript("window") as JSObject
-                        window.setMember("TikLBotMusicPlayer", PlayerBridge())
-                        target.executeScript("""
-                            window.__tiklbotBridgeReady=true;
-                            (window.__tiklbotPending||[]).forEach(function(event){
-                              var callback=window.TikLBotMusicPlayer[event[0]];
-                              if(callback)callback.apply(window.TikLBotMusicPlayer,event[1]||[]);
-                            });
-                            window.__tiklbotPending=[];
-                        """.trimIndent())
-                        true
-                    }
-                }.getOrDefault(false)
-                if (installed) {
-                    timer.stop()
-                } else if (attempts >= 200) {
-                    timer.stop()
-                    SwingUtilities.invokeLater { onError(5) }
-                }
-            }
-        }))
-        timer.cycleCount = Timeline.INDEFINITE
-        bridgeTimer = timer
-        timer.play()
-    }
-
     fun clearTrack() = evaluate("clearPlayer()")
-    fun setVolume(value: Int) = evaluate("setVolume(${value.coerceIn(0, 100)})")
+    fun setVolume(value: Int) = evaluate("setVolume(" + value.coerceIn(0, 100) + ")")
     fun setMuted(value: Boolean) = evaluate("setMuted($value)")
     fun playPause() = evaluate("playPause()")
-    fun seekBy(seconds: Int) = evaluate("seekBy(${seconds.coerceIn(-60, 60)})")
+    fun seekBy(seconds: Int) = evaluate("seekBy(" + seconds.coerceIn(-60, 60) + ")")
 
     private fun evaluate(script: String) {
-        Platform.runLater { runCatching { engine?.executeScript(script) } }
-    }
-
-    inner class PlayerBridge {
-        fun onPlayerEnded() = SwingUtilities.invokeLater(onEnded)
-        fun onPlayerError(code: Int) = SwingUtilities.invokeLater { onError(code) }
-        fun onPlayerReady() = SwingUtilities.invokeLater(onReady)
-        fun onPlayerState(value: Int) = SwingUtilities.invokeLater { onState(value) }
-        fun onAutoplayBlocked() = SwingUtilities.invokeLater { onState(-1) }
+        SwingUtilities.invokeLater {
+            if (!closed && browser.hasDocument()) {
+                runCatching { browser.executeJavaScript(script, browser.url, 0) }
+            }
+        }
     }
 
     private fun playerHtml(videoId: String, volume: Int, muted: Boolean): String {
@@ -327,19 +347,14 @@ class DesktopYoutubePlayerView(
 <body style="margin:0;background:#000;overflow:hidden">
 <div id="player"></div>
 <script>
-window.__tiklbotBridgeReady=false;
-window.__tiklbotPending=[];
-function notifyPlayer(method,args){
- if(window.__tiklbotBridgeReady){var fn=window.TikLBotMusicPlayer[method];if(fn)fn.apply(window.TikLBotMusicPlayer,args||[]);}
- else window.__tiklbotPending.push([method,args||[]]);
+function notifyPlayer(event,args){
+  if(typeof window.cefQuery==='function'){
+    window.cefQuery({
+      request:JSON.stringify({type:'player',event:event,args:args||[]}),
+      persistent:false,onSuccess:function(){},onFailure:function(){}
+    });
+  }
 }
-window.TikLBotMusicPlayer={
- onPlayerEnded:function(){notifyPlayer('onPlayerEnded');},
- onPlayerError:function(code){notifyPlayer('onPlayerError',[code]);},
- onPlayerReady:function(){notifyPlayer('onPlayerReady');},
- onPlayerState:function(value){notifyPlayer('onPlayerState',[value]);},
- onAutoplayBlocked:function(){notifyPlayer('onAutoplayBlocked');}
-};
 </script>
 <script src="https://www.youtube.com/iframe_api"></script>
 <script>
@@ -366,13 +381,21 @@ function seekBy(s){if(player)player.seekTo(Math.max(0,player.getCurrentTime()+s)
         while (!closed) {
             try {
                 server.accept().use { socket ->
-                    val reader = BufferedReader(InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII))
+                    val reader = BufferedReader(
+                        InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII)
+                    )
                     val requestLine = reader.readLine().orEmpty()
                     while (reader.readLine()?.isNotEmpty() == true) Unit
-                    val isPlayer = requestLine.startsWith("GET /player ")
+                    val requestPath = requestLine.split(' ').getOrNull(1).orEmpty()
+                    // The query string follows /player; match the path, not "/player " literally.
+                    val isPlayer = requestPath.substringBefore('?') == "/player"
                     val body = if (isPlayer) html.toByteArray(StandardCharsets.UTF_8) else ByteArray(0)
                     val status = if (isPlayer) "200 OK" else "404 Not Found"
-                    val header = "HTTP/1.1 $status\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${body.size}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n"
+                    val header = "HTTP/1.1 $status\r\n" +
+                        "Content-Type: text/html; charset=utf-8\r\n" +
+                        "Content-Length: " + body.size + "\r\n" +
+                        "Connection: close\r\n" +
+                        "Cache-Control: no-store\r\n\r\n"
                     socket.getOutputStream().apply {
                         write(header.toByteArray(StandardCharsets.US_ASCII))
                         write(body)
@@ -386,13 +409,14 @@ function seekBy(s){if(player)player.seekTo(Math.max(0,player.getCurrentTime()+s)
     }
 
     override fun close() {
+        if (closed) return
         closed = true
-        pendingPlayerUrl = null
         runCatching { server.close() }
-        Platform.runLater {
-            bridgeTimer?.stop()
-            bridgeTimer = null
-            runCatching { engine?.load("about:blank") }
+        SwingUtilities.invokeLater {
+            runCatching { browser.close(true) }
+            runCatching { router.dispose() }
+            runCatching { client.dispose() }
+            removeAll()
         }
     }
 }
