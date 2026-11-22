@@ -22,6 +22,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
@@ -635,7 +636,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             }
                             }
                         }
-                        "DJ Music" -> DjMusicPanel(djMusicState)
+                        "DJ Music" -> Spacer(Modifier.fillMaxSize())
                         "Voces" -> VoicePanel(
                             readerSettings,
                             voiceMuted,
@@ -781,6 +782,12 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             Spacer(Modifier.height(14.dp))
                             }
                         }
+                    }
+                    Box(
+                        modifier = if (selected == "DJ Music") Modifier.fillMaxSize()
+                        else Modifier.size(1.dp).clipToBounds()
+                    ) {
+                        DjMusicPanel(djMusicState)
                     }
                     }
                 }
@@ -1678,9 +1685,6 @@ private fun DjMusicPanel(state: DjMusicState) {
                     Column(Modifier.weight(1f)) {
                         Text("DJ Music · YouTube", fontSize = 19.sp, fontWeight = FontWeight.Bold)
                         Text("Busca canciones, gestiona solicitudes y controla la reproducción.", color = Muted, fontSize = 12.sp)
-                    }
-                    Button(onClick = { DesktopYoutubeAccountWindow.open() }) {
-                        Text("Cuenta YouTube")
                     }
                     Box {
                         OutlinedButton(onClick = { accessMenu = true }) {
