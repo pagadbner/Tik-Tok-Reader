@@ -4,47 +4,44 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+/** Dibujo Compose fiel al vector ic_launcher_foreground.xml de Android. */
 @Composable
-fun TikLBotLogo(size: Dp = 42.dp) {
+fun TikTokReaderLogo(size: Dp = 42.dp) {
     Canvas(Modifier.size(size)) {
-        val scale = this.size.width / 512f
-        drawRoundRect(
-            brush = Brush.linearGradient(listOf(Color(0xFF17132D), Color(0xFF080B18))),
-            size = this.size,
-            cornerRadius = CornerRadius(this.size.width * 0.23f)
-        )
-        drawCircle(Color(0x448B5CF6), radius = 154f * scale, center = Offset(this.size.width / 2, this.size.height / 2))
-        drawRoundRect(
-            brush = Brush.linearGradient(listOf(Color(0xFFA855F7), Color(0xFF7C3AED), Color(0xFF22D3EE))),
-            topLeft = Offset(112f * scale, 97f * scale),
-            size = Size(288f * scale, 288f * scale),
-            cornerRadius = CornerRadius(118f * scale)
-        )
-        drawRoundRect(
-            color = Color(0xFF15142A).copy(alpha = .72f),
-            topLeft = Offset(166f * scale, 171f * scale),
-            size = Size(180f * scale, 138f * scale),
-            cornerRadius = CornerRadius(68f * scale)
-        )
-        listOf(12f to 246f, 64f to 220f, 108f to 198f, 52f to 226f, 24f to 240f).forEach { (height, y) ->
-            val x = when (listOf(12f,64f,108f,52f,24f).indexOf(height)) { 0 -> 202f; 1 -> 232f; 2 -> 262f; 3 -> 292f; else -> 322f }
-            drawLine(
-                brush = Brush.linearGradient(listOf(Color.White, Color(0xFFBFF7FF))),
-                start = Offset(x * scale, y * scale),
-                end = Offset(x * scale, (y + height) * scale),
-                strokeWidth = 17f * scale,
-                cap = androidx.compose.ui.graphics.StrokeCap.Round
-            )
+        val scale = this.size.width / 108f
+        fun p(value: Float) = value * scale
+        val bubble = Path().apply {
+            moveTo(p(18f), p(39f))
+            cubicTo(p(18f), p(25f), p(29f), p(14f), p(43f), p(14f))
+            lineTo(p(65f), p(14f))
+            cubicTo(p(79f), p(14f), p(90f), p(25f), p(90f), p(39f))
+            lineTo(p(90f), p(55f))
+            cubicTo(p(90f), p(69f), p(79f), p(80f), p(65f), p(80f))
+            lineTo(p(48f), p(80f))
+            lineTo(p(27f), p(94f))
+            lineTo(p(31f), p(76f))
+            cubicTo(p(23f), p(71f), p(18f), p(63f), p(18f), p(54f))
+            close()
         }
-        drawCircle(Color(0xFF22D3EE), 17f * scale, Offset(374f * scale, 126f * scale))
-        drawCircle(Color(0xFFC084FC), 9f * scale, Offset(136f * scale, 366f * scale))
+        drawRect(Color(0xFF0B0B18))
+        drawPath(bubble, Color(0xFF8B5CF6))
+        drawRoundRect(
+            color = Color(0xFF17132D),
+            topLeft = Offset(p(30f), p(28f)),
+            size = Size(p(48f), p(39f)),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(p(14f))
+        )
+        drawRect(Color.White, Offset(p(39f), p(45f)), Size(p(4f), p(8f)))
+        drawRect(Color.White, Offset(p(48f), p(37f)), Size(p(4f), p(24f)))
+        drawRect(Color.White, Offset(p(57f), p(32f)), Size(p(4f), p(34f)))
+        drawRect(Color.White, Offset(p(66f), p(41f)), Size(p(4f), p(16f)))
+        drawCircle(Color(0xFF22D3EE), p(5f), Offset(p(88f), p(17f)))
     }
 }
