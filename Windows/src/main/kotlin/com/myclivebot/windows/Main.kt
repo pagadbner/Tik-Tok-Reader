@@ -143,6 +143,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     var updateBusy by remember { mutableStateOf(false) }
     var updatePromptShown by remember { mutableStateOf(false) }
     var showUninstallDialog by remember { mutableStateOf(false) }
+    var showComingSoonDialog by remember { mutableStateOf(false) }
     var desktopTheme by remember { mutableStateOf(DesktopThemeStore.load()) }
 
     fun saveDesktopTheme(theme: DesktopThemePalette) {
@@ -349,6 +350,16 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                     }
                 )
             }
+            if (showComingSoonDialog) {
+                AlertDialog(
+                    onDismissRequest = { showComingSoonDialog = false },
+                    title = { Text("Próximamente") },
+                    text = { Text("Esta sección estará disponible próximamente.") },
+                    confirmButton = {
+                        TextButton(onClick = { showComingSoonDialog = false }) { Text("Aceptar") }
+                    }
+                )
+            }
             if (showUninstallDialog) {
                 AlertDialog(
                     onDismissRequest = { showUninstallDialog = false },
@@ -388,7 +399,13 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                         NavigationDrawerItem(
                             label = { Text(item) },
                             selected = selected == item,
-                            onClick = { selected = item },
+                            onClick = {
+                                if (item == "Historial" || item == "DJ Music") {
+                                    showComingSoonDialog = true
+                                } else {
+                                    selected = item
+                                }
+                            },
                             icon = {
                                 Icon(when(item) {
                                     "Home" -> Icons.Default.Home
