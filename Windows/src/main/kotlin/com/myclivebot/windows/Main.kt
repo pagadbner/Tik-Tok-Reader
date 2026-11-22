@@ -17,6 +17,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -1467,6 +1470,7 @@ private fun AutomationPanel(settings: ReaderSettings, onChange: (ReaderSettings)
 @Composable
 private fun DjMusicPanel(state: DjMusicState) {
     var query by remember { mutableStateOf("") }
+    val searchFocusRequester = remember { FocusRequester() }
     var searchResults by remember { mutableStateOf<List<DjMusicTrack>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
     var playerReady by remember { mutableStateOf(false) }
@@ -1566,6 +1570,8 @@ private fun DjMusicPanel(state: DjMusicState) {
                                 cefApp,
                                 onEnded = { DjMusicController.skip("La canción terminó.") },
                                 onError = { code ->
+                                    playerReady = false
+                                    playerPlaying = false
                                     val detail = when (code) {
                                         2 -> "ID o parámetro inválido"
                                         5 -> "falló el reproductor HTML5"
@@ -1699,7 +1705,11 @@ private fun DjMusicPanel(state: DjMusicState) {
                     OutlinedTextField(
                         value = query,
                         onValueChange = { query = it },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f)
+                            .focusRequester(searchFocusRequester)
+                            .onFocusChanged { focus ->
+                                if (focus.isFocused) playerView?.releaseKeyboardFocus()
+                            },
                         singleLine = true,
                         label = { Text("Canción, artista o URL de YouTube") },
                         placeholder = { Text("José José - Volcán") }
@@ -1804,8 +1814,8 @@ private fun DjMusicPanel(state: DjMusicState) {
             }
         }
 
-        Card(Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 360.dp), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Cola de reproducción · ${state.queue.size}", color = Cyan, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     TextButton(enabled = state.queue.isNotEmpty(), onClick = { DjMusicController.clearQueue() }) { Text("Vaciar") }
@@ -1815,8 +1825,8 @@ private fun DjMusicPanel(state: DjMusicState) {
                         Text("La cola está vacía.", color = Muted)
                     }
                 } else {
-                    LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        itemsIndexed(state.queue) { index, track ->
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        state.queue.forEachIndexed { index, track ->
                             Row(Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(9.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text("${index + 1}. ${track.title}", color = Color.White, maxLines = 1)
