@@ -99,53 +99,276 @@ private fun createDjMusicMessageRouter(
  * Hidden Chromium browser that reads YouTube's own ytInitialData and DOM,
  * following the same extraction strategy as Android's WebView search.
  */
+/**
+ * YouTube search for Windows.
+ * Uses the same ytInitialData/videoRenderer fields as the Android WebView,
+ * but fetches the page directly so it is not dependent on hidden-browser
+ * loading, JavaScript injection timing, or the CEF message bridge.
+ */
 class DesktopYoutubeSearchView(
-    cefApp: CefApp,
-    private val onResults: (Int, String) -> Unit
-) : JPanel(BorderLayout()), AutoCloseable {
+    private val onResults: (Int, String) -> Unit,
+    private val onError: (Int, String) -> Unit
+) : AutoCloseable {
     private val activeRequest = AtomicInteger(0)
-    @Volatile private var loadingRequestId = 0
     @Volatile private var closed = false
-    private val client = cefApp.createClient()
-    private val router = createDjMusicMessageRouter(client) { payload ->
-        if (payload.optString("type") == "searchResults") {
-            val requestId = payload.optInt("requestId")
-            val json = payload.optString("json", "[]")
-            if (!closed && requestId == activeRequest.get()) {
-                SwingUtilities.invokeLater {
-                    if (!closed && requestId == activeRequest.get()) onResults(requestId, json)
-                }
-            }
-        }
+    private val executor = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
+        Thread(task, "TikLBot-YouTube-Search").apply { isDaemon = true }
     }
-    private val browser = client.createBrowser("about:blank", false, false)
-
-    init {
-        add(browser.uiComponent, BorderLayout.CENTER)
-        client.addLoadHandler(object : CefLoadHandlerAdapter() {
-            override fun onLoadEnd(browser: CefBrowser, frame: CefFrame, httpStatusCode: Int) {
-                if (!frame.isMain || closed) return
-                val requestId = loadingRequestId
-                if (requestId == 0 || requestId != activeRequest.get()) return
-                if (!frame.url.contains("youtube.com", ignoreCase = true)) return
-                browser.executeJavaScript(searchScript(requestId), frame.url, 0)
-            }
-        })
-    }
+    private val activeCall = java.util.concurrent.atomic.AtomicReference<okhttp3.Call?>(null)
+    private val http = okhttp3.OkHttpClient.Builder()
+        .connectTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+        .callTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+        .followRedirects(true)
+        .build()
 
     fun search(query: String, requestId: Int) {
         if (closed) return
         activeRequest.set(requestId)
-        loadingRequestId = requestId
-        val videoId = Regex("""(?:v=|youtu\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{11})""")
-            .find(query)?.groupValues?.get(1)
-        val target = if (videoId != null) {
-            "https://www.youtube.com/watch?v=$videoId"
-        } else {
-            "https://www.youtube.com/results?search_query=" + URLEncoder.encode(query, "UTF-8")
+        activeCall.getAndSet(null)?.cancel()
+        executor.execute {
+            if (closed || requestId != activeRequest.get()) return@execute
+            try {
+                val videoId = Regex("""(?:v=|youtu\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{11})""")
+                    .find(query)?.groupValues?.get(1)
+                val target = if (videoId != null) {
+                    "https://www.youtube.com/watch?v=$videoId"
+                } else {
+                    "https://www.youtube.com/results?search_query=" +
+                        URLEncoder.encode(query, "UTF-8") + "&hl=es&gl=MX"
+                }
+                val request = okhttp3.Request.Builder()
+                    .url(target)
+                    .header(
+                        "User-Agent",
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                            "(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+                    )
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .header("Accept-Language", "es-MX,es;q=0.9,en-US;q=0.8,en;q=0.7")
+                    .header("Upgrade-Insecure-Requests", "1")
+                    .header("Referer", "https://www.youtube.com/")
+                    .build()
+                val call = http.newCall(request)
+                activeCall.set(call)
+                val html = call.execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw java.io.IOException("YouTube respondió HTTP " + response.code)
+                    }
+                    response.body?.string()
+                        ?: throw java.io.IOException("YouTube devolvió una página vacía")
+                }
+                if (closed || requestId != activeRequest.get()) return@execute
+                val tracks = if (videoId != null) parseWatchPage(html) else parseSearchPage(html)
+                if (tracks.isEmpty()) {
+                    throw java.io.IOException(
+                        "YouTube no entregó resultados legibles. Puede haber solicitado verificación o bloqueado la consulta."
+                    )
+                }
+                val json = org.json.JSONArray()
+                tracks.take(8).forEach { json.put(it) }
+                dispatchResults(requestId, json.toString())
+            } catch (error: Exception) {
+                if (closed || requestId != activeRequest.get() || error is java.io.InterruptedIOException) {
+                    return@execute
+                }
+                val message = error.message?.takeIf { it.isNotBlank() } ?: "No se pudo consultar YouTube."
+                javax.swing.SwingUtilities.invokeLater {
+                    if (!closed && requestId == activeRequest.get()) onError(requestId, message)
+                }
+            } finally {
+                activeCall.set(null)
+            }
         }
-        SwingUtilities.invokeLater {
-            if (!closed && requestId == activeRequest.get()) browser.loadURL(target)
+    }
+
+    private fun dispatchResults(requestId: Int, json: String) {
+        javax.swing.SwingUtilities.invokeLater {
+            if (!closed && requestId == activeRequest.get()) onResults(requestId, json)
+        }
+    }
+
+    private fun parseSearchPage(html: String): List<org.json.JSONObject> {
+        val initialData = extractEmbeddedObject(html, "ytInitialData")
+            ?: throw java.io.IOException("No se encontró ytInitialData en la respuesta de YouTube.")
+        val renderers = mutableListOf<org.json.JSONObject>()
+        collectVideoRenderers(initialData, renderers, 0)
+        val seen = HashSet<String>()
+        return renderers.mapNotNull { renderer ->
+            val track = trackFromRenderer(renderer) ?: return@mapNotNull null
+            if (!seen.add(track.optString("id"))) null else track
+        }.take(8)
+    }
+
+    private fun parseWatchPage(html: String): List<org.json.JSONObject> {
+        val playerResponse = extractEmbeddedObject(html, "ytInitialPlayerResponse")
+            ?: throw java.io.IOException("YouTube no entregó los datos del video solicitado.")
+        val details = playerResponse.optJSONObject("videoDetails")
+            ?: throw java.io.IOException("No se pudieron leer los datos del video.")
+        val id = details.optString("videoId")
+        val title = details.optString("title").trim()
+        if (!id.matches(Regex("[A-Za-z0-9_-]{11}")) || title.isBlank()) {
+            throw java.io.IOException("El enlace no contiene un video público válido.")
+        }
+        val thumbnail = bestThumbnail(details.optJSONObject("thumbnail")?.optJSONArray("thumbnails"))
+        val channelId = details.optString("channelId")
+        return listOf(
+            org.json.JSONObject()
+                .put("id", id)
+                .put("title", title)
+                .put("thumbnail", thumbnail.ifBlank { "https://i.ytimg.com/vi/$id/hqdefault.jpg" })
+                .put("duration", formatDuration(details.optString("lengthSeconds")))
+                .put("artistName", details.optString("author"))
+                .put("artistUrl", if (channelId.isNotBlank()) "https://www.youtube.com/channel/$channelId" else "")
+                .put("artistThumbnail", "")
+        )
+    }
+
+    private fun trackFromRenderer(video: org.json.JSONObject): org.json.JSONObject? {
+        val id = video.optString("videoId")
+        if (!id.matches(Regex("[A-Za-z0-9_-]{11}"))) return null
+        val titleObject = video.optJSONObject("title")
+        val title = titleObject?.optJSONArray("runs")?.let { runs ->
+            (0 until runs.length()).joinToString("") { runs.optJSONObject(it)?.optString("text").orEmpty() }
+        }?.ifBlank { titleObject?.optString("simpleText").orEmpty() }
+            ?: titleObject?.optString("simpleText").orEmpty()
+        val cleanTitle = title.replace(Regex("\\s+"), " ").trim()
+        if (cleanTitle.isBlank() || cleanTitle.matches(Regex("""\d{1,2}:\d{2}(?::\d{2})?"""))) return null
+
+        val durationObject = video.optJSONObject("lengthText")
+        val duration = durationObject?.optString("simpleText").orEmpty().ifBlank {
+            durationObject?.optJSONArray("runs")?.let { runs ->
+                (0 until runs.length()).joinToString("") { runs.optJSONObject(it)?.optString("text").orEmpty() }
+            }.orEmpty()
+        }
+        val owner = video.optJSONObject("ownerText")?.optJSONArray("runs")?.optJSONObject(0)
+        val artistName = owner?.optString("text").orEmpty()
+        val browse = owner?.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
+        val canonical = browse?.optString("canonicalBaseUrl").orEmpty()
+        val browseId = browse?.optString("browseId").orEmpty()
+        val artistUrl = when {
+            canonical.isNotBlank() -> "https://www.youtube.com$canonical"
+            browseId.isNotBlank() -> "https://www.youtube.com/channel/$browseId"
+            else -> ""
+        }
+        val channelThumbnail = video.optJSONObject("channelThumbnailSupportedRenderers")
+            ?.optJSONObject("channelThumbnailWithLinkRenderer")
+            ?.optJSONObject("thumbnail")
+            ?.optJSONArray("thumbnails")
+
+        return org.json.JSONObject()
+            .put("id", id)
+            .put("title", cleanTitle)
+            .put(
+                "thumbnail",
+                bestThumbnail(video.optJSONObject("thumbnail")?.optJSONArray("thumbnails"))
+                    .ifBlank { "https://i.ytimg.com/vi/$id/hqdefault.jpg" }
+            )
+            .put("duration", duration)
+            .put("artistName", artistName)
+            .put("artistUrl", artistUrl)
+            .put("artistThumbnail", bestThumbnail(channelThumbnail))
+    }
+
+    private fun collectVideoRenderers(node: Any?, output: MutableList<org.json.JSONObject>, depth: Int) {
+        if (node == null || depth > 90 || output.size >= 40) return
+        when (node) {
+            is org.json.JSONObject -> {
+                val renderer = node.optJSONObject("videoRenderer")
+                if (renderer != null && renderer.optString("videoId").isNotBlank()) output.add(renderer)
+                val keys = node.keys()
+                while (keys.hasNext() && output.size < 40) {
+                    val key = keys.next()
+                    if (key != "videoRenderer") collectVideoRenderers(node.opt(key), output, depth + 1)
+                }
+            }
+            is org.json.JSONArray -> {
+                for (index in 0 until minOf(node.length(), 2000)) {
+                    if (output.size >= 40) break
+                    collectVideoRenderers(node.opt(index), output, depth + 1)
+                }
+            }
+        }
+    }
+
+    private fun extractEmbeddedObject(html: String, key: String): org.json.JSONObject? {
+        var searchFrom = 0
+        while (searchFrom < html.length) {
+            val keyIndex = html.indexOf(key, searchFrom)
+            if (keyIndex < 0) return null
+            val separator = html.indexOfAny(charArrayOf('=', ':'), keyIndex + key.length)
+            if (separator < 0 || separator - keyIndex > 120) {
+                searchFrom = keyIndex + key.length
+                continue
+            }
+            val objectStart = html.indexOf('{', separator + 1)
+            if (objectStart < 0 || objectStart - separator > 20) {
+                searchFrom = keyIndex + key.length
+                continue
+            }
+            val objectEnd = findJsonObjectEnd(html, objectStart)
+            if (objectEnd > objectStart) {
+                val parsed = runCatching {
+                    org.json.JSONObject(html.substring(objectStart, objectEnd + 1))
+                }.getOrNull()
+                if (parsed != null) return parsed
+            }
+            searchFrom = keyIndex + key.length
+        }
+        return null
+    }
+
+    private fun findJsonObjectEnd(source: String, start: Int): Int {
+        var depth = 0
+        var inString = false
+        var escaped = false
+        for (index in start until source.length) {
+            val char = source[index]
+            if (inString) {
+                if (escaped) escaped = false
+                else if (char == '\\') escaped = true
+                else if (char == '"') inString = false
+            } else {
+                when (char) {
+                    '"' -> inString = true
+                    '{' -> depth++
+                    '}' -> {
+                        depth--
+                        if (depth == 0) return index
+                    }
+                }
+            }
+        }
+        return -1
+    }
+
+    private fun bestThumbnail(thumbnails: org.json.JSONArray?): String {
+        if (thumbnails == null) return ""
+        var bestUrl = ""
+        var bestWidth = -1
+        for (index in 0 until thumbnails.length()) {
+            val item = thumbnails.optJSONObject(index) ?: continue
+            val width = item.optInt("width")
+            val url = item.optString("url")
+            if (url.isNotBlank() && width >= bestWidth) {
+                bestWidth = width
+                bestUrl = url
+            }
+        }
+        return bestUrl
+    }
+
+    private fun formatDuration(rawSeconds: String): String {
+        val seconds = rawSeconds.toLongOrNull() ?: return ""
+        if (seconds < 0) return ""
+        val hours = seconds / 3600
+        val minutes = (seconds % 3600) / 60
+        val remainder = seconds % 60
+        return if (hours > 0) {
+            hours.toString() + ":" + minutes.toString().padStart(2, '0') + ":" +
+                remainder.toString().padStart(2, '0')
+        } else {
+            minutes.toString() + ":" + remainder.toString().padStart(2, '0')
         }
     }
 
@@ -153,124 +376,9 @@ class DesktopYoutubeSearchView(
         if (closed) return
         closed = true
         activeRequest.incrementAndGet()
-        SwingUtilities.invokeLater {
-            runCatching { browser.close(true) }
-            runCatching { router.dispose() }
-            runCatching { client.dispose() }
-            removeAll()
-        }
+        activeCall.getAndSet(null)?.cancel()
+        executor.shutdownNow()
     }
-
-    private fun searchScript(requestId: Int): String = """
-        (function(){
-          var requestId=$requestId, attempts=0, sent=false;
-          function cleanTitle(value){return String(value||'').replace(/\s+/g,' ').trim();}
-          function isDuration(value){return /^\d{1,2}:\d{2}(?::\d{2})?$/.test(cleanTitle(value));}
-          function rendererTitle(video){
-            var t=video&&video.title;if(!t)return '';
-            var value=(t.runs||[]).map(function(r){return r.text||'';}).join('');
-            if(!value)value=t.simpleText||'';
-            value=cleanTitle(value);return isDuration(value)?'':value;
-          }
-          function rendererDuration(video){
-            var value=video&&video.lengthText&&(video.lengthText.simpleText||(video.lengthText.runs||[]).map(function(r){return r.text||'';}).join(''));
-            if(!value&&video&&video.thumbnailOverlays){
-              video.thumbnailOverlays.forEach(function(o){
-                var t=o.thumbnailOverlayTimeStatusRenderer&&o.thumbnailOverlayTimeStatusRenderer.text;
-                if(!value&&t)value=t.simpleText||(t.runs||[]).map(function(r){return r.text||'';}).join('');
-              });
-            }
-            return cleanTitle(value);
-          }
-          function emit(items){
-            if(sent)return true;
-            var valid=(items||[]).filter(function(item){return item&&item.videoId&&cleanTitle(item.title)&&!isDuration(item.title);});
-            var seen={},list=[];
-            valid.forEach(function(x){
-              if(seen[x.videoId]||list.length>=8)return;
-              seen[x.videoId]=true;
-              var thumbs=x.thumbnails||[];
-              thumbs.sort(function(a,b){return (b.width||0)-(a.width||0);});
-              list.push({
-                id:x.videoId,title:cleanTitle(x.title),
-                thumbnail:(thumbs[0]&&thumbs[0].url)||'',
-                duration:x.duration||'',
-                artistName:cleanTitle(x.artistName||''),
-                artistUrl:x.artistUrl||'',
-                artistThumbnail:x.artistThumbnail||''
-              });
-            });
-            sent=true;
-            window.cefQuery({
-              request:JSON.stringify({type:'searchResults',requestId:requestId,json:JSON.stringify(list)}),
-              persistent:false,onSuccess:function(){},onFailure:function(){}
-            });
-            return true;
-          }
-          function scan(){
-            if(location.pathname.indexOf('/watch')===0){
-              var d=window.ytInitialPlayerResponse&&window.ytInitialPlayerResponse.videoDetails;
-              if(d&&emit([{videoId:d.videoId,title:d.title,thumbnails:d.thumbnail&&d.thumbnail.thumbnails,
-                duration:d.lengthSeconds||'',artistName:d.author||'',
-                artistUrl:d.channelId?('https://www.youtube.com/channel/'+d.channelId):''}]))return true;
-            }
-            var found=[],data=window.ytInitialData;
-            function walk(o){
-              if(!o||typeof o!=='object')return;
-              if(o.videoRenderer&&o.videoRenderer.videoId){
-                var v=o.videoRenderer;
-                var owner=(v.ownerText&&v.ownerText.runs&&v.ownerText.runs[0])||{};
-                var channel=(owner.navigationEndpoint&&owner.navigationEndpoint.browseEndpoint)||{};
-                var channelThumb=v.channelThumbnailSupportedRenderers&&v.channelThumbnailSupportedRenderers.channelThumbnailWithLinkRenderer;
-                var channelThumbs=channelThumb&&channelThumb.thumbnail&&channelThumb.thumbnail.thumbnails||[];
-                channelThumbs.sort(function(a,b){return (b.width||0)-(a.width||0);});
-                found.push({
-                  videoId:v.videoId,title:rendererTitle(v),
-                  thumbnails:(v.thumbnail&&v.thumbnail.thumbnails)||[],
-                  duration:rendererDuration(v),artistName:owner.text||'',
-                  artistUrl:channel.canonicalBaseUrl?('https://www.youtube.com'+channel.canonicalBaseUrl):
-                    (channel.browseId?('https://www.youtube.com/channel/'+channel.browseId):''),
-                  artistThumbnail:channelThumbs[0]&&channelThumbs[0].url||''
-                });
-              }
-              Object.keys(o).forEach(function(k){if(k!=='videoRenderer')walk(o[k]);});
-            }
-            walk(data);
-            found=found.filter(function(item){return item&&item.title&&!isDuration(item.title);});
-            if(!found.length){
-              document.querySelectorAll('a#video-title,a[href*="watch?v="]').forEach(function(a){
-                var m=(a.href||'').match(/[?&]v=([^&]+)/);if(!m)return;
-                var card=a.closest('ytd-video-renderer,ytd-rich-item-renderer,ytm-video-with-context-renderer')||a.parentElement;
-                var im=card&&card.querySelector('img');
-                var titleNode=card&&(card.querySelector('a#video-title')||card.querySelector('#video-title')||card.querySelector('h3'));
-                var title=cleanTitle(titleNode&&(titleNode.getAttribute('title')||titleNode.getAttribute('aria-label')||titleNode.textContent));
-                if(!title||isDuration(title))title=cleanTitle(a.getAttribute('title')||a.getAttribute('aria-label'));
-                if(!title||isDuration(title))return;
-                var durationNode=card&&card.querySelector('ytd-thumbnail-overlay-time-status-renderer, .ytd-thumbnail-overlay-time-status-renderer');
-                var ownerLink=card&&card.querySelector('ytd-channel-name a, #channel-name a, a[href^="/channel/"], a[href^="/@"]');
-                var ownerName=ownerLink?cleanTitle(ownerLink.textContent):'';
-                found.push({
-                  videoId:m[1],title:title,
-                  thumbnails:im?[{url:im.currentSrc||im.src,width:640}]:[],
-                  duration:durationNode?(durationNode.innerText||'').trim():'',
-                  artistName:ownerName,
-                  artistUrl:ownerLink?new URL(ownerLink.href,location.origin).href:'',
-                  artistThumbnail:''
-                });
-              });
-            }
-            return found.length ? emit(found) : false;
-          }
-          function poll(){
-            if(sent)return;
-            attempts++;
-            if(scan())return;
-            if(attempts<30)setTimeout(poll,500);
-            else emit([]);
-          }
-          poll();
-        })();
-    """.trimIndent()
 }
 
 /** Visible Chromium YouTube IFrame player hosted in the existing Swing player window. */
