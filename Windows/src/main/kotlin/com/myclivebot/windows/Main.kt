@@ -58,6 +58,8 @@ fun main() {
 @OptIn(ExperimentalMaterial3Api::class)
 private fun applicationWindow() = androidx.compose.ui.window.application {
     val scope = rememberCoroutineScope()
+    val runtimeServices = remember { DesktopRuntimeServices() }
+    var historyComments by remember { mutableStateOf<List<LiveComment>>(emptyList()) }
     var selected by remember { mutableStateOf("Home") }
     var username by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Desconectado") }
@@ -100,7 +102,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     }
 
     DisposableEffect(Unit) {
-        onDispose { connector?.close(); commentPipeline.close(); speechQueue.close(); speechEngine.release() }
+        onDispose { connector?.close(); commentPipeline.close(); speechQueue.close(); speechEngine.release(); runtimeServices.close() }
     }
 
     LaunchedEffect(Unit) {
@@ -131,7 +133,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                         }
                     }
                     Spacer(Modifier.height(18.dp))
-                    listOf("Home", "Chat en vivo", "DJ Music", "Voces", "Automatizaciones", "Settings").forEach { item ->
+                    listOf("Home", "Chat en vivo", "Historial", "DJ Music", "Voces", "Automatizaciones", "Settings").forEach { item ->
                         NavigationDrawerItem(
                             label = { Text(item) },
                             selected = selected == item,
@@ -140,6 +142,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                 Icon(when(item) {
                                     "Home" -> Icons.Default.Home
                                     "Chat en vivo" -> Icons.Default.Forum
+                                    "Historial" -> Icons.Default.History
                                     "DJ Music" -> Icons.Default.MusicNote
                                     "Voces" -> Icons.Default.RecordVoiceOver
                                     "Automatizaciones" -> Icons.Default.AutoAwesome
@@ -212,6 +215,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                                     }
                                                     val result = commentPipeline.onComment(comment)
                                                     if (firstDelivery) {
+                                                        runtimeServices.recordComment(comment)
                                                         SwingUtilities.invokeLater {
                                                             comments.add(0, comment)
                                                             while (comments.size > 300) comments.removeAt(comments.lastIndex)
@@ -220,8 +224,9 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                                     }
                                                     result
                                                 },
-                                                onStatus = { value -> SwingUtilities.invokeLater {
-                                                    status = value
+                                                onStatus = { value ->
+                                                    runtimeServices.publishStatus(value)
+                                                    SwingUtilities.invokeLater {
                                                     connected = value.startsWith("Conectado al LIVE")
                                                     when {
                                                         connected -> connecting = false
@@ -257,6 +262,29 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             CommentList(comments, Modifier.weight(1f))
                         }
                         "Chat en vivo" -> CommentList(comments, Modifier.fillMaxSize())
+                        "Historial" -> {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("Historial guardado localmente", color = Muted)
+                                Button(onClick = { scope.launch { historyComments = withContext(Dispatchers.IO) { runtimeServices.loadRecentHistory() } } }) {
+                                    Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Actualizar")
+                                }
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            if (historyComments.isEmpty()) {
+                                Text("Pulsa Actualizar para cargar los últimos comentarios guardados.", color = Muted)
+                            } else {
+                                LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    items(historyComments.reversed(), key = { it.id }) { comment ->
+                                        Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(12.dp)) {
+                                            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Text(comment.displayName, color = if (comment.isModerator) Cyan else Color.White, fontWeight = FontWeight.SemiBold)
+                                                Text(comment.text, color = Color(0xFFE5E6F0))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         "DJ Music" -> DjMusicPanel(djMusicState)
                         "Voces" -> VoicePanel(
                             readerSettings,
