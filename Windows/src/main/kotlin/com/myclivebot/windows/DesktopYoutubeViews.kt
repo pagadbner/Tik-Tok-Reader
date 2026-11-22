@@ -123,7 +123,7 @@ class DesktopYoutubeSearchView(
     private fun startSearchInjectionPolling(target: WebEngine, requestId: Int) {
         var attempts = 0
         val timer = Timeline()
-        timer.keyFrames.add(KeyFrame(Duration.millis(500.0)) {
+        timer.keyFrames.add(KeyFrame(Duration.millis(500.0), javafx.event.EventHandler {
             if (requestId != activeRequest.get() || requestId != loadingRequestId) {
                 timer.stop()
             } else {
@@ -263,7 +263,7 @@ class DesktopYoutubePlayerView(
         bridgeTimer?.stop()
         var attempts = 0
         val timer = Timeline()
-        timer.keyFrames.add(KeyFrame(Duration.millis(150.0)) {
+        timer.keyFrames.add(KeyFrame(Duration.millis(150.0), javafx.event.EventHandler {
             if (closed) {
                 timer.stop()
             } else {
