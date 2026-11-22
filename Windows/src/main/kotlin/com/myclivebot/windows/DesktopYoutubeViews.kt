@@ -11,6 +11,11 @@ import org.cef.browser.CefMessageRouter
 import org.cef.callback.CefQueryCallback
 import org.cef.handler.CefLoadHandlerAdapter
 import org.cef.handler.CefMessageRouterHandlerAdapter
+import org.cef.handler.CefRequestHandlerAdapter
+import org.cef.handler.CefResourceRequestHandler
+import org.cef.handler.CefResourceRequestHandlerAdapter
+import org.cef.misc.BoolRef
+import org.cef.network.CefRequest
 import org.json.JSONObject
 import java.awt.BorderLayout
 import java.io.BufferedReader
@@ -417,6 +422,44 @@ class DesktopYoutubePlayerView(
     private val browser = client.createBrowser("about:blank", false, false)
 
     init {
+        // Android WebView sets this identity through loadDataWithBaseURL("https://com.myclivebot/", ...).
+        // Desktop CEF does not derive an application Referer from its local HTML origin, so provide
+        // the same explicit Referer on YouTube player/API/media requests.
+        client.addRequestHandler(object : CefRequestHandlerAdapter() {
+            override fun getResourceRequestHandler(
+                browser: CefBrowser,
+                frame: CefFrame,
+                request: CefRequest,
+                isNavigation: Boolean,
+                isDownload: Boolean,
+                requestInitiator: String,
+                disableDefaultHandling: BoolRef
+            ): CefResourceRequestHandler? {
+                return object : CefResourceRequestHandlerAdapter() {
+                    override fun onBeforeResourceLoad(
+                        browser: CefBrowser,
+                        frame: CefFrame,
+                        request: CefRequest
+                    ): Boolean {
+                        val host = runCatching {
+                            java.net.URI(request.url).host.orEmpty().lowercase()
+                        }.getOrDefault("")
+                        val isYouTubeRequest =
+                            host == "youtube.com" || host.endsWith(".youtube.com") ||
+                            host == "youtube-nocookie.com" || host.endsWith(".youtube-nocookie.com") ||
+                            host == "youtube.googleapis.com" || host == "googlevideo.com" ||
+                            host.endsWith(".googlevideo.com")
+                        if (isYouTubeRequest) {
+                            val headers = LinkedHashMap<String, String>()
+                            request.getHeaderMap(headers)
+                            headers["Referer"] = "https://com.myclivebot/"
+                            request.setHeaderMap(headers)
+                        }
+                        return false
+                    }
+                }
+            }
+        })
         browser.uiComponent.isFocusable = false
         add(browser.uiComponent, BorderLayout.CENTER)
         Thread(::serve, "TikLBot-YouTube-Local-Origin").apply {
@@ -480,7 +523,7 @@ function notifyPlayer(event,args){
 var player;
 function onYouTubeIframeAPIReady(){
  player=new YT.Player('player',{width:'100%',height:'100%',videoId:'$videoId',
-  playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'$safeOrigin',widget_referrer:'https://com.myclivebot/'},
+  playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'https://com.myclivebot'},
   events:{
    onReady:function(e){e.target.setVolume($volume);$muteScript;notifyPlayer('onPlayerReady');e.target.playVideo();},
    onStateChange:function(e){if(e.data===0)notifyPlayer('onPlayerEnded');notifyPlayer('onPlayerState',[e.data]);},
