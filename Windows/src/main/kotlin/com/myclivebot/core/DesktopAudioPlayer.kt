@@ -74,7 +74,7 @@ object DesktopAudioPlayer {
         try {
             val adjustedSourceRate = (sourceRate * playbackRate).toInt().coerceIn(8_000, 96_000)
             val pcm = resampleMonoPcm(input, adjustedSourceRate, output.sampleRate)
-            writeSamples(output.line, pcm, volume.coerceIn(0f, 1f))
+            writeSamples(output.line, pcm, volume.coerceIn(0f, 1f), output.channels)
             if (!stopRequested.get()) output.line.drain()
         } finally {
             if (activeLine === output.line) activeLine = null
@@ -107,12 +107,12 @@ object DesktopAudioPlayer {
         try {
             val emit: (ShortArray) -> Unit = { samples ->
                 if (!stopRequested.get() && samples.isNotEmpty()) {
-                    writeSamples(output.line, resampler.process(samples), gain)
+                    writeSamples(output.line, resampler.process(samples), gain, output.channels)
                 }
             }
             synthesize(emit)
             if (!stopRequested.get()) {
-                writeSamples(output.line, resampler.finish(), gain)
+                writeSamples(output.line, resampler.finish(), gain, output.channels)
                 output.line.drain()
             }
         } finally {
@@ -122,36 +122,43 @@ object DesktopAudioPlayer {
         }
     }
 
-    private data class OpenOutput(val line: SourceDataLine, val sampleRate: Int)
+    private data class OpenOutput(val line: SourceDataLine, val sampleRate: Int, val channels: Int)
 
     private fun openOutputLine(): OpenOutput {
         var lastError: Exception? = null
         for (sampleRate in outputRates) {
-            val format = AudioFormat(sampleRate.toFloat(), 16, 1, true, false)
-            try {
-                val line = AudioSystem.getSourceDataLine(format)
-                line.open(format)
-                line.start()
-                return OpenOutput(line, sampleRate)
-            } catch (error: Exception) {
-                lastError = error
+            for (channels in listOf(1, 2)) {
+                val format = AudioFormat(sampleRate.toFloat(), 16, channels, true, false)
+                var line: SourceDataLine? = null
+                try {
+                    line = AudioSystem.getSourceDataLine(format)
+                    line.open(format)
+                    line.start()
+                    return OpenOutput(line, sampleRate, channels)
+                } catch (error: Exception) {
+                    runCatching { line?.close() }
+                    lastError = error
+                }
             }
         }
         throw IOException(
-            "Windows no ofrece una salida PCM compatible (44.1, 48 o 22.05 kHz). Comprueba el dispositivo de salida y su controlador.",
+            "Windows no ofrece una salida PCM mono/estéreo compatible (44.1, 48 o 22.05 kHz). Comprueba el dispositivo de salida y su controlador.",
             lastError
         )
     }
 
-    private fun writeSamples(line: SourceDataLine, samples: ShortArray, volume: Float) {
+    private fun writeSamples(line: SourceDataLine, samples: ShortArray, volume: Float, channels: Int) {
         if (samples.isEmpty() || stopRequested.get()) return
-        val bytes = ByteArray(samples.size * 2)
-        for (index in samples.indices) {
-            val value = (samples[index].toInt() * volume)
+        val bytes = ByteArray(samples.size * 2 * channels)
+        var cursor = 0
+        for (sample in samples) {
+            val value = (sample.toInt() * volume)
                 .toInt()
                 .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
-            bytes[index * 2] = (value and 0xff).toByte()
-            bytes[index * 2 + 1] = ((value shr 8) and 0xff).toByte()
+            repeat(channels) {
+                bytes[cursor++] = (value and 0xff).toByte()
+                bytes[cursor++] = ((value shr 8) and 0xff).toByte()
+            }
         }
         var offset = 0
         while (offset < bytes.size && !stopRequested.get()) {
