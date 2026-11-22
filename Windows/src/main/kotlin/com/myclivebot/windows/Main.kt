@@ -1476,6 +1476,7 @@ private fun DjMusicPanel(state: DjMusicState) {
     var searchView by remember { mutableStateOf<DesktopYoutubeSearchView?>(null) }
     var playerView by remember { mutableStateOf<DesktopYoutubePlayerView?>(null) }
     var playerWindow by remember { mutableStateOf<JFrame?>(null) }
+    var engineRequested by remember { mutableStateOf(false) }
     var accessMenu by remember { mutableStateOf(false) }
     val searchCounter = remember { AtomicInteger(0) }
 
@@ -1519,7 +1520,18 @@ private fun DjMusicPanel(state: DjMusicState) {
         }
     }
 
-    DisposableEffect(Unit) {
+    LaunchedEffect(state.pendingSearches, state.activeSearch) {
+        if (state.pendingSearches.isNotEmpty() || state.activeSearch != null) {
+            engineRequested = true
+        }
+    }
+
+    // JavaFX is deliberately not initialized just by opening this section.
+    // Start the desktop browser only when a search is requested or a player is explicitly opened.
+    DisposableEffect(engineRequested) {
+        if (!engineRequested) {
+            onDispose { }
+        } else {
         val disposed = java.util.concurrent.atomic.AtomicBoolean(false)
         val searchRef = java.util.concurrent.atomic.AtomicReference<DesktopYoutubeSearchView?>(null)
         val playerRef = java.util.concurrent.atomic.AtomicReference<DesktopYoutubePlayerView?>(null)
@@ -1625,6 +1637,7 @@ private fun DjMusicPanel(state: DjMusicState) {
             playerView = null
             playerWindow = null
         }
+        }
     }
 
     LaunchedEffect(state.pendingSearches, state.activeSearch, searchView, searching) {
@@ -1729,6 +1742,7 @@ private fun DjMusicPanel(state: DjMusicState) {
                         placeholder = { Text("José José - Volcán") }
                     )
                     Button(enabled = query.isNotBlank() && !searching, onClick = {
+                        engineRequested = true
                         DjMusicController.enqueueSearch(query, "Tú")
                         query = ""
                     }) { Text(if (searching) "Buscando…" else "Buscar") }
@@ -1791,6 +1805,7 @@ private fun DjMusicPanel(state: DjMusicState) {
                                 color = Muted
                             )
                             OutlinedButton(enabled = current != null, onClick = {
+                                engineRequested = true
                                 SwingUtilities.invokeLater {
                                     playerWindow?.let { it.isVisible = true; it.toFront(); it.requestFocus() }
                                 }
