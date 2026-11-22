@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,12 +63,18 @@ import java.util.LinkedHashSet
 import org.json.JSONArray
 import javax.swing.SwingUtilities
 
-private val Ink = Color(0xFF090B16)
-private val Panel = Color(0xFF15182A)
-private val PanelRaised = Color(0xFF1D2036)
-private val Violet = Color(0xFF9B6BFF)
-private val Cyan = Color(0xFF39D7E8)
-private val Muted = Color(0xFFA7ABC2)
+private val Ink: Color
+    @Composable get() = LocalDesktopTheme.current.background
+private val Panel: Color
+    @Composable get() = LocalDesktopTheme.current.panel
+private val PanelRaised: Color
+    @Composable get() = LocalDesktopTheme.current.surfaceVariant
+private val Violet: Color
+    @Composable get() = LocalDesktopTheme.current.primary
+private val Cyan: Color
+    @Composable get() = LocalDesktopTheme.current.secondary
+private val Muted: Color
+    @Composable get() = LocalDesktopTheme.current.muted
 
 fun main() {
     applicationWindow()
@@ -120,6 +127,12 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     var update by remember { mutableStateOf<DesktopUpdateInfo?>(null) }
     var updateStatus by remember { mutableStateOf("Comprobando actualizaciones…") }
     var updateBusy by remember { mutableStateOf(false) }
+    var desktopTheme by remember { mutableStateOf(DesktopThemeStore.load()) }
+
+    fun saveDesktopTheme(theme: DesktopThemePalette) {
+        desktopTheme = theme
+        DesktopThemeStore.save(theme.id)
+    }
 
     fun stopLive() {
         connector?.close()
@@ -216,13 +229,16 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     }
 
     MaterialTheme(colorScheme = darkColorScheme(
-        primary = Violet, secondary = Cyan, background = Ink, onBackground = Color.White,
-        surface = Panel, onSurface = Color.White,
-        surfaceVariant = PanelRaised, onSurfaceVariant = Muted,
-        primaryContainer = PanelRaised, onPrimaryContainer = Color.White,
-        secondaryContainer = PanelRaised, onSecondaryContainer = Color.White,
-        onPrimary = Color.White, onSecondary = Ink, outline = Muted, outlineVariant = PanelRaised
+        primary = desktopTheme.primary, secondary = desktopTheme.secondary,
+        background = desktopTheme.background, onBackground = Color.White,
+        surface = desktopTheme.panel, onSurface = Color.White,
+        surfaceVariant = desktopTheme.surfaceVariant, onSurfaceVariant = desktopTheme.muted,
+        primaryContainer = desktopTheme.surfaceVariant, onPrimaryContainer = Color.White,
+        secondaryContainer = desktopTheme.surfaceVariant, onSecondaryContainer = Color.White,
+        onPrimary = Color.White, onSecondary = Color.Black,
+        outline = desktopTheme.muted, outlineVariant = desktopTheme.surfaceVariant
     )) {
+        CompositionLocalProvider(LocalDesktopTheme provides desktopTheme) {
         DesktopWindow(onCloseRequest = { stopLive(); exitApplication() }, title = "Tik Tok Reader") {
             Row(Modifier.fillMaxSize().background(Ink)) {
                 Column(
@@ -460,10 +476,34 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                         )
                         "Automatizaciones" -> AutomationPanel(readerSettings, ::saveReaderSettings)
                         else -> {
+                            var themeMenuExpanded by remember { mutableStateOf(false) }
                             Column(
                                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
                                 verticalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
+                            Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
+                                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("Apariencia", fontWeight = FontWeight.SemiBold)
+                                    Text("Selecciona uno de los cuatro temas de Android. La selección se guarda en este equipo.", color = Muted, fontSize = 12.sp)
+                                    Box {
+                                        OutlinedButton(onClick = { themeMenuExpanded = true }) {
+                                            Text(desktopTheme.name)
+                                        }
+                                        DropdownMenu(expanded = themeMenuExpanded, onDismissRequest = { themeMenuExpanded = false }) {
+                                            DesktopThemePresets.all.forEach { theme ->
+                                                DropdownMenuItem(
+                                                    text = { Text(theme.name) },
+                                                    onClick = {
+                                                        saveDesktopTheme(theme)
+                                                        themeMenuExpanded = false
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Text(desktopTheme.description, color = Muted, fontSize = 11.sp)
+                                }
+                            }
                             Text("Preferencias del lector", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                             Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
                                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -583,6 +623,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                     }
                 }
             }
+        }
         }
     }
 }
