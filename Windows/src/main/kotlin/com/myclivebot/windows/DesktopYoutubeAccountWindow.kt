@@ -1,6 +1,6 @@
 package com.myclivebot.windows
 
-import org.cef.CefBrowser
+import org.cef.browser.CefBrowser
 import org.cef.CefClient
 import org.cef.CefApp
 import java.awt.BorderLayout
