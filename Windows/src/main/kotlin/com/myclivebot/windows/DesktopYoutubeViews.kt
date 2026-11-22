@@ -452,7 +452,7 @@ class DesktopYoutubePlayerView(
                         if (isYouTubeRequest) {
                             val headers = LinkedHashMap<String, String>()
                             request.getHeaderMap(headers)
-                            headers["Referer"] = "https://com.myclivebot/"
+                            headers["Referer"] = "https://github.com/pagadbner/Tik-Tok-Reader/"
                             request.setHeaderMap(headers)
                         }
                         return false
@@ -523,7 +523,7 @@ function notifyPlayer(event,args){
 var player;
 function onYouTubeIframeAPIReady(){
  player=new YT.Player('player',{width:'100%',height:'100%',videoId:'$videoId',
-  playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'https://com.myclivebot'},
+  playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'$safeOrigin'},
   events:{
    onReady:function(e){e.target.setVolume($volume);$muteScript;notifyPlayer('onPlayerReady');e.target.playVideo();},
    onStateChange:function(e){if(e.data===0)notifyPlayer('onPlayerEnded');notifyPlayer('onPlayerState',[e.data]);},
