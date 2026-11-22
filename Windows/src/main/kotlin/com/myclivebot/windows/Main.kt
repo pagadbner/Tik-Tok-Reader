@@ -1679,6 +1679,9 @@ private fun DjMusicPanel(state: DjMusicState) {
                         Text("DJ Music · YouTube", fontSize = 19.sp, fontWeight = FontWeight.Bold)
                         Text("Busca canciones, gestiona solicitudes y controla la reproducción.", color = Muted, fontSize = 12.sp)
                     }
+                    Button(onClick = { DesktopYoutubeAccountWindow.open() }) {
+                        Text("Cuenta YouTube")
+                    }
                     Box {
                         OutlinedButton(onClick = { accessMenu = true }) {
                             Text(when { state.moderatorsOnly -> "Moderadores"; state.followersOnly -> "Seguidores"; else -> "Todos" })
