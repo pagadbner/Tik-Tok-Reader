@@ -14,13 +14,13 @@ compose.desktop {
         mainClass = "com.myclivebot.windows.MainKt"
         nativeDistributions {
             targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi)
-            packageName = "TikLBot"
+            packageName = "Tik Tok Reader"
             packageVersion = "0.13.15"
-            description = "TikLBot — TikTok LIVE reader"
-            vendor = "TikLBot"
+            description = "Tik Tok Reader — lector de TikTok LIVE"
+            vendor = "Tik Tok Reader"
             appResourcesRootDir.set(project.layout.projectDirectory.dir("src/main/resources"))
             windows {
-                menuGroup = "TikLBot"
+                menuGroup = "Tik Tok Reader"
                 upgradeUuid = "7C1B4E21-65F0-4B79-A6B7-9A8A3F9A13D2"
                 shortcut = true
                 dirChooser = true
