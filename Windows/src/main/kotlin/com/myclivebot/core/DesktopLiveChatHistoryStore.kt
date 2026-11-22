@@ -186,12 +186,19 @@ class DesktopLiveChatHistoryStore(
 
             // Preserve existing Windows chat history after the product folder rename.
             if (!Files.exists(current) && Files.exists(legacy)) {
-                runCatching {
+                val sidecars = listOf("", "-wal", "-shm")
+                val copied = runCatching {
                     Files.createDirectories(currentDirectory)
-                    listOf("", "-wal", "-shm").forEach { suffix ->
+                    sidecars.forEach { suffix ->
                         val source = legacy.resolveSibling(legacy.fileName.toString() + suffix)
                         val target = current.resolveSibling(current.fileName.toString() + suffix)
-                        if (Files.exists(source)) Files.move(source, target)
+                        if (Files.exists(source)) Files.copy(source, target)
+                    }
+                }.isSuccess
+                if (!copied) {
+                    // Keep the original database and its WAL untouched if migration is incomplete.
+                    sidecars.forEach { suffix ->
+                        runCatching { Files.deleteIfExists(current.resolveSibling(current.fileName.toString() + suffix)) }
                     }
                 }
             }
