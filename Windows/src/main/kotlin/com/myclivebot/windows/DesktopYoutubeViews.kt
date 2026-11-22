@@ -12,6 +12,7 @@ import org.cef.callback.CefQueryCallback
 import org.cef.callback.CefCallback
 import org.cef.handler.CefResourceHandlerAdapter
 import org.cef.network.CefResponse
+import org.cef.network.CefRequest
 import org.cef.misc.IntRef
 import org.cef.misc.StringRef
 import org.cef.handler.CefLoadHandlerAdapter
