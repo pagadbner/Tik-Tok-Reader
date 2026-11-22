@@ -1,5 +1,6 @@
 package com.myclivebot.windows
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -7,15 +8,20 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,13 +47,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.awt.BorderLayout
 import java.awt.Desktop
 import java.net.URI
 import java.net.URL
 import java.awt.Image
+import java.awt.image.BufferedImage
 import javax.imageio.ImageIO
 import javax.swing.ImageIcon
-import javax.swing.JLabel
+import javax.swing.JFrame
+import javax.swing.WindowConstants
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.LinkedHashSet
 import org.json.JSONArray
@@ -61,9 +70,6 @@ private val Cyan = Color(0xFF39D7E8)
 private val Muted = Color(0xFFA7ABC2)
 
 fun main() {
-    // SwingPanel is used by the embedded YouTube browser/player. Enable interop
-    // blending before Compose starts so its native surface cannot cover navigation.
-    System.setProperty("compose.interop.blending", "true")
     applicationWindow()
 }
 
@@ -273,6 +279,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                         }
                     }
                     Spacer(Modifier.height(22.dp))
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
                     when(selected) {
                         "Home" -> {
                             Column(
@@ -367,7 +374,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             Spacer(Modifier.height(16.dp))
                             Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
                                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    SwingPanel(factory = { JLabel().apply { horizontalAlignment = JLabel.CENTER; verticalAlignment = JLabel.CENTER } }, update = { it.icon = profileAvatar }, modifier = Modifier.size(64.dp))
+                                    ProfileAvatar(profileAvatar)
                                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                         Text(if (username.isBlank()) "Perfil de TikTok" else "@$username", fontWeight = FontWeight.SemiBold)
                                         Text(when (profileLive) { true -> "Transmitiendo en LIVE"; false -> "No está en LIVE"; null -> "Consulta el avatar y estado público del perfil" }, color = if (profileLive == true) Cyan else Muted, fontSize = 12.sp)
@@ -573,9 +580,58 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             }
                         }
                     }
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ProfileAvatar(icon: ImageIcon?) {
+    val bitmap = remember(icon) {
+        val source = icon?.image
+        if (source == null || icon.iconWidth <= 0 || icon.iconHeight <= 0) null
+        else runCatching {
+            BufferedImage(icon.iconWidth, icon.iconHeight, BufferedImage.TYPE_INT_ARGB).also { target ->
+                val graphics = target.createGraphics()
+                try { graphics.drawImage(source, 0, 0, icon.iconWidth, icon.iconHeight, null) }
+                finally { graphics.dispose() }
+            }.toComposeImageBitmap()
+        }.getOrNull()
+    }
+    Box(Modifier.size(64.dp).clip(CircleShape).background(PanelRaised), contentAlignment = Alignment.Center) {
+        if (bitmap != null) Image(bitmap, contentDescription = "Avatar del perfil", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        else Icon(Icons.Default.Person, contentDescription = "Avatar del perfil", tint = Muted, modifier = Modifier.size(32.dp))
+    }
+}
+
+@Composable
+private fun RemoteAvatar(url: String?, displayName: String) {
+    var bitmap by remember(url) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(url) {
+        bitmap = null
+        if (!url.isNullOrBlank()) {
+            try {
+                bitmap = withContext(Dispatchers.IO) {
+                    val connection = URL(url).openConnection().apply {
+                        connectTimeout = 5_000
+                        readTimeout = 5_000
+                        setRequestProperty("User-Agent", "Mozilla/5.0")
+                    }
+                    connection.getInputStream().use { ImageIO.read(it) }?.toComposeImageBitmap()
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                bitmap = null
+            }
+        }
+    }
+    Box(Modifier.size(42.dp).clip(CircleShape).background(Panel), contentAlignment = Alignment.Center) {
+        val image = bitmap
+        if (image != null) Image(image, contentDescription = "Avatar de $displayName", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        else Text(displayName.trim().firstOrNull()?.uppercase() ?: "?", color = Cyan, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -597,6 +653,10 @@ private fun CommentList(
     onClearChat: () -> Unit = {},
     skippedCommentIds: Set<String> = emptySet()
 ) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(comments.firstOrNull()?.id) {
+        if (comments.isNotEmpty() && listState.firstVisibleItemIndex <= 1) listState.animateScrollToItem(0)
+    }
     Card(modifier, colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
         Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -611,13 +671,14 @@ private fun CommentList(
                     Text("Los comentarios aparecerán aquí cuando se conecte a un LIVE.", color = Muted)
                 }
             } else {
-                LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(comments, key = { it.id }) { comment ->
                         Row(
                             Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(10.dp)).padding(12.dp),
                             verticalAlignment = Alignment.Top,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            RemoteAvatar(comment.avatarUrl, comment.displayName)
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 if (comment.isModerator || comment.isFollower == true) {
                                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -909,6 +970,7 @@ private fun DjMusicPanel(state: DjMusicState) {
     var activeSearchId by remember { mutableIntStateOf(0) }
     var searchView by remember { mutableStateOf<DesktopYoutubeSearchView?>(null) }
     var playerView by remember { mutableStateOf<DesktopYoutubePlayerView?>(null) }
+    var playerWindow by remember { mutableStateOf<JFrame?>(null) }
     var accessMenu by remember { mutableStateOf(false) }
     val searchCounter = remember { AtomicInteger(0) }
 
@@ -953,9 +1015,45 @@ private fun DjMusicPanel(state: DjMusicState) {
     }
 
     DisposableEffect(Unit) {
+        val search = DesktopYoutubeSearchView { requestId, json ->
+            handleSearchResults.value(requestId, json)
+        }
+        val player = DesktopYoutubePlayerView(
+            onEnded = { DjMusicController.skip("La canción terminó.") },
+            onError = { code ->
+                val detail = when (code) {
+                    2 -> "ID o parámetro inválido"
+                    5 -> "falló el reproductor HTML5"
+                    100 -> "el video no existe o es privado"
+                    101, 150 -> "el propietario no permite la reproducción incrustada"
+                    153 -> "YouTube no recibió el HTTP Referer de la aplicación"
+                    else -> "error $code"
+                }
+                DjMusicController.setMessage("YouTube no pudo reproducir el video: $detail. Prueba otra coincidencia.")
+            },
+            onReady = { playerReady = true },
+            onState = { value ->
+                playerPlaying = value == 1
+                if (value == -1) DjMusicController.setMessage("YouTube bloqueó el inicio automático. Pulsa Reproducir.")
+            }
+        )
+        val window = JFrame("Tik Tok Reader · DJ Music").apply {
+            defaultCloseOperation = WindowConstants.HIDE_ON_CLOSE
+            contentPane.add(player, BorderLayout.CENTER)
+            setSize(820, 480)
+            minimumSize = java.awt.Dimension(640, 360)
+            setLocationRelativeTo(null)
+        }
+        searchView = search
+        playerView = player
+        playerWindow = window
         onDispose {
-            runCatching { searchView?.close() }
-            runCatching { playerView?.close() }
+            runCatching { search.close() }
+            runCatching { player.close() }
+            SwingUtilities.invokeLater { window.dispose() }
+            searchView = null
+            playerView = null
+            playerWindow = null
         }
     }
 
@@ -996,10 +1094,19 @@ private fun DjMusicPanel(state: DjMusicState) {
             playerReady = false
             playerPlaying = false
             if (track != null) {
-                runCatching { player.loadTrack(track, state.volume, state.muted) }
-                    .onFailure { DjMusicController.setMessage("No se pudo abrir el reproductor: ${it.message ?: "error"}") }
+                runCatching {
+                    player.loadTrack(track, state.volume, state.muted)
+                    SwingUtilities.invokeLater {
+                        playerWindow?.let { window ->
+                            window.isVisible = true
+                            window.toFront()
+                            window.requestFocus()
+                        }
+                    }
+                }.onFailure { DjMusicController.setMessage("No se pudo abrir el reproductor: ${it.message ?: "error"}") }
             } else {
                 player.clearTrack()
+                SwingUtilities.invokeLater { playerWindow?.isVisible = false }
             }
         }
     }
@@ -1100,31 +1207,27 @@ private fun DjMusicPanel(state: DjMusicState) {
                 if (current != null) {
                     Text("Solicitada por ${current.requestedBy}", color = Muted, fontSize = 11.sp)
                 }
-                SwingPanel(
-                    factory = {
-                        DesktopYoutubePlayerView(
-                            onEnded = { DjMusicController.skip("La canción terminó.") },
-                            onError = { code ->
-                                val detail = when (code) {
-                                    2 -> "ID o parámetro inválido"
-                                    5 -> "falló el reproductor HTML5"
-                                    100 -> "el video no existe o es privado"
-                                    101, 150 -> "el propietario no permite la reproducción incrustada"
-                                    153 -> "YouTube no recibió el HTTP Referer de la aplicación"
-                                    else -> "error $code"
+                Card(
+                    Modifier.fillMaxWidth().height(150.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.Black),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Reproductor independiente", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                if (current == null) "Selecciona una canción para abrir el reproductor."
+                                else "El video se reproduce en una ventana separada para mantener fluida la aplicación.",
+                                color = Muted
+                            )
+                            OutlinedButton(enabled = current != null, onClick = {
+                                SwingUtilities.invokeLater {
+                                    playerWindow?.let { it.isVisible = true; it.toFront(); it.requestFocus() }
                                 }
-                                DjMusicController.setMessage("YouTube no pudo reproducir el video: $detail. Prueba otra coincidencia.")
-                            },
-                            onReady = { playerReady = true },
-                            onState = { value ->
-                                playerPlaying = value == 1
-                                if (value == -1) DjMusicController.setMessage("YouTube bloqueó el inicio automático. Pulsa Reproducir.")
-                            }
-                        ).also { playerView = it }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(220.dp),
-                    update = { playerView = it as DesktopYoutubePlayerView }
-                )
+                            }) { Text("Mostrar reproductor") }
+                        }
+                    }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = {
                         DjMusicController.setMuted(!state.muted)
@@ -1182,14 +1285,6 @@ private fun DjMusicPanel(state: DjMusicState) {
         }
     }
 
-    SwingPanel(
-        factory = {
-            DesktopYoutubeSearchView { requestId, json -> handleSearchResults.value(requestId, json) }
-                .also { searchView = it }
-        },
-        modifier = Modifier.size(1.dp),
-        update = { searchView = it as DesktopYoutubeSearchView }
-    )
 }
 
 @Composable
