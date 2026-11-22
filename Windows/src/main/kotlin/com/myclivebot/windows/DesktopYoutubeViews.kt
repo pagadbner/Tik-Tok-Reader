@@ -135,7 +135,7 @@ class DesktopYoutubeSearchView(
                     dispatchResults(requestId, "[]")
                 }
             }
-        })
+        }))
         timer.cycleCount = Timeline.INDEFINITE
         injectionTimer = timer
         timer.play()
@@ -294,7 +294,7 @@ class DesktopYoutubePlayerView(
                     SwingUtilities.invokeLater { onError(5) }
                 }
             }
-        })
+        }))
         timer.cycleCount = Timeline.INDEFINITE
         bridgeTimer = timer
         timer.play()
