@@ -55,8 +55,8 @@ jobs:
         run: |
           $magick = Get-Command magick.exe -ErrorAction SilentlyContinue
           if (!$magick) { throw "ImageMagick no está disponible para generar el icono nativo." }
-          & $magick.Source -background none "Windows/src/main/resources/tik-tok-reader-icon.svg" -define icon:auto-resize=256,128,64,48,32,16 "Windows/src/main/resources/tiklbot-icon.ico"
-          if ($LASTEXITCODE -ne 0 -or !(Test-Path "Windows/src/main/resources/tiklbot-icon.ico")) { throw "No se pudo generar el icono ICO." }
+          & $magick.Source -background none "Windows/src/main/resources/tik-tok-reader-icon.svg" -define icon:auto-resize=256,128,64,48,32,16 "Windows/src/main/resources/tik-tok-reader-icon.ico"
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path "Windows/src/main/resources/tik-tok-reader-icon.ico")) { throw "No se pudo generar el icono ICO." }
 
       - name: Set up Gradle 8.11.1
         uses: gradle/actions/setup-gradle@v4
@@ -107,8 +107,8 @@ jobs:
         with:
           tag_name: latest
           files: |
-            Windows/build/installer/TikLBot-Windows-Setup.exe
-            Windows/build/installer/TikLBot-Windows-Setup.exe.sha256
+            Windows/build/installer/TikTokReader-Windows-Setup.exe
+            Windows/build/installer/TikTokReader-Windows-Setup.exe.sha256
           overwrite_files: true
           fail_on_unmatched_files: true
 
