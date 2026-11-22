@@ -17,8 +17,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
@@ -48,6 +52,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.awt.BorderLayout
 import java.awt.Desktop
 import java.net.URI
@@ -136,6 +142,8 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     var updateStatus by remember { mutableStateOf("Comprobando actualizaciones…") }
     var updateBusy by remember { mutableStateOf(false) }
     var updatePromptShown by remember { mutableStateOf(false) }
+    var showUninstallDialog by remember { mutableStateOf(false) }
+    var showComingSoonDialog by remember { mutableStateOf(false) }
     var desktopTheme by remember { mutableStateOf(DesktopThemeStore.load()) }
 
     fun saveDesktopTheme(theme: DesktopThemePalette) {
@@ -342,6 +350,38 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                     }
                 )
             }
+            if (showComingSoonDialog) {
+                AlertDialog(
+                    onDismissRequest = { showComingSoonDialog = false },
+                    title = { Text("Próximamente") },
+                    text = { Text("Esta sección estará disponible próximamente.") },
+                    confirmButton = {
+                        TextButton(onClick = { showComingSoonDialog = false }) { Text("Aceptar") }
+                    }
+                )
+            }
+            if (showUninstallDialog) {
+                AlertDialog(
+                    onDismissRequest = { showUninstallDialog = false },
+                    title = { Text("Desinstalar Tik Tok Reader") },
+                    text = {
+                        Text("Se abrirá la configuración de aplicaciones de Windows. Busca Tik Tok Reader y selecciona Desinstalar. Esta acción no elimina manualmente tus datos ni configuraciones personales.")
+                    },
+                    confirmButton = {
+                        Button(onClick = {
+                            showUninstallDialog = false
+                            runCatching {
+                                ProcessBuilder("explorer.exe", "ms-settings:appsfeatures").start()
+                            }.onFailure {
+                                updateStatus = "No se pudo abrir la configuración de Windows: ${it.message ?: "error"}"
+                            }
+                        }) { Text("Abrir desinstalación") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showUninstallDialog = false }) { Text("Cancelar") }
+                    }
+                )
+            }
             Row(Modifier.fillMaxSize().background(Ink)) {
                 Column(
                     Modifier.width(224.dp).fillMaxHeight().background(Panel).padding(16.dp),
@@ -359,7 +399,13 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                         NavigationDrawerItem(
                             label = { Text(item) },
                             selected = selected == item,
-                            onClick = { selected = item },
+                            onClick = {
+                                if (item == "Historial" || item == "DJ Music") {
+                                    showComingSoonDialog = true
+                                } else {
+                                    selected = item
+                                }
+                            },
                             icon = {
                                 Icon(when(item) {
                                     "Home" -> Icons.Default.Home
@@ -384,27 +430,35 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                     Spacer(Modifier.weight(1f))
                     Divider(color = PanelRaised)
                     Surface(color = PanelRaised, shape = RoundedCornerShape(12.dp)) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Column(
+                            Modifier.fillMaxWidth().padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            IconButton(
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("Tik Tok Reader", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text(updateStatus, color = Muted, fontSize = 10.sp, maxLines = 2)
+                            }
+                            Button(
                                 enabled = !updateBusy,
                                 onClick = {
                                     if (update != null) updatePromptShown = true
                                     else checkForUpdates()
-                                }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
                             ) {
-                                Icon(
-                                    Icons.Default.Download,
-                                    contentDescription = "Buscar o instalar actualizaciones",
-                                    tint = Cyan
-                                )
+                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(if (update != null) "Actualizar ahora" else "Buscar actualizaciones", fontSize = 11.sp)
                             }
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("Actualizaciones", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                Text(updateStatus, color = Muted, fontSize = 10.sp, maxLines = 2)
+                            OutlinedButton(
+                                onClick = { showUninstallDialog = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                            ) {
+                                Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Desinstalar", fontSize = 11.sp)
                             }
                         }
                     }
@@ -464,6 +518,12 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                                                 processedCommentSideEffects.remove(processedCommentSideEffects.first())
                                                             }
                                                             true
+                                                        }
+                                                    }
+                                                    if (firstDelivery) {
+                                                        // Begin avatar retrieval before the chat row is queued for display.
+                                                        scope.launch(Dispatchers.IO) {
+                                                            RemoteAvatarCache.preload(comment.avatarUrl, comment.profileUsername)
                                                         }
                                                     }
                                                     if (firstDelivery &&
@@ -593,7 +653,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             }
                             }
                         }
-                        "DJ Music" -> DjMusicPanel(djMusicState)
+                        "DJ Music" -> Spacer(Modifier.fillMaxSize())
                         "Voces" -> VoicePanel(
                             readerSettings,
                             voiceMuted,
@@ -739,6 +799,12 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             Spacer(Modifier.height(14.dp))
                             }
                         }
+                    }
+                    Box(
+                        modifier = if (selected == "DJ Music") Modifier.fillMaxSize()
+                        else Modifier.size(1.dp).clipToBounds()
+                    ) {
+                        DjMusicPanel(djMusicState)
                     }
                     }
                 }
@@ -942,6 +1008,7 @@ private fun EditableStringList(
 private object RemoteAvatarCache {
     val images = ConcurrentHashMap<String, ImageBitmap>()
     val userUrls = ConcurrentHashMap<String, String>()
+    private val loadLocks = ConcurrentHashMap<String, Mutex>()
     private val client = okhttp3.OkHttpClient.Builder()
         .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
@@ -949,37 +1016,66 @@ private object RemoteAvatarCache {
         .followRedirects(true)
         .build()
 
-    suspend fun load(url: String): ImageBitmap? = withContext(Dispatchers.IO) {
-        runCatching {
-            val request = okhttp3.Request.Builder()
-                .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36")
-                .header("Referer", "https://www.tiktok.com/")
-                .header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
-                .build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) null
-                else {
-                    val source = response.body?.byteStream()?.use { ImageIO.read(it) }
-                    if (source == null) null
-                    else {
-                        val target = BufferedImage(128, 128, BufferedImage.TYPE_INT_ARGB)
-                        val graphics = target.createGraphics()
-                        try {
-                            graphics.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR)
-                            graphics.drawImage(source, 0, 0, 128, 128, null)
-                        } finally {
-                            graphics.dispose()
-                            source.flush()
-                        }
-                        target.toComposeImageBitmap()
-                    }
-                }
+    suspend fun preload(url: String?, username: String) {
+        val cleanUsername = username.trim().removePrefix("@").substringBefore("/")
+            .takeIf { it.matches(Regex("[A-Za-z0-9._]{1,24}")) }.orEmpty()
+        var resolvedUrl = url?.takeIf { it.startsWith("https://") }
+            ?: cleanUsername.takeIf { it.isNotBlank() }?.let { userUrls[it] }
+        if (resolvedUrl.isNullOrBlank() && cleanUsername.isNotBlank()) {
+            resolvedUrl = TikTokProfileLookup.fetchAvatarUrl(cleanUsername)
+        }
+        if (!resolvedUrl.isNullOrBlank()) {
+            val loaded = images[resolvedUrl] ?: load(resolvedUrl)
+            if (loaded != null) {
+                if (images.size > 300) images.clear()
+                images[resolvedUrl] = loaded
+                if (cleanUsername.isNotBlank()) userUrls[cleanUsername] = resolvedUrl
             }
-        }.getOrNull()
+        }
+    }
+
+    suspend fun load(url: String): ImageBitmap? {
+        images[url]?.let { return it }
+        val lock = loadLocks.computeIfAbsent(url) { Mutex() }
+        return lock.withLock {
+            images[url]?.let { return@withLock it }
+            val loaded = withContext(Dispatchers.IO) {
+                runCatching {
+                    val request = okhttp3.Request.Builder()
+                        .url(url)
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36")
+                        .header("Referer", "https://www.tiktok.com/")
+                        .header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+                        .build()
+                    client.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) null
+                        else {
+                            val source = response.body?.byteStream()?.use { ImageIO.read(it) }
+                            if (source == null) null
+                            else {
+                                val target = BufferedImage(128, 128, BufferedImage.TYPE_INT_ARGB)
+                                val graphics = target.createGraphics()
+                                try {
+                                    graphics.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+                                    graphics.drawImage(source, 0, 0, 128, 128, null)
+                                } finally {
+                                    graphics.dispose()
+                                    source.flush()
+                                }
+                                target.toComposeImageBitmap()
+                            }
+                        }
+                    }
+                }.getOrNull()
+            }
+            if (loaded != null) {
+                if (images.size > 300) images.clear()
+                images[url] = loaded
+            }
+            loaded
+        }
     }
 }
-
 @Composable
 private fun ProfileAvatar(icon: ImageIcon?) {
     val bitmap = remember(icon) {
@@ -1036,7 +1132,6 @@ private fun RemoteAvatar(
     Box(Modifier.size(size).clip(CircleShape).background(Panel), contentAlignment = Alignment.Center) {
         val image = bitmap
         if (image != null) Image(image, contentDescription = "Avatar de $displayName", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        else Text(displayName.trim().firstOrNull()?.uppercase() ?: "?", color = Cyan, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -1399,6 +1494,7 @@ private fun AutomationPanel(settings: ReaderSettings, onChange: (ReaderSettings)
 @Composable
 private fun DjMusicPanel(state: DjMusicState) {
     var query by remember { mutableStateOf("") }
+    val searchFocusRequester = remember { FocusRequester() }
     var searchResults by remember { mutableStateOf<List<DjMusicTrack>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
     var playerReady by remember { mutableStateOf(false) }
@@ -1407,7 +1503,7 @@ private fun DjMusicPanel(state: DjMusicState) {
     var activeSearchId by remember { mutableIntStateOf(0) }
     var searchView by remember { mutableStateOf<DesktopYoutubeSearchView?>(null) }
     var playerView by remember { mutableStateOf<DesktopYoutubePlayerView?>(null) }
-    var playerWindow by remember { mutableStateOf<JFrame?>(null) }
+    var engineRequested by remember { mutableStateOf(false) }
     var accessMenu by remember { mutableStateOf(false) }
     val searchCounter = remember { AtomicInteger(0) }
 
@@ -1451,60 +1547,97 @@ private fun DjMusicPanel(state: DjMusicState) {
         }
     }
 
-    DisposableEffect(Unit) {
-        val search = DesktopYoutubeSearchView { requestId, json ->
-            handleSearchResults.value(requestId, json)
+    LaunchedEffect(state.pendingSearches, state.activeSearch) {
+        if (state.pendingSearches.isNotEmpty() || state.activeSearch != null) {
+            engineRequested = true
         }
-        // JavaFX WebView needs a displayable Swing host to execute YouTube's page scripts.
-        // Keep this helper frame off-screen; it is never shown to the user.
-        val searchWindow = JFrame("Tik Tok Reader · YouTube Search").apply {
-            defaultCloseOperation = WindowConstants.DO_NOTHING_ON_CLOSE
-            type = java.awt.Window.Type.UTILITY
-            isUndecorated = true
-            contentPane.add(search, BorderLayout.CENTER)
-            setSize(640, 480)
-            setLocation(-32000, -32000)
-            isVisible = true
-        }
-        val player = DesktopYoutubePlayerView(
-            onEnded = { DjMusicController.skip("La canción terminó.") },
-            onError = { code ->
-                val detail = when (code) {
-                    2 -> "ID o parámetro inválido"
-                    5 -> "falló el reproductor HTML5"
-                    100 -> "el video no existe o es privado"
-                    101, 150 -> "el propietario no permite la reproducción incrustada"
-                    153 -> "YouTube no recibió el HTTP Referer de la aplicación"
-                    else -> "error $code"
+    }
+
+    // JavaFX is deliberately not initialized just by opening this section.
+    // Start the desktop browser only when a search is requested or a player is explicitly opened.
+    DisposableEffect(engineRequested) {
+        if (!engineRequested) {
+            onDispose { }
+        } else {
+        val disposed = java.util.concurrent.atomic.AtomicBoolean(false)
+        val searchRef = java.util.concurrent.atomic.AtomicReference<DesktopYoutubeSearchView?>(null)
+        val playerRef = java.util.concurrent.atomic.AtomicReference<DesktopYoutubePlayerView?>(null)
+
+        DjMusicController.setMessage("Preparando el motor Chromium para DJ Music…")
+        DesktopJcefRuntime.initialize().whenComplete { cefApp, initError ->
+            if (initError != null) {
+                if (!disposed.get()) SwingUtilities.invokeLater {
+                    val detail = initError.cause?.message ?: initError.message ?: "error de Chromium"
+                    DjMusicController.setMessage("No se pudo preparar DJ Music: $detail")
                 }
-                DjMusicController.setMessage("YouTube no pudo reproducir el video: $detail. Prueba otra coincidencia.")
-            },
-            onReady = { playerReady = true },
-            onState = { value ->
-                playerPlaying = value == 1
-                if (value == -1) DjMusicController.setMessage("YouTube bloqueó el inicio automático. Pulsa Reproducir.")
+            } else {
+                SwingUtilities.invokeLater {
+                    if (!disposed.get()) {
+                        try {
+                            val search = DesktopYoutubeSearchView(
+                                onResults = { requestId, json ->
+                                    handleSearchResults.value(requestId, json)
+                                },
+                                onError = { requestId, message ->
+                                    if (requestId == searchCounter.get()) {
+                                        val requester = activeSearch
+                                        searching = false
+                                        activeSearch = null
+                                        requester?.let {
+                                            DjMusicController.completeSearch(it.first, it.second)
+                                        }
+                                        DjMusicController.setMessage("No se pudo buscar en YouTube: $message")
+                                    }
+                                }
+                            )
+                            val player = DesktopYoutubePlayerView(
+                                cefApp,
+                                onEnded = { DjMusicController.skip("La canción terminó.") },
+                                onError = { code ->
+                                    playerReady = false
+                                    playerPlaying = false
+                                    val detail = when (code) {
+                                        2 -> "ID o parámetro inválido"
+                                        5 -> "falló el reproductor HTML5"
+                                        100 -> "el video no existe o es privado"
+                                        101, 150 -> "el propietario no permite la reproducción incrustada"
+                                        153 -> "YouTube no recibió el HTTP Referer de la aplicación"
+                                        else -> "error $code"
+                                    }
+                                    DjMusicController.setMessage("YouTube no pudo reproducir el video: $detail. Prueba otra coincidencia.")
+                                },
+                                onReady = { playerReady = true },
+                                onState = { value ->
+                                    playerPlaying = value == 1
+                                    if (value == -1) DjMusicController.setMessage("YouTube bloqueó el inicio automático. Pulsa Reproducir.")
+                                }
+                            )
+                            if (disposed.get()) {
+                                search.close()
+                                player.close()
+                            } else {
+                                searchRef.set(search)
+                                playerRef.set(player)
+                                searchView = search
+                                playerView = player
+                            }
+                        } catch (error: Exception) {
+                            DjMusicController.setMessage("No se pudo iniciar DJ Music: ${error.message ?: "error de Chromium"}")
+                        }
+                    }
+                }
             }
-        )
-        val window = JFrame("Tik Tok Reader · DJ Music").apply {
-            defaultCloseOperation = WindowConstants.HIDE_ON_CLOSE
-            contentPane.add(player, BorderLayout.CENTER)
-            setSize(820, 480)
-            minimumSize = java.awt.Dimension(640, 360)
-            setLocationRelativeTo(null)
         }
-        searchView = search
-        playerView = player
-        playerWindow = window
+
         onDispose {
-            runCatching { search.close() }
-            runCatching { player.close() }
+            disposed.set(true)
             SwingUtilities.invokeLater {
-                searchWindow.dispose()
-                window.dispose()
+                runCatching { searchRef.getAndSet(null)?.close() }
+                runCatching { playerRef.getAndSet(null)?.close() }
             }
             searchView = null
             playerView = null
-            playerWindow = null
+        }
         }
     }
 
@@ -1547,17 +1680,9 @@ private fun DjMusicPanel(state: DjMusicState) {
             if (track != null) {
                 runCatching {
                     player.loadTrack(track, state.volume, state.muted)
-                    SwingUtilities.invokeLater {
-                        playerWindow?.let { window ->
-                            window.isVisible = true
-                            window.toFront()
-                            window.requestFocus()
-                        }
-                    }
                 }.onFailure { DjMusicController.setMessage("No se pudo abrir el reproductor: ${it.message ?: "error"}") }
             } else {
                 player.clearTrack()
-                SwingUtilities.invokeLater { playerWindow?.isVisible = false }
             }
         }
     }
@@ -1604,12 +1729,27 @@ private fun DjMusicPanel(state: DjMusicState) {
                     OutlinedTextField(
                         value = query,
                         onValueChange = { query = it },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f)
+                            .focusRequester(searchFocusRequester)
+                            .onFocusChanged { focus ->
+                                if (focus.isFocused) playerView?.releaseKeyboardFocus()
+                            },
                         singleLine = true,
+                        trailingIcon = {
+                            if (query.isNotEmpty()) {
+                                IconButton(onClick = {
+                                    query = ""
+                                    searchFocusRequester.requestFocus()
+                                }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Borrar búsqueda")
+                                }
+                            }
+                        },
                         label = { Text("Canción, artista o URL de YouTube") },
                         placeholder = { Text("José José - Volcán") }
                     )
                     Button(enabled = query.isNotBlank() && !searching, onClick = {
+                        engineRequested = true
                         DjMusicController.enqueueSearch(query, "Tú")
                         query = ""
                     }) { Text(if (searching) "Buscando…" else "Buscar") }
@@ -1658,24 +1798,26 @@ private fun DjMusicPanel(state: DjMusicState) {
                 if (current != null) {
                     Text("Solicitada por ${current.requestedBy}", color = Muted, fontSize = 11.sp)
                 }
+                Text("REPRODUCTOR OFICIAL DE YOUTUBE", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 Card(
-                    Modifier.fillMaxWidth().height(150.dp),
+                    Modifier.fillMaxWidth().height(220.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.Black),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Reproductor independiente", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    val embeddedPlayer = playerView
+                    if (embeddedPlayer != null) {
+                        androidx.compose.ui.awt.SwingPanel(
+                            factory = { embeddedPlayer },
+                            modifier = Modifier.fillMaxSize(),
+                            update = { }
+                        )
+                    } else {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text(
-                                if (current == null) "Selecciona una canción para abrir el reproductor."
-                                else "El video se reproduce en una ventana separada para mantener fluida la aplicación.",
+                                if (current == null) "El reproductor aparecerá aquí cuando selecciones una canción."
+                                else "Preparando el reproductor de YouTube…",
                                 color = Muted
                             )
-                            OutlinedButton(enabled = current != null, onClick = {
-                                SwingUtilities.invokeLater {
-                                    playerWindow?.let { it.isVisible = true; it.toFront(); it.requestFocus() }
-                                }
-                            }) { Text("Mostrar reproductor") }
                         }
                     }
                 }
@@ -1706,8 +1848,8 @@ private fun DjMusicPanel(state: DjMusicState) {
             }
         }
 
-        Card(Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 360.dp), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Cola de reproducción · ${state.queue.size}", color = Cyan, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     TextButton(enabled = state.queue.isNotEmpty(), onClick = { DjMusicController.clearQueue() }) { Text("Vaciar") }
@@ -1717,8 +1859,8 @@ private fun DjMusicPanel(state: DjMusicState) {
                         Text("La cola está vacía.", color = Muted)
                     }
                 } else {
-                    LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        itemsIndexed(state.queue) { index, track ->
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        state.queue.forEachIndexed { index, track ->
                             Row(Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(9.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text("${index + 1}. ${track.title}", color = Color.White, maxLines = 1)
