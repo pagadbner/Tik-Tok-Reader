@@ -413,6 +413,7 @@ class DesktopYoutubePlayerView(
     private val browser = client.createBrowser("about:blank", false, false)
 
     init {
+        browser.uiComponent.isFocusable = false
         add(browser.uiComponent, BorderLayout.CENTER)
         Thread(::serve, "TikLBot-YouTube-Local-Origin").apply {
             isDaemon = true
@@ -429,6 +430,12 @@ class DesktopYoutubePlayerView(
         val url = origin + "/player?video=" + track.videoId
         SwingUtilities.invokeLater {
             if (!closed) browser.loadURL(url)
+        }
+    }
+
+    fun releaseKeyboardFocus() {
+        SwingUtilities.invokeLater {
+            if (!closed) runCatching { browser.setFocus(false) }
         }
     }
 
