@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.myclivebot"
-version = "0.13.15"
+version = "0.13.16"
 
 kotlin { jvmToolchain(17) }
 
@@ -15,7 +15,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi)
             packageName = "Tik Tok Reader"
-            packageVersion = "0.13.15"
+            packageVersion = "0.13.16"
             description = "Tik Tok Reader — lector de TikTok LIVE"
             vendor = "Tik Tok Reader"
             appResourcesRootDir.set(project.layout.projectDirectory.dir("src/main/resources"))
