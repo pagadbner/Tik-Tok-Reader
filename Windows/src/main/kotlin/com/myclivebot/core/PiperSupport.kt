@@ -88,8 +88,18 @@ object PiperVoiceCatalog {
     const val DEFAULT_VOICE_ID = "es_MX-claude-high"
     private val appDataDirectory: Path by lazy {
         val local = System.getenv("LOCALAPPDATA")
-        if (!local.isNullOrBlank()) Path.of(local, "TikLBot")
-        else Path.of(System.getProperty("user.home"), ".tiklbot")
+        val base = if (!local.isNullOrBlank()) Path.of(local) else Path.of(System.getProperty("user.home"))
+        val current = if (!local.isNullOrBlank()) base.resolve("Tik Tok Reader") else base.resolve(".tik-tok-reader")
+        val legacy = if (!local.isNullOrBlank()) base.resolve("TikLBot") else base.resolve(".tiklbot")
+
+        // Migrate existing voice models without discarding them when the product is renamed.
+        if (!Files.exists(current) && Files.exists(legacy)) {
+            runCatching {
+                Files.createDirectories(current.parent)
+                Files.move(legacy, current, StandardCopyOption.REPLACE_EXISTING)
+            }
+        }
+        if (Files.exists(current)) current else if (Files.exists(legacy)) legacy else current
     }
     val voiceDirectory: Path get() = appDataDirectory.resolve("voices")
     fun find(id: String): PiperVoiceOption = voices.firstOrNull { it.id == id }
@@ -238,7 +248,7 @@ class PiperSpeechEngine(
             onProgress: (Int) -> Unit
         ) {
             val temp = target.resolveSibling(target.fileName.toString() + ".part")
-            val request = Request.Builder().url(url).header("User-Agent", "TikLBot-Windows").header("Accept", "*/*").build()
+            val request = Request.Builder().url(url).header("User-Agent", "TikTokReader-Windows").header("Accept", "*/*").build()
             try {
                 downloadClient.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) throw IOException("Descarga Piper respondió HTTP ${response.code}.")
