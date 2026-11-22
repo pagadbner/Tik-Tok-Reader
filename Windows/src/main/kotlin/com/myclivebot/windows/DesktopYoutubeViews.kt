@@ -6,6 +6,12 @@ import me.friwi.jcefmaven.MavenCefAppHandlerAdapter
 import org.cef.CefApp
 import org.cef.CefClient
 import org.cef.browser.CefBrowser
+import org.cef.browser.CefFrame
+import org.cef.handler.CefRequestHandlerAdapter
+import org.cef.handler.CefResourceRequestHandler
+import org.cef.handler.CefResourceRequestHandlerAdapter
+import org.cef.misc.BoolRef
+import org.cef.network.CefRequest
 import org.cef.browser.CefMessageRouter
 import org.cef.callback.CefQueryCallback
 import org.cef.handler.CefLoadHandlerAdapter
@@ -416,6 +422,41 @@ class DesktopYoutubePlayerView(
     private val browser = client.createBrowser("about:blank", false, false)
 
     init {
+        // YouTube requires a real HTTP Referer for desktop embedded-player clients.
+        // Use the actual local origin serving this player, never a fabricated external URL.
+        client.addRequestHandler(object : CefRequestHandlerAdapter() {
+            override fun getResourceRequestHandler(
+                browser: CefBrowser,
+                frame: CefFrame,
+                request: CefRequest,
+                isNavigation: Boolean,
+                isDownload: Boolean,
+                requestInitiator: String,
+                disableDefaultHandling: BoolRef
+            ): CefResourceRequestHandler? {
+                val host = runCatching {
+                    java.net.URI(request.url).host.orEmpty().lowercase()
+                }.getOrDefault("")
+                val youtubeHost = host == "youtube.com" || host.endsWith(".youtube.com") ||
+                    host == "youtube-nocookie.com" || host.endsWith(".youtube-nocookie.com") ||
+                    host == "googlevideo.com" || host.endsWith(".googlevideo.com") ||
+                    host == "youtube.googleapis.com"
+                if (!youtubeHost) return null
+                return object : CefResourceRequestHandlerAdapter() {
+                    override fun onBeforeResourceLoad(
+                        browser: CefBrowser,
+                        frame: CefFrame,
+                        request: CefRequest
+                    ): Boolean {
+                        val headers = LinkedHashMap<String, String>()
+                        request.getHeaderMap(headers)
+                        headers["Referer"] = "$origin/"
+                        request.setHeaderMap(headers)
+                        return false
+                    }
+                }
+            }
+        })
         browser.uiComponent.isFocusable = false
         add(browser.uiComponent, BorderLayout.CENTER)
         Thread(::serve, "TikLBot-YouTube-Local-Origin").apply {
@@ -460,7 +501,7 @@ class DesktopYoutubePlayerView(
         val safeOrigin = origin
         val muteScript = if (muted) "e.target.mute();" else "e.target.unMute();"
         return """<!doctype html>
-<html><head><meta name="referrer" content="origin">
+<html><head><meta name="referrer" content="strict-origin-when-cross-origin">
 <meta charset="utf-8"></head>
 <body style="margin:0;background:#000;overflow:hidden">
 <div id="player"></div>
@@ -479,7 +520,7 @@ function notifyPlayer(event,args){
 var player;
 function onYouTubeIframeAPIReady(){
  player=new YT.Player('player',{width:'100%',height:'100%',videoId:'$videoId',
-  playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'$safeOrigin'},
+  playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'$safeOrigin',widget_referrer:'$safeOrigin/'},
   events:{
    onReady:function(e){e.target.setVolume($volume);$muteScript;notifyPlayer('onPlayerReady');e.target.playVideo();},
    onStateChange:function(e){if(e.data===0)notifyPlayer('onPlayerEnded');notifyPlayer('onPlayerState',[e.data]);},
