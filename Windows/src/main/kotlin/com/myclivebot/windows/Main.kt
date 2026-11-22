@@ -63,6 +63,8 @@ fun main() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 private fun applicationWindow() = androidx.compose.ui.window.application {
+    // Install the public cookie store before the first JavaFX WebView is created.
+    DesktopTtwidCookieProvider.install()
     val scope = rememberCoroutineScope()
     val runtimeServices = remember { DesktopRuntimeServices() }
     var historyComments by remember { mutableStateOf<List<LiveComment>>(emptyList()) }
@@ -249,7 +251,8 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                                             value.startsWith("Probando el servidor") -> connecting = true
                                                     }
                                                 } },
-                                                onEvent = { event -> commentPipeline.onEvent(event) }
+                                                onEvent = { event -> commentPipeline.onEvent(event) },
+                                                cookieFallback = { DesktopTtwidCookieProvider.acquireTtwid() }
                                             )
                                             connector = live
                                             live.connect(username)
