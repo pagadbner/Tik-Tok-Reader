@@ -55,7 +55,7 @@ jobs:
         run: |
           $magick = Get-Command magick.exe -ErrorAction SilentlyContinue
           if (!$magick) { throw "ImageMagick no está disponible para generar el icono nativo." }
-          & $magick.Source -background none "Windows/src/main/resources/tiklbot-icon.svg" -define icon:auto-resize=256,128,64,48,32,16 "Windows/src/main/resources/tiklbot-icon.ico"
+          & $magick.Source -background none "Windows/src/main/resources/tik-tok-reader-icon.svg" -define icon:auto-resize=256,128,64,48,32,16 "Windows/src/main/resources/tiklbot-icon.ico"
           if ($LASTEXITCODE -ne 0 -or !(Test-Path "Windows/src/main/resources/tiklbot-icon.ico")) { throw "No se pudo generar el icono ICO." }
 
       - name: Set up Gradle 8.11.1
@@ -79,7 +79,7 @@ jobs:
         shell: pwsh
         run: |
           $env:PATH += ";C:\\Program Files (x86)\\Inno Setup 6"
-          & "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe" "Windows/installer/TikLBot.iss"
+          & "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe" "Windows/installer/TikTokReader.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup falló con código $LASTEXITCODE." }
 
       - name: Validate and hash Windows installer
@@ -88,7 +88,7 @@ jobs:
           $exe = "Windows/build/installer/TikTokReader-Windows-Setup.exe"
           if (!(Test-Path $exe) -or (Get-Item $exe).Length -lt 1000000) { throw "El instalador EXE no existe o está incompleto." }
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
-          "$hash  TikLBot-Windows-Setup.exe" | Set-Content "Windows/build/installer/TikTokReader-Windows-Setup.exe.sha256" -Encoding ascii
+          "$hash  TikTokReader-Windows-Setup.exe" | Set-Content "Windows/build/installer/TikTokReader-Windows-Setup.exe.sha256" -Encoding ascii
           Get-Item $exe | Format-List Name,Length
 
       - name: Upload Windows installer artifact
@@ -96,8 +96,8 @@ jobs:
         with:
           name: TikTokReader-Windows-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
           path: |
-            Windows/build/installer/TikLBot-Windows-Setup.exe
-            Windows/build/installer/TikLBot-Windows-Setup.exe.sha256
+            Windows/build/installer/TikTokReader-Windows-Setup.exe
+            Windows/build/installer/TikTokReader-Windows-Setup.exe.sha256
           if-no-files-found: error
           retention-days: 30
 
