@@ -35,7 +35,7 @@ object DesktopTtwidCookieProvider {
         cookieManager?.let { return@synchronized true }
         val current = CookieHandler.getDefault()
         val manager = when (current) {
-            null -> CookieManager(null, CookiePolicy.ACCEPT_ALL).also(CookieHandler::setDefault)
+            null -> CookieManager(null, CookiePolicy.ACCEPT_ALL).also { CookieHandler.setDefault(it) }
             is CookieManager -> current
             else -> return@synchronized false
         }
