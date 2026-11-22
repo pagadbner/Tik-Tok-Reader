@@ -539,7 +539,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             if (historyComments.isEmpty()) {
                                 Text("Pulsa Actualizar para cargar los últimos comentarios guardados.", color = Muted)
                             } else {
-                                LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     items(historyComments.reversed(), key = { it.id }) { comment ->
                                         Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(12.dp)) {
                                             Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
