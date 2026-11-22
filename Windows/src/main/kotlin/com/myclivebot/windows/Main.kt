@@ -48,6 +48,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.awt.BorderLayout
 import java.awt.Desktop
 import java.net.URI
@@ -505,6 +507,10 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                                     }
                                                     val result = commentPipeline.onComment(comment)
                                                     if (firstDelivery) {
+                                                        // Warm the avatar cache before the comment is painted, without blocking LIVE delivery.
+                                                        scope.launch(Dispatchers.IO) {
+                                                            RemoteAvatarCache.preload(comment.avatarUrl, comment.profileUsername)
+                                                        }
                                                         runtimeServices.recordComment(comment)
                                                         SwingUtilities.invokeLater {
                                                             comments.add(0, comment)
@@ -973,6 +979,7 @@ private fun EditableStringList(
 private object RemoteAvatarCache {
     val images = ConcurrentHashMap<String, ImageBitmap>()
     val userUrls = ConcurrentHashMap<String, String>()
+    private val loadLocks = ConcurrentHashMap<String, Mutex>()
     private val client = okhttp3.OkHttpClient.Builder()
         .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
@@ -980,37 +987,66 @@ private object RemoteAvatarCache {
         .followRedirects(true)
         .build()
 
-    suspend fun load(url: String): ImageBitmap? = withContext(Dispatchers.IO) {
-        runCatching {
-            val request = okhttp3.Request.Builder()
-                .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36")
-                .header("Referer", "https://www.tiktok.com/")
-                .header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
-                .build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) null
-                else {
-                    val source = response.body?.byteStream()?.use { ImageIO.read(it) }
-                    if (source == null) null
-                    else {
-                        val target = BufferedImage(128, 128, BufferedImage.TYPE_INT_ARGB)
-                        val graphics = target.createGraphics()
-                        try {
-                            graphics.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR)
-                            graphics.drawImage(source, 0, 0, 128, 128, null)
-                        } finally {
-                            graphics.dispose()
-                            source.flush()
-                        }
-                        target.toComposeImageBitmap()
-                    }
-                }
+    suspend fun preload(url: String?, username: String) {
+        val cleanUsername = username.trim().removePrefix("@").substringBefore("/")
+            .takeIf { it.matches(Regex("[A-Za-z0-9._]{1,24}")) }.orEmpty()
+        var resolvedUrl = url?.takeIf { it.startsWith("https://") }
+            ?: cleanUsername.takeIf { it.isNotBlank() }?.let { userUrls[it] }
+        if (resolvedUrl.isNullOrBlank() && cleanUsername.isNotBlank()) {
+            resolvedUrl = TikTokProfileLookup.fetchAvatarUrl(cleanUsername)
+        }
+        if (!resolvedUrl.isNullOrBlank()) {
+            val loaded = images[resolvedUrl] ?: load(resolvedUrl)
+            if (loaded != null) {
+                if (images.size > 300) images.clear()
+                images[resolvedUrl] = loaded
+                if (cleanUsername.isNotBlank()) userUrls[cleanUsername] = resolvedUrl
             }
-        }.getOrNull()
+        }
+    }
+
+    suspend fun load(url: String): ImageBitmap? {
+        images[url]?.let { return it }
+        val lock = loadLocks.computeIfAbsent(url) { Mutex() }
+        return lock.withLock {
+            images[url]?.let { return@withLock it }
+            val loaded = withContext(Dispatchers.IO) {
+                runCatching {
+                    val request = okhttp3.Request.Builder()
+                        .url(url)
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36")
+                        .header("Referer", "https://www.tiktok.com/")
+                        .header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+                        .build()
+                    client.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) null
+                        else {
+                            val source = response.body?.byteStream()?.use { ImageIO.read(it) }
+                            if (source == null) null
+                            else {
+                                val target = BufferedImage(128, 128, BufferedImage.TYPE_INT_ARGB)
+                                val graphics = target.createGraphics()
+                                try {
+                                    graphics.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+                                    graphics.drawImage(source, 0, 0, 128, 128, null)
+                                } finally {
+                                    graphics.dispose()
+                                    source.flush()
+                                }
+                                target.toComposeImageBitmap()
+                            }
+                        }
+                    }
+                }.getOrNull()
+            }
+            if (loaded != null) {
+                if (images.size > 300) images.clear()
+                images[url] = loaded
+            }
+            loaded
+        }
     }
 }
-
 @Composable
 private fun ProfileAvatar(icon: ImageIcon?) {
     val bitmap = remember(icon) {
@@ -1067,7 +1103,6 @@ private fun RemoteAvatar(
     Box(Modifier.size(size).clip(CircleShape).background(Panel), contentAlignment = Alignment.Center) {
         val image = bitmap
         if (image != null) Image(image, contentDescription = "Avatar de $displayName", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        else Text(displayName.trim().firstOrNull()?.uppercase() ?: "?", color = Cyan, fontWeight = FontWeight.Bold)
     }
 }
 
