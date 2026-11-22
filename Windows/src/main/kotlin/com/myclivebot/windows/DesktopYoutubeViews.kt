@@ -15,6 +15,7 @@ import org.cef.network.CefRequest
 import org.cef.browser.CefMessageRouter
 import org.cef.callback.CefQueryCallback
 import org.cef.handler.CefLoadHandlerAdapter
+import org.cef.handler.CefLifeSpanHandlerAdapter
 import org.cef.handler.CefMessageRouterHandlerAdapter
 import org.json.JSONObject
 import java.awt.BorderLayout
@@ -29,6 +30,62 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
+
+/**
+ * Lightweight Chromium request filter for common third-party advertising and
+ * tracking hosts. YouTube's own media hosts are intentionally never blocked.
+ */
+internal object DesktopAdBlock {
+    private val blockedDomains = setOf(
+        "doubleclick.net",
+        "googlesyndication.com",
+        "googleadservices.com",
+        "adservice.google.com",
+        "adnxs.com",
+        "adsrvr.org",
+        "taboola.com",
+        "outbrain.com",
+        "scorecardresearch.com",
+        "quantserve.com",
+        "pubmatic.com",
+        "openx.net",
+        "rubiconproject.com",
+        "criteo.com",
+        "casalemedia.com",
+        "amazon-adsystem.com",
+        "moatads.com",
+        "adroll.com",
+        "serving-sys.com"
+    )
+
+    fun shouldBlock(url: String): Boolean {
+        val host = runCatching { java.net.URI(url).host.orEmpty().lowercase() }.getOrDefault("")
+        return host.isNotBlank() && blockedDomains.any { host == it || host.endsWith(".$it") }
+    }
+
+    fun install(client: CefClient) {
+        client.addRequestHandler(object : CefRequestHandlerAdapter() {
+            override fun getResourceRequestHandler(
+                browser: CefBrowser,
+                frame: CefFrame,
+                request: CefRequest,
+                isNavigation: Boolean,
+                isDownload: Boolean,
+                requestInitiator: String,
+                disableDefaultHandling: BoolRef
+            ): CefResourceRequestHandler? {
+                if (!shouldBlock(request.url)) return null
+                return object : CefResourceRequestHandlerAdapter() {
+                    override fun onBeforeResourceLoad(
+                        browser: CefBrowser,
+                        frame: CefFrame,
+                        request: CefRequest
+                    ): Boolean = true
+                }
+            }
+        })
+    }
+}
 
 /**
  * Shared Chromium runtime for Windows DJ Music.
@@ -422,6 +479,16 @@ class DesktopYoutubePlayerView(
     private val browser = client.createBrowser("about:blank", false, false)
 
     init {
+        // Keep all YouTube navigation inside the embedded DJ Music player.
+        // In particular, suppress the "Watch on YouTube" popup from rejected embeds.
+        client.addLifeSpanHandler(object : CefLifeSpanHandlerAdapter() {
+            override fun onBeforePopup(
+                browser: CefBrowser,
+                frame: CefFrame,
+                target_url: String,
+                target_frame_name: String
+            ): Boolean = true
+        })
         // YouTube requires a real HTTP Referer for desktop embedded-player clients.
         // Use the actual local origin serving this player, never a fabricated external URL.
         client.addRequestHandler(object : CefRequestHandlerAdapter() {
@@ -437,6 +504,15 @@ class DesktopYoutubePlayerView(
                 val host = runCatching {
                     java.net.URI(request.url).host.orEmpty().lowercase()
                 }.getOrDefault("")
+                if (DesktopAdBlock.shouldBlock(request.url)) {
+                    return object : CefResourceRequestHandlerAdapter() {
+                        override fun onBeforeResourceLoad(
+                            browser: CefBrowser,
+                            frame: CefFrame,
+                            request: CefRequest
+                        ): Boolean = true
+                    }
+                }
                 val youtubeHost = host == "youtube.com" || host.endsWith(".youtube.com") ||
                     host == "youtube-nocookie.com" || host.endsWith(".youtube-nocookie.com") ||
                     host == "googlevideo.com" || host.endsWith(".googlevideo.com") ||

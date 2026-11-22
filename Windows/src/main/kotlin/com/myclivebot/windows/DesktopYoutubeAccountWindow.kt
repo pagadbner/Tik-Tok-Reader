@@ -52,6 +52,7 @@ object DesktopYoutubeAccountWindow {
 
                 try {
                     val newClient = cefApp.createClient()
+                    DesktopAdBlock.install(newClient)
                     val newBrowser = newClient.createBrowser("https://www.youtube.com/", false, false)
                     val newFrame = JFrame("Cuenta de YouTube · Tik Tok Reader").apply {
                         defaultCloseOperation = WindowConstants.DISPOSE_ON_CLOSE
