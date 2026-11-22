@@ -120,26 +120,30 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
         updateBusy = true
         try {
             update = withContext(Dispatchers.IO) { DesktopUpdateManager.checkForUpdate("0.13.15") }
-            updateStatus = if (update == null) "TikLBot PC está actualizado." else "Disponible TikLBot PC ${update!!.versionName}"
+            updateStatus = if (update == null) "Tik Tok Reader está actualizado." else "Disponible Tik Tok Reader ${update!!.versionName}"
         } catch (error: Exception) {
             updateStatus = "No se pudo comprobar la actualización: ${error.message ?: "error de red"}"
         } finally { updateBusy = false }
     }
 
     MaterialTheme(colorScheme = darkColorScheme(
-        primary = Violet, secondary = Cyan, background = Ink, surface = Panel,
-        onPrimary = Color.White, onBackground = Color.White, onSurface = Color.White
+        primary = Violet, secondary = Cyan, background = Ink, onBackground = Color.White,
+        surface = Panel, onSurface = Color.White,
+        surfaceVariant = PanelRaised, onSurfaceVariant = Muted,
+        primaryContainer = PanelRaised, onPrimaryContainer = Color.White,
+        secondaryContainer = PanelRaised, onSecondaryContainer = Color.White,
+        onPrimary = Color.White, onSecondary = Ink, outline = Muted, outlineVariant = PanelRaised
     )) {
-        DesktopWindow(onCloseRequest = { stopLive(); exitApplication() }, title = "TikLBot") {
+        DesktopWindow(onCloseRequest = { stopLive(); exitApplication() }, title = "Tik Tok Reader") {
             Row(Modifier.fillMaxSize().background(Ink)) {
                 Column(
                     Modifier.width(224.dp).fillMaxHeight().background(Panel).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        TikLBotLogo(42.dp)
+                        TikTokReaderLogo(42.dp)
                         Column {
-                            Text("TikLBot", fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                            Text("Tik Tok Reader", fontSize = 21.sp, fontWeight = FontWeight.Bold)
                             Text("DESKTOP • 0.13.15", fontSize = 10.sp, color = Muted)
                         }
                     }
@@ -171,7 +175,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                         )
                     }
                     Spacer(Modifier.weight(1f))
-                    Text("TikLBot para Windows", color = Muted, fontSize = 11.sp)
+                    Text("Tik Tok Reader para Windows", color = Muted, fontSize = 11.sp)
                     Text("La conexión LIVE usa el transporte JVM compartido.", color = Muted, fontSize = 10.sp)
                 }
                 Column(Modifier.fillMaxSize().padding(28.dp)) {
@@ -412,7 +416,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                                 updateBusy = true
                                                 try {
                                                     update = withContext(Dispatchers.IO) { DesktopUpdateManager.checkForUpdate("0.13.15") }
-                                                    updateStatus = if (update == null) "TikLBot PC está actualizado." else "Disponible TikLBot PC ${update!!.versionName}"
+                                                    updateStatus = if (update == null) "Tik Tok Reader está actualizado." else "Disponible Tik Tok Reader ${update!!.versionName}"
                                                 } catch (error: Exception) { updateStatus = error.message ?: "Error de actualización" }
                                                 finally { updateBusy = false }
                                             }
@@ -590,7 +594,7 @@ private fun VoicePanel(
                 }
                 if (piperDownloadRunning) LinearProgressIndicator(Modifier.fillMaxWidth())
                 if (piperDownloadStatus.isNotBlank()) Text(piperDownloadStatus, color = Muted, fontSize = 11.sp)
-                Text("Los modelos se descargan bajo demanda en la carpeta local de TikLBot; no se incluyen en el instalador.", color = Muted, fontSize = 10.sp)
+                Text("Los modelos se descargan bajo demanda en la carpeta local de Tik Tok Reader; no se incluyen en el instalador.", color = Muted, fontSize = 10.sp)
             }
             if (provider == "tikfinity") {
                 OutlinedTextField(
@@ -620,7 +624,7 @@ private fun AutomationPanel(settings: ReaderSettings, onChange: (ReaderSettings)
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Alertas automáticas", fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                    Text("Activa los avisos que TikLBot debe leer durante el LIVE.", color = Muted, fontSize = 13.sp)
+                    Text("Activa los avisos que Tik Tok Reader debe leer durante el LIVE.", color = Muted, fontSize = 13.sp)
                     SettingToggle("Nuevos seguidores", settings.readFollows) { onChange(settings.copy(readFollows = it)) }
                     SettingToggle("Regalos", settings.readGifts) { onChange(settings.copy(readGifts = it)) }
                     SettingToggle("Compartidos", settings.readShares) { onChange(settings.copy(readShares = it)) }
