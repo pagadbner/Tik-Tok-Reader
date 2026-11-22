@@ -9,17 +9,8 @@ import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.browser.CefMessageRouter
 import org.cef.callback.CefQueryCallback
-import org.cef.callback.CefCallback
-import org.cef.handler.CefResourceHandlerAdapter
-import org.cef.network.CefResponse
-import org.cef.network.CefRequest
-import org.cef.misc.IntRef
-import org.cef.misc.StringRef
 import org.cef.handler.CefLoadHandlerAdapter
 import org.cef.handler.CefMessageRouterHandlerAdapter
-import org.cef.handler.CefRequestHandlerAdapter
-import org.cef.handler.CefResourceRequestHandler
-import org.cef.misc.BoolRef
 import org.json.JSONObject
 import java.awt.BorderLayout
 import java.io.File
@@ -398,11 +389,9 @@ class DesktopYoutubePlayerView(
     private val onReady: () -> Unit,
     private val onState: (Int) -> Unit
 ) : JPanel(BorderLayout()), AutoCloseable {
-    // Match Android WebView.loadDataWithBaseURL("https://com.myclivebot/", html, ...).
-    // CEF serves this one document locally under the same HTTPS origin, so Chromium
-    // itself generates the origin/referrer context for YouTube's IFrame API.
+    // CefBrowser.loadString(html, baseUrl) is the JCEF equivalent of
+    // Android WebView.loadDataWithBaseURL(baseUrl, html, "text/html", "UTF-8", null).
     private val appBaseUrl = "https://com.myclivebot/"
-    @Volatile private var htmlBytes: ByteArray = ByteArray(0)
     @Volatile private var closed = false
     private val client = cefApp.createClient()
     private val router = createDjMusicMessageRouter(client) { payload ->
@@ -424,73 +413,6 @@ class DesktopYoutubePlayerView(
     private val browser = client.createBrowser("about:blank", false, false)
 
     init {
-        client.addRequestHandler(object : CefRequestHandlerAdapter() {
-            override fun getResourceRequestHandler(
-                browser: CefBrowser,
-                frame: CefFrame,
-                request: CefRequest,
-                isNavigation: Boolean,
-                isDownload: Boolean,
-                requestInitiator: String,
-                disableDefaultHandling: BoolRef
-            ): CefResourceRequestHandler? {
-                // Intercept only our synthetic Android-equivalent base document.
-                // All YouTube/API/media requests continue through Chromium unchanged.
-                if (!request.url.startsWith(appBaseUrl, ignoreCase = true)) return null
-                return object : CefResourceRequestHandlerAdapter() {
-                    override fun getResourceHandler(
-                        browser: CefBrowser,
-                        frame: CefFrame,
-                        request: CefRequest
-                    ): org.cef.handler.CefResourceHandler {
-                        val document = htmlBytes
-                        return object : org.cef.handler.CefResourceHandlerAdapter() {
-                            private var offset = 0
-
-                            override fun processRequest(
-                                request: CefRequest,
-                                callback: org.cef.callback.CefCallback
-                            ): Boolean {
-                                offset = 0
-                                callback.Continue()
-                                return true
-                            }
-
-                            override fun getResponseHeaders(
-                                response: org.cef.network.CefResponse,
-                                responseLength: org.cef.misc.IntRef,
-                                redirectUrl: org.cef.misc.StringRef
-                            ) {
-                                response.setStatus(200)
-                                response.setStatusText("OK")
-                                response.setMimeType("text/html")
-                                response.setHeaderByName("Cache-Control", "no-store", true)
-                                responseLength.set(document.size)
-                                redirectUrl.set("")
-                            }
-
-                            override fun readResponse(
-                                dataOut: ByteArray,
-                                bytesToRead: Int,
-                                bytesRead: org.cef.misc.IntRef,
-                                callback: org.cef.callback.CefCallback
-                            ): Boolean {
-                                val remaining = document.size - offset
-                                if (remaining <= 0) {
-                                    bytesRead.set(0)
-                                    return false
-                                }
-                                val count = minOf(bytesToRead, remaining)
-                                document.copyInto(dataOut, 0, offset, offset + count)
-                                offset += count
-                                bytesRead.set(count)
-                                return true
-                            }
-                        }
-                    }
-                }
-            }
-        })
         browser.uiComponent.isFocusable = false
         add(browser.uiComponent, BorderLayout.CENTER)
     }
@@ -500,10 +422,9 @@ class DesktopYoutubePlayerView(
             "ID de video de YouTube no válido."
         }
         if (closed) return
-        htmlBytes = playerHtml(track.videoId, volume.coerceIn(0, 100), muted)
-            .toByteArray(StandardCharsets.UTF_8)
+        val html = playerHtml(track.videoId, volume.coerceIn(0, 100), muted)
         SwingUtilities.invokeLater {
-            if (!closed) browser.loadURL(appBaseUrl + "player?video=" + track.videoId)
+            if (!closed) browser.loadString(html, appBaseUrl)
         }
     }
 
@@ -522,13 +443,12 @@ class DesktopYoutubePlayerView(
     private fun evaluate(script: String) {
         SwingUtilities.invokeLater {
             if (!closed && browser.hasDocument()) {
-                runCatching { browser.executeJavaScript(script, browser.url, 0) }
+                runCatching { browser.executeJavaScript(script, appBaseUrl, 0) }
             }
         }
     }
 
     private fun playerHtml(videoId: String, volume: Int, muted: Boolean): String {
-        val safeOrigin = "https://com.myclivebot"
         val muteScript = if (muted) "e.target.mute();" else "e.target.unMute();"
         return """<!doctype html>
 <html><head><meta name="referrer" content="strict-origin-when-cross-origin">
@@ -550,7 +470,7 @@ function notifyPlayer(event,args){
 var player;
 function onYouTubeIframeAPIReady(){
  player=new YT.Player('player',{width:'100%',height:'220',videoId:'$videoId',
-  playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'$safeOrigin'},
+  playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'https://com.myclivebot'},
   events:{
    onReady:function(e){e.target.setVolume($volume);$muteScript;notifyPlayer('onPlayerReady');e.target.playVideo();},
    onStateChange:function(e){if(e.data===0)notifyPlayer('onPlayerEnded');notifyPlayer('onPlayerState',[e.data]);},
@@ -569,7 +489,6 @@ function seekBy(s){if(player)player.seekTo(Math.max(0,player.getCurrentTime()+s)
     override fun close() {
         if (closed) return
         closed = true
-        htmlBytes = ByteArray(0)
         SwingUtilities.invokeLater {
             runCatching { browser.close(true) }
             runCatching { router.dispose() }
