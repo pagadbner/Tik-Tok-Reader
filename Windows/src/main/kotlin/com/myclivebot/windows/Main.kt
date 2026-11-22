@@ -737,7 +737,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                 }
                             }
                             Spacer(Modifier.height(14.dp))
-remove settings updater                            }
+                            }
                         }
                     }
                     }
