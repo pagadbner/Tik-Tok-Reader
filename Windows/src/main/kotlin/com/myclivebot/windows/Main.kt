@@ -127,6 +127,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     var update by remember { mutableStateOf<DesktopUpdateInfo?>(null) }
     var updateStatus by remember { mutableStateOf("Comprobando actualizaciones…") }
     var updateBusy by remember { mutableStateOf(false) }
+    var updatePromptShown by remember { mutableStateOf(false) }
     var desktopTheme by remember { mutableStateOf(DesktopThemeStore.load()) }
 
     fun saveDesktopTheme(theme: DesktopThemePalette) {
@@ -141,6 +142,25 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
         connecting = false
         synchronized(commentSideEffectLock) { processedCommentSideEffects.clear() }
         status = "Desconectado"
+    }
+
+    fun installUpdate(target: DesktopUpdateInfo) {
+        scope.launch {
+            updateBusy = true
+            updateStatus = "Descargando y verificando el instalador…"
+            try {
+                val installer = withContext(Dispatchers.IO) { DesktopUpdateManager.downloadAndVerify(target) }
+                updateStatus = "Instalador verificado. Cerrando la aplicación…"
+                DesktopUpdateManager.launchInstaller(installer)
+                stopLive()
+                exitApplication()
+            } catch (error: Exception) {
+                updateStatus = "No se pudo instalar: ${error.message ?: "error"}"
+                updatePromptShown = false
+            } finally {
+                updateBusy = false
+            }
+        }
     }
 
     fun skipQueuedComment(commentId: String) {
@@ -221,8 +241,9 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
         }
         updateBusy = true
         try {
-            update = withContext(Dispatchers.IO) { DesktopUpdateManager.checkForUpdate("0.13.15") }
+            update = withContext(Dispatchers.IO) { DesktopUpdateManager.checkForUpdate(DesktopUpdateManager.CURRENT_VERSION) }
             updateStatus = if (update == null) "Tik Tok Reader está actualizado." else "Disponible Tik Tok Reader ${update!!.versionName}"
+                                                    updatePromptShown = update != null
         } catch (error: Exception) {
             updateStatus = "No se pudo comprobar la actualización: ${error.message ?: "error de red"}"
         } finally { updateBusy = false }
@@ -240,6 +261,25 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     )) {
         CompositionLocalProvider(LocalDesktopTheme provides desktopTheme) {
         DesktopWindow(onCloseRequest = { stopLive(); exitApplication() }, title = "Tik Tok Reader") {
+            if (updatePromptShown && update != null) {
+                AlertDialog(
+                    onDismissRequest = { if (!updateBusy) updatePromptShown = false },
+                    title = { Text("Actualización disponible") },
+                    text = { Text("Hay una nueva versión de Tik Tok Reader para Windows: ${update!!.versionName}. El instalador se descargará y verificará mediante SHA-256 antes de ejecutarse.") },
+                    confirmButton = {
+                        Button(enabled = !updateBusy, onClick = {
+                            val target = update
+                            if (target != null) {
+                                updatePromptShown = false
+                                installUpdate(target)
+                            }
+                        }) { Text(if (updateBusy) "Preparando…" else "Actualizar ahora") }
+                    },
+                    dismissButton = {
+                        TextButton(enabled = !updateBusy, onClick = { updatePromptShown = false }) { Text("Más tarde") }
+                    }
+                )
+            }
             Row(Modifier.fillMaxSize().background(Ink)) {
                 Column(
                     Modifier.width(224.dp).fillMaxHeight().background(Panel).padding(16.dp),
@@ -249,7 +289,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                         TikTokReaderLogo(42.dp)
                         Column {
                             Text("Tik Tok Reader", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            Text("DESKTOP • 0.13.15", fontSize = 10.sp, color = Muted)
+                            Text("DESKTOP • ${DesktopUpdateManager.CURRENT_VERSION}", fontSize = 10.sp, color = Muted)
                         }
                     }
                     Spacer(Modifier.height(18.dp))
@@ -596,23 +636,16 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                             scope.launch {
                                                 updateBusy = true
                                                 try {
-                                                    update = withContext(Dispatchers.IO) { DesktopUpdateManager.checkForUpdate("0.13.15") }
+                                                    update = withContext(Dispatchers.IO) { DesktopUpdateManager.checkForUpdate(DesktopUpdateManager.CURRENT_VERSION) }
                                                     updateStatus = if (update == null) "Tik Tok Reader está actualizado." else "Disponible Tik Tok Reader ${update!!.versionName}"
+                                                    updatePromptShown = update != null
                                                 } catch (error: Exception) { updateStatus = error.message ?: "Error de actualización" }
                                                 finally { updateBusy = false }
                                             }
                                         }) { Text("Buscar actualizaciones") }
                                         Button(enabled = update != null && !updateBusy, onClick = {
                                             val target = update ?: return@Button
-                                            scope.launch {
-                                                updateBusy = true
-                                                try {
-                                                    val installer = withContext(Dispatchers.IO) { DesktopUpdateManager.downloadAndVerify(target) }
-                                                    DesktopUpdateManager.launchInstaller(installer)
-                                                    exitApplication()
-                                                } catch (error: Exception) { updateStatus = "No se pudo instalar: ${error.message ?: "error"}" }
-                                                finally { updateBusy = false }
-                                            }
+                                            installUpdate(target)
                                         }) { Text("Descargar e instalar") }
                                     }
                                 }
