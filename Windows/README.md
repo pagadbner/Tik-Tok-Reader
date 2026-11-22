@@ -1,4 +1,4 @@
-# TikLBot para Windows
+# Tik Tok Reader para Windows
 
 Aplicación de escritorio independiente basada en Kotlin/JVM y Compose Desktop. Todo el código de esta adaptación vive dentro de `Windows/`; no sustituye ni modifica el módulo Android `app/`.
 
@@ -36,10 +36,10 @@ Requisitos: JDK 17, Gradle 8.11.1, WiX Toolset 3 y Inno Setup 6.
 
 ```powershell
 gradle -p Windows test packageMsi
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "Windows/installer/TikLBot.iss"
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "Windows/installer/Tik Tok Reader.iss"
 ```
 
-El instalador EXE se genera en `Windows/build/installer/TikLBot-Windows-Setup.exe`.
+El instalador EXE se genera en `Windows/build/installer/TikTokReader-Windows-Setup.exe`.
 
 ## Actualizaciones
 
