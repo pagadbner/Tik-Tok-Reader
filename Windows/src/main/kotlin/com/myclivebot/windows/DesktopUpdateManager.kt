@@ -64,7 +64,7 @@ object DesktopUpdateManager {
                 }
             }
             if (!temporary.isFile || temporary.length() < 1_000_000L) error("El instalador descargado está incompleto.")
-            val checksumRequest = Request.Builder().url(update.checksumUrl).header("User-Agent", "TikLBot-Windows-Updater").build()
+            val checksumRequest = Request.Builder().url(update.checksumUrl).header("User-Agent", "TikTokReader-Windows-Updater").build()
             val expected = client.newCall(checksumRequest).execute().use { response ->
                 if (!response.isSuccessful) error("No se pudo obtener el SHA-256 (HTTP ${response.code}).")
                 Regex("(?i)\\b[0-9a-f]{64}\\b").find(response.body?.string().orEmpty())?.value
