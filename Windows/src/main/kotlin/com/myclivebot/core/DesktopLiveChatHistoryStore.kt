@@ -178,8 +178,24 @@ class DesktopLiveChatHistoryStore(
     companion object {
         private fun defaultDatabasePath(): Path {
             val local = System.getenv("LOCALAPPDATA")
-            return if (!local.isNullOrBlank()) Paths.get(local, "TikLBot", "live-chat.db")
-            else Paths.get(System.getProperty("user.home"), ".tiklbot", "live-chat.db")
+            val base = if (!local.isNullOrBlank()) Paths.get(local) else Paths.get(System.getProperty("user.home"))
+            val currentDirectory = base.resolve(if (!local.isNullOrBlank()) "Tik Tok Reader" else ".tik-tok-reader")
+            val legacyDirectory = base.resolve(if (!local.isNullOrBlank()) "TikLBot" else ".tiklbot")
+            val current = currentDirectory.resolve("live-chat.db")
+            val legacy = legacyDirectory.resolve("live-chat.db")
+
+            // Preserve existing Windows chat history after the product folder rename.
+            if (!Files.exists(current) && Files.exists(legacy)) {
+                runCatching {
+                    Files.createDirectories(currentDirectory)
+                    listOf("", "-wal", "-shm").forEach { suffix ->
+                        val source = legacy.resolveSibling(legacy.fileName.toString() + suffix)
+                        val target = current.resolveSibling(current.fileName.toString() + suffix)
+                        if (Files.exists(source)) Files.move(source, target)
+                    }
+                }
+            }
+            return if (Files.exists(current)) current else if (Files.exists(legacy)) legacy else current
         }
     }
 }
