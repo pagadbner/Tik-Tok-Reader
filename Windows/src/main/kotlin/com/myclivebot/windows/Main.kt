@@ -499,6 +499,12 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                                             true
                                                         }
                                                     }
+                                                    if (firstDelivery) {
+                                                        // Begin avatar retrieval before the chat row is queued for display.
+                                                        scope.launch(Dispatchers.IO) {
+                                                            RemoteAvatarCache.preload(comment.avatarUrl, comment.profileUsername)
+                                                        }
+                                                    }
                                                     if (firstDelivery &&
                                                         (comment.text.trim().startsWith("!play ", ignoreCase = true) ||
                                                             comment.text.trim().equals("!skip", ignoreCase = true))
@@ -507,10 +513,6 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                                     }
                                                     val result = commentPipeline.onComment(comment)
                                                     if (firstDelivery) {
-                                                        // Warm the avatar cache before the comment is painted, without blocking LIVE delivery.
-                                                        scope.launch(Dispatchers.IO) {
-                                                            RemoteAvatarCache.preload(comment.avatarUrl, comment.profileUsername)
-                                                        }
                                                         runtimeServices.recordComment(comment)
                                                         SwingUtilities.invokeLater {
                                                             comments.add(0, comment)
