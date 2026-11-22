@@ -48,7 +48,11 @@ object DesktopJcefRuntime {
             val installDirectory = File(File(appData, "TikTokReader"), "jcef")
             val builder = CefAppBuilder()
             builder.setInstallDir(installDirectory)
-            builder.getCefSettings().windowless_rendering_enabled = false
+            builder.getCefSettings().apply {
+                windowless_rendering_enabled = false
+                cache_path = File(installDirectory, "profile").absolutePath
+                persist_session_cookies = true
+            }
             builder.setAppHandler(object : MavenCefAppHandlerAdapter() {})
             builder.build()
         }
@@ -476,7 +480,7 @@ function notifyPlayer(event,args){
 var player;
 function onYouTubeIframeAPIReady(){
  player=new YT.Player('player',{width:'100%',height:'100%',videoId:'$videoId',
-  playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'$safeOrigin'},
+  playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'$safeOrigin',widget_referrer:'https://com.myclivebot/'},
   events:{
    onReady:function(e){e.target.setVolume($volume);$muteScript;notifyPlayer('onPlayerReady');e.target.playVideo();},
    onStateChange:function(e){if(e.data===0)notifyPlayer('onPlayerEnded');notifyPlayer('onPlayerState',[e.data]);},
