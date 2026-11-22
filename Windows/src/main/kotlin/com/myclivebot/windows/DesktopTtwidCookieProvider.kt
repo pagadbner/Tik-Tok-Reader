@@ -61,6 +61,9 @@ object DesktopTtwidCookieProvider {
                 SwingUtilities.invokeAndWait { panelRef.set(JFXPanel()) }
             }
             Platform.setImplicitExit(false)
+            // JFXPanel startup may install WebKit's private handler; replace it
+            // before constructing WebView so this public CookieStore receives Set-Cookie.
+            CookieHandler.setDefault(manager)
             Platform.runLater {
                 try {
                     val view = WebView()
