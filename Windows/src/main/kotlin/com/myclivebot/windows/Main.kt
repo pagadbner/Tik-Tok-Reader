@@ -1538,29 +1538,18 @@ private fun DjMusicPanel(state: DjMusicState) {
         val searchWindowRef = java.util.concurrent.atomic.AtomicReference<JFrame?>(null)
         val playerWindowRef = java.util.concurrent.atomic.AtomicReference<JFrame?>(null)
 
-        // Start JavaFX off the UI thread before creating JFXPanel instances on Swing's EDT.
-        // This prevents the first JavaFX toolkit startup from freezing Compose navigation.
-        Thread({
-            try {
-                val ready = java.util.concurrent.CountDownLatch(1)
-                try {
-                    javafx.application.Platform.startup {
-                        javafx.application.Platform.setImplicitExit(false)
-                        ready.countDown()
-                    }
-                } catch (_: IllegalStateException) {
-                    javafx.application.Platform.runLater {
-                        javafx.application.Platform.setImplicitExit(false)
-                        ready.countDown()
-                    }
-                }
-                if (!ready.await(25, java.util.concurrent.TimeUnit.SECONDS)) {
-                    error("JavaFX no terminó de inicializarse.")
-                }
+        DjMusicController.setMessage("Preparando el motor Chromium para DJ Music…")
+        DesktopJcefRuntime.initialize().whenComplete { cefApp, initError ->
+            if (initError != null) {
                 if (!disposed.get()) SwingUtilities.invokeLater {
+                    val detail = initError.cause?.message ?: initError.message ?: "error de Chromium"
+                    DjMusicController.setMessage("No se pudo preparar DJ Music: $detail")
+                }
+            } else {
+                SwingUtilities.invokeLater {
                     if (!disposed.get()) {
                         try {
-                            val search = DesktopYoutubeSearchView { requestId, json ->
+                            val search = DesktopYoutubeSearchView(cefApp) { requestId, json ->
                                 handleSearchResults.value(requestId, json)
                             }
                             val searchWindow = JFrame("Tik Tok Reader · YouTube Search").apply {
@@ -1573,6 +1562,7 @@ private fun DjMusicPanel(state: DjMusicState) {
                                 isVisible = true
                             }
                             val player = DesktopYoutubePlayerView(
+                                cefApp,
                                 onEnded = { DjMusicController.skip("La canción terminó.") },
                                 onError = { code ->
                                     val detail = when (code) {
@@ -1614,16 +1604,12 @@ private fun DjMusicPanel(state: DjMusicState) {
                                 playerWindow = window
                             }
                         } catch (error: Exception) {
-                            DjMusicController.setMessage("No se pudo iniciar DJ Music: ${error.message ?: "error de JavaFX"}")
+                            DjMusicController.setMessage("No se pudo iniciar DJ Music: ${error.message ?: "error de Chromium"}")
                         }
                     }
                 }
-            } catch (error: Exception) {
-                if (!disposed.get()) {
-                    DjMusicController.setMessage("No se pudo preparar DJ Music: ${error.message ?: "error de JavaFX"}")
-                }
             }
-        }, "TikLBot-JavaFX-Startup").apply { isDaemon = true; start() }
+        }
 
         onDispose {
             disposed.set(true)
