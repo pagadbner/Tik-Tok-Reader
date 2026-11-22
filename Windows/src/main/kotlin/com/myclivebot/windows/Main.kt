@@ -136,6 +136,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     var updateStatus by remember { mutableStateOf("Comprobando actualizaciones…") }
     var updateBusy by remember { mutableStateOf(false) }
     var updatePromptShown by remember { mutableStateOf(false) }
+    var showUninstallDialog by remember { mutableStateOf(false) }
     var desktopTheme by remember { mutableStateOf(DesktopThemeStore.load()) }
 
     fun saveDesktopTheme(theme: DesktopThemePalette) {
@@ -342,6 +343,28 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                     }
                 )
             }
+            if (showUninstallDialog) {
+                AlertDialog(
+                    onDismissRequest = { showUninstallDialog = false },
+                    title = { Text("Desinstalar Tik Tok Reader") },
+                    text = {
+                        Text("Se abrirá la configuración de aplicaciones de Windows. Busca Tik Tok Reader y selecciona Desinstalar. Esta acción no elimina manualmente tus datos ni configuraciones personales.")
+                    },
+                    confirmButton = {
+                        Button(onClick = {
+                            showUninstallDialog = false
+                            runCatching {
+                                ProcessBuilder("explorer.exe", "ms-settings:appsfeatures").start()
+                            }.onFailure {
+                                updateStatus = "No se pudo abrir la configuración de Windows: ${it.message ?: "error"}"
+                            }
+                        }) { Text("Abrir desinstalación") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showUninstallDialog = false }) { Text("Cancelar") }
+                    }
+                )
+            }
             Row(Modifier.fillMaxSize().background(Ink)) {
                 Column(
                     Modifier.width(224.dp).fillMaxHeight().background(Panel).padding(16.dp),
@@ -384,27 +407,35 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                     Spacer(Modifier.weight(1f))
                     Divider(color = PanelRaised)
                     Surface(color = PanelRaised, shape = RoundedCornerShape(12.dp)) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Column(
+                            Modifier.fillMaxWidth().padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            IconButton(
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("Tik Tok Reader", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text(updateStatus, color = Muted, fontSize = 10.sp, maxLines = 2)
+                            }
+                            Button(
                                 enabled = !updateBusy,
                                 onClick = {
                                     if (update != null) updatePromptShown = true
                                     else checkForUpdates()
-                                }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
                             ) {
-                                Icon(
-                                    Icons.Default.Download,
-                                    contentDescription = "Buscar o instalar actualizaciones",
-                                    tint = Cyan
-                                )
+                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(if (update != null) "Actualizar ahora" else "Buscar actualizaciones", fontSize = 11.sp)
                             }
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("Actualizaciones", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                Text(updateStatus, color = Muted, fontSize = 10.sp, maxLines = 2)
+                            OutlinedButton(
+                                onClick = { showUninstallDialog = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                            ) {
+                                Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Desinstalar", fontSize = 11.sp)
                             }
                         }
                     }
@@ -1452,55 +1483,82 @@ private fun DjMusicPanel(state: DjMusicState) {
     }
 
     DisposableEffect(Unit) {
-        val search = DesktopYoutubeSearchView { requestId, json ->
-            handleSearchResults.value(requestId, json)
-        }
-        // JavaFX WebView needs a displayable Swing host to execute YouTube's page scripts.
-        // Keep this helper frame off-screen; it is never shown to the user.
-        val searchWindow = JFrame("Tik Tok Reader · YouTube Search").apply {
-            defaultCloseOperation = WindowConstants.DO_NOTHING_ON_CLOSE
-            type = java.awt.Window.Type.UTILITY
-            isUndecorated = true
-            contentPane.add(search, BorderLayout.CENTER)
-            setSize(640, 480)
-            setLocation(-32000, -32000)
-            isVisible = true
-        }
-        val player = DesktopYoutubePlayerView(
-            onEnded = { DjMusicController.skip("La canción terminó.") },
-            onError = { code ->
-                val detail = when (code) {
-                    2 -> "ID o parámetro inválido"
-                    5 -> "falló el reproductor HTML5"
-                    100 -> "el video no existe o es privado"
-                    101, 150 -> "el propietario no permite la reproducción incrustada"
-                    153 -> "YouTube no recibió el HTTP Referer de la aplicación"
-                    else -> "error $code"
+        val disposed = java.util.concurrent.atomic.AtomicBoolean(false)
+        val searchRef = java.util.concurrent.atomic.AtomicReference<DesktopYoutubeSearchView?>(null)
+        val playerRef = java.util.concurrent.atomic.AtomicReference<DesktopYoutubePlayerView?>(null)
+        val searchWindowRef = java.util.concurrent.atomic.AtomicReference<JFrame?>(null)
+        val playerWindowRef = java.util.concurrent.atomic.AtomicReference<JFrame?>(null)
+
+        // JFXPanel startup can block. Never construct JavaFX/Swing windows on Compose's UI thread.
+        SwingUtilities.invokeLater {
+            if (!disposed.get()) {
+                try {
+                    val search = DesktopYoutubeSearchView { requestId, json ->
+                        handleSearchResults.value(requestId, json)
+                    }
+                    val searchWindow = JFrame("Tik Tok Reader · YouTube Search").apply {
+                        defaultCloseOperation = WindowConstants.DO_NOTHING_ON_CLOSE
+                        type = java.awt.Window.Type.UTILITY
+                        isUndecorated = true
+                        contentPane.add(search, BorderLayout.CENTER)
+                        setSize(640, 480)
+                        setLocation(-32000, -32000)
+                        isVisible = true
+                    }
+                    val player = DesktopYoutubePlayerView(
+                        onEnded = { DjMusicController.skip("La canción terminó.") },
+                        onError = { code ->
+                            val detail = when (code) {
+                                2 -> "ID o parámetro inválido"
+                                5 -> "falló el reproductor HTML5"
+                                100 -> "el video no existe o es privado"
+                                101, 150 -> "el propietario no permite la reproducción incrustada"
+                                153 -> "YouTube no recibió el HTTP Referer de la aplicación"
+                                else -> "error $code"
+                            }
+                            DjMusicController.setMessage("YouTube no pudo reproducir el video: $detail. Prueba otra coincidencia.")
+                        },
+                        onReady = { playerReady = true },
+                        onState = { value ->
+                            playerPlaying = value == 1
+                            if (value == -1) DjMusicController.setMessage("YouTube bloqueó el inicio automático. Pulsa Reproducir.")
+                        }
+                    )
+                    val window = JFrame("Tik Tok Reader · DJ Music").apply {
+                        defaultCloseOperation = WindowConstants.HIDE_ON_CLOSE
+                        contentPane.add(player, BorderLayout.CENTER)
+                        setSize(820, 480)
+                        minimumSize = java.awt.Dimension(640, 360)
+                        setLocationRelativeTo(null)
+                    }
+
+                    if (disposed.get()) {
+                        search.close()
+                        player.close()
+                        searchWindow.dispose()
+                        window.dispose()
+                    } else {
+                        searchRef.set(search)
+                        playerRef.set(player)
+                        searchWindowRef.set(searchWindow)
+                        playerWindowRef.set(window)
+                        searchView = search
+                        playerView = player
+                        playerWindow = window
+                    }
+                } catch (error: Exception) {
+                    DjMusicController.setMessage("No se pudo iniciar DJ Music: ${error.message ?: "error de JavaFX"}")
                 }
-                DjMusicController.setMessage("YouTube no pudo reproducir el video: $detail. Prueba otra coincidencia.")
-            },
-            onReady = { playerReady = true },
-            onState = { value ->
-                playerPlaying = value == 1
-                if (value == -1) DjMusicController.setMessage("YouTube bloqueó el inicio automático. Pulsa Reproducir.")
             }
-        )
-        val window = JFrame("Tik Tok Reader · DJ Music").apply {
-            defaultCloseOperation = WindowConstants.HIDE_ON_CLOSE
-            contentPane.add(player, BorderLayout.CENTER)
-            setSize(820, 480)
-            minimumSize = java.awt.Dimension(640, 360)
-            setLocationRelativeTo(null)
         }
-        searchView = search
-        playerView = player
-        playerWindow = window
+
         onDispose {
-            runCatching { search.close() }
-            runCatching { player.close() }
+            disposed.set(true)
             SwingUtilities.invokeLater {
-                searchWindow.dispose()
-                window.dispose()
+                runCatching { searchRef.getAndSet(null)?.close() }
+                runCatching { playerRef.getAndSet(null)?.close() }
+                runCatching { searchWindowRef.getAndSet(null)?.dispose() }
+                runCatching { playerWindowRef.getAndSet(null)?.dispose() }
             }
             searchView = null
             playerView = null
