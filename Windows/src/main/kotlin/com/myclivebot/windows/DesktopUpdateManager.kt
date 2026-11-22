@@ -27,7 +27,7 @@ object DesktopUpdateManager {
     fun checkForUpdate(currentVersion: String): DesktopUpdateInfo? {
         val request = Request.Builder().url(RELEASE_URL)
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "TikLBot-Windows-Updater")
+            .header("User-Agent", "TikTokReader-Windows-Updater")
             .build()
         val json = client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("GitHub respondió HTTP ${response.code}.")
@@ -38,9 +38,9 @@ object DesktopUpdateManager {
     }
 
     fun downloadAndVerify(update: DesktopUpdateInfo): File {
-        val directory = File(System.getenv("LOCALAPPDATA") ?: System.getProperty("user.home"), "TikLBot/updates")
+        val directory = File(System.getenv("LOCALAPPDATA") ?: System.getProperty("user.home"), "Tik Tok Reader/updates")
         if (!directory.exists() && !directory.mkdirs()) error("No se pudo crear la carpeta de actualizaciones.")
-        val temporary = File(directory, "TikLBot-Windows-Setup.exe.part")
+        val temporary = File(directory, "TikTokReader-Windows-Setup.exe.part")
         val installer = File(directory, "TikLBot-Windows-Setup.exe")
         val actual = MessageDigest.getInstance("SHA-256")
         try {
@@ -130,7 +130,7 @@ internal fun parseDesktopUpdateInfo(
         val asset = assets.optJSONObject(index) ?: continue
         when (asset.optString("name")) {
             "TikLBot-Windows-Setup.exe" -> installer = asset.optString("browser_download_url")
-            "TikLBot-Windows-Setup.exe.sha256" -> checksum = asset.optString("browser_download_url")
+            "TikTokReader-Windows-Setup.exe.sha256" -> checksum = asset.optString("browser_download_url")
         }
     }
     if (installer.isNullOrBlank() || checksum.isNullOrBlank()) return null
