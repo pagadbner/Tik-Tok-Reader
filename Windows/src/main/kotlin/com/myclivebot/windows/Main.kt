@@ -54,6 +54,10 @@ import java.net.URI
 import java.net.URL
 import java.awt.Image
 import java.awt.image.BufferedImage
+import java.awt.MenuItem
+import java.awt.PopupMenu
+import java.awt.SystemTray
+import java.awt.TrayIcon
 import javax.imageio.ImageIO
 import javax.swing.ImageIcon
 import javax.swing.JFrame
@@ -94,6 +98,9 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     var profileAvatarUrl by remember { mutableStateOf<String?>(null) }
     var recentProfiles by remember { mutableStateOf(DesktopProfileStore.load()) }
     var selected by remember { mutableStateOf("Home") }
+    var windowVisible by remember { mutableStateOf(true) }
+    var trayAvailable by remember { mutableStateOf(false) }
+    var trayIcon by remember { mutableStateOf<TrayIcon?>(null) }
     var username by remember { mutableStateOf("") }
     val latestProfileUsername = rememberUpdatedState(username)
     var status by remember { mutableStateOf("Desconectado") }
@@ -180,6 +187,36 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
         onDispose { connector?.close(); commentPipeline.close(); speechQueue.close(); speechEngine.release(); runtimeServices.close() }
     }
 
+    DisposableEffect(Unit) {
+        var installedIcon: TrayIcon? = null
+        if (SystemTray.isSupported()) {
+            val icon = createTrayIcon(
+                onOpen = { windowVisible = true },
+                onDisconnect = { stopLive() },
+                onExit = { stopLive(); exitApplication() }
+            )
+            runCatching {
+                SystemTray.getSystemTray().add(icon)
+                installedIcon = icon
+                trayIcon = icon
+                trayAvailable = true
+            }
+        }
+        onDispose {
+            installedIcon?.let { runCatching { SystemTray.getSystemTray().remove(it) } }
+            trayIcon = null
+            trayAvailable = false
+        }
+    }
+
+    LaunchedEffect(connected, connecting, status) {
+        trayIcon?.toolTip = when {
+            connected -> "Tik Tok Reader — LIVE conectado"
+            connecting -> "Tik Tok Reader — conectando al LIVE"
+            else -> "Tik Tok Reader — desconectado"
+        }
+    }
+
     LaunchedEffect(username, profileLookupRequest) {
         profileBusy = false
         val cleanUsername = username.trim().removePrefix("@").substringBefore("/").lowercase()
@@ -260,7 +297,14 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
         outline = desktopTheme.muted, outlineVariant = desktopTheme.surfaceVariant
     )) {
         CompositionLocalProvider(LocalDesktopTheme provides desktopTheme) {
-        DesktopWindow(onCloseRequest = { stopLive(); exitApplication() }, title = "Tik Tok Reader") {
+        DesktopWindow(
+            visible = windowVisible,
+            onCloseRequest = {
+                if (trayAvailable && (connected || connecting)) windowVisible = false
+                else { stopLive(); exitApplication() }
+            },
+            title = "Tik Tok Reader"
+        ) {
             if (updatePromptShown && update != null) {
                 AlertDialog(
                     onDismissRequest = { if (!updateBusy) updatePromptShown = false },
@@ -512,6 +556,32 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             onSettingsChange = ::saveReaderSettings,
                             onMutedChange = { voiceMuted = it; speechEngine.setMuted(it) },
                             onTestVoice = { speechQueue.enqueue("Hola, esta es una prueba de voz de Tik Tok Reader.", priority = true) },
+                            connected = connected || connecting,
+                            onDeleteVoice = { voiceId, callback ->
+                                scope.launch {
+                                    try {
+                                        speechQueue.clearPendingComments()
+                                        speechEngine.stop()
+                                        speechEngine.release()
+                                        if (readerSettings.speechProvider == "piper" && readerSettings.voiceId == voiceId) {
+                                            val fallback = PiperVoiceCatalog.voices.firstOrNull {
+                                                it.id != voiceId && PiperSpeechEngine.isVoiceInstalled(it.id)
+                                            }?.id
+                                            if (fallback != null) {
+                                                saveReaderSettings(readerSettings.copy(voiceId = fallback, randomVoices = false))
+                                            } else {
+                                                saveReaderSettings(readerSettings.copy(speechProvider = "edge", randomVoices = false))
+                                            }
+                                        }
+                                        withContext(Dispatchers.IO) { PiperSpeechEngine.deleteVoice(voiceId) }
+                                        withContext(Dispatchers.IO) { speechEngine.initialize() }
+                                        callback(null)
+                                    } catch (error: Exception) {
+                                        runCatching { withContext(Dispatchers.IO) { speechEngine.initialize() } }
+                                        callback(error.message ?: "No se pudo eliminar la voz.")
+                                    }
+                                }
+                            },
                             status = voiceStatus
                         )
                         "Automatizaciones" -> AutomationPanel(readerSettings, ::saveReaderSettings)
@@ -661,6 +731,48 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     }
 }
 
+private fun createTrayIcon(
+    onOpen: () -> Unit,
+    onDisconnect: () -> Unit,
+    onExit: () -> Unit
+): TrayIcon {
+    val menu = PopupMenu()
+    MenuItem("Abrir Tik Tok Reader").apply {
+        addActionListener { onOpen() }
+        menu.add(this)
+    }
+    MenuItem("Desconectar LIVE").apply {
+        addActionListener { onDisconnect() }
+        menu.add(this)
+    }
+    menu.addSeparator()
+    MenuItem("Salir").apply {
+        addActionListener { onExit() }
+        menu.add(this)
+    }
+
+    val image = BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB)
+    val graphics = image.createGraphics()
+    try {
+        graphics.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON)
+        graphics.color = java.awt.Color(9, 11, 22)
+        graphics.fillRoundRect(1, 1, 30, 30, 9, 9)
+        graphics.color = java.awt.Color(155, 107, 255)
+        graphics.fillOval(5, 5, 22, 22)
+        graphics.color = java.awt.Color.WHITE
+        graphics.fillRoundRect(10, 11, 12, 3, 2, 2)
+        graphics.fillRoundRect(10, 17, 8, 3, 2, 2)
+        graphics.color = java.awt.Color(57, 215, 232)
+        graphics.fillOval(20, 20, 7, 7)
+    } finally {
+        graphics.dispose()
+    }
+    return TrayIcon(image, "Tik Tok Reader", menu).apply {
+        isImageAutoSize = true
+        addActionListener { onOpen() }
+    }
+}
+
 @Composable
 private fun ProfileAvatar(icon: ImageIcon?) {
     val bitmap = remember(icon) {
@@ -792,9 +904,11 @@ private fun CommentList(
 private fun VoicePanel(
     settings: ReaderSettings,
     muted: Boolean,
+    connected: Boolean,
     onSettingsChange: (ReaderSettings) -> Unit,
     onMutedChange: (Boolean) -> Unit,
     onTestVoice: () -> Unit,
+    onDeleteVoice: (String, (String?) -> Unit) -> Unit,
     status: String
 ) {
     var providerMenuExpanded by remember { mutableStateOf(false) }
@@ -802,6 +916,8 @@ private fun VoicePanel(
     val downloadScope = rememberCoroutineScope()
     var piperInstalled by remember(settings.voiceId) { mutableStateOf(PiperSpeechEngine.isVoiceInstalled(settings.voiceId)) }
     var piperDownloadRunning by remember(settings.voiceId) { mutableStateOf(false) }
+    var piperDeleteRunning by remember(settings.voiceId) { mutableStateOf(false) }
+    var showDeleteVoiceDialog by remember(settings.voiceId) { mutableStateOf(false) }
     var piperDownloadProgress by remember(settings.voiceId) { mutableIntStateOf(0) }
     var piperDownloadStatus by remember(settings.voiceId) { mutableStateOf("") }
     val provider = settings.speechProvider.takeIf { it in setOf("edge", "tiktok", "tikfinity", "piper") } ?: "edge"
@@ -914,6 +1030,37 @@ private fun VoicePanel(
                     if (piperDownloadRunning) Text("$piperDownloadProgress%", color = Cyan)
                 }
                 if (piperDownloadRunning) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (piperInstalled) {
+                    OutlinedButton(
+                        enabled = !piperDeleteRunning && !piperDownloadRunning && !connected,
+                        onClick = { showDeleteVoiceDialog = true }
+                    ) { Text(if (piperDeleteRunning) "Eliminando…" else "Eliminar voz") }
+                }
+                if (connected) Text("Detén el LIVE antes de eliminar modelos de voz.", color = Color(0xFFFFA6A6), fontSize = 11.sp)
+                if (showDeleteVoiceDialog) {
+                    AlertDialog(
+                        onDismissRequest = { if (!piperDeleteRunning) showDeleteVoiceDialog = false },
+                        title = { Text("Eliminar voz") },
+                        text = { Text("¿Quieres eliminar ${selectedVoice.name} de este equipo? Podrás descargarla nuevamente cuando quieras.") },
+                        confirmButton = {
+                            TextButton(
+                                enabled = !piperDeleteRunning && !connected,
+                                onClick = {
+                                    showDeleteVoiceDialog = false
+                                    piperDeleteRunning = true
+                                    onDeleteVoice(settings.voiceId) { error ->
+                                        piperDeleteRunning = false
+                                        piperInstalled = PiperSpeechEngine.isVoiceInstalled(settings.voiceId)
+                                        piperDownloadStatus = error ?: "Voz eliminada del dispositivo."
+                                    }
+                                }
+                            ) { Text("ELIMINAR", color = Color(0xFFFF6B75)) }
+                        },
+                        dismissButton = {
+                            TextButton(enabled = !piperDeleteRunning, onClick = { showDeleteVoiceDialog = false }) { Text("CANCELAR") }
+                        }
+                    )
+                }
                 if (piperDownloadStatus.isNotBlank()) Text(piperDownloadStatus, color = Muted, fontSize = 11.sp)
                 Text("Los modelos se descargan bajo demanda en la carpeta local de Tik Tok Reader; no se incluyen en el instalador.", color = Muted, fontSize = 10.sp)
             }
