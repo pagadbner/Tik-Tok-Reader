@@ -275,6 +275,10 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                     Spacer(Modifier.height(22.dp))
                     when(selected) {
                         "Home" -> {
+                            Column(
+                                Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
                             Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
                                 Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                     Text("Conectar con un LIVE público", fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
@@ -401,11 +405,12 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             Spacer(Modifier.height(8.dp))
                             CommentList(
                                 comments,
-                                Modifier.weight(1f),
+                                Modifier.height(320.dp),
                                 onSkipComment = ::skipQueuedComment,
                                 onClearChat = ::clearLiveChat,
                                 skippedCommentIds = skippedCommentIds.toSet()
                             )
+                            }
                         }
                         "Chat en vivo" -> CommentList(
                             comments,
@@ -448,6 +453,10 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                         )
                         "Automatizaciones" -> AutomationPanel(readerSettings, ::saveReaderSettings)
                         else -> {
+                            Column(
+                                Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
                             Text("Preferencias del lector", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                             Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
                                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -561,6 +570,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                     }
                                 }
                             }
+                            }
                         }
                     }
                 }
@@ -672,7 +682,11 @@ private fun VoicePanel(
         "piper" -> PiperVoiceCatalog.find(settings.voiceId).name
         else -> EdgeTtsVoiceCatalog.find(settings.edgeVoiceId).name
     }
-    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+    Card(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        colors = CardDefaults.cardColors(containerColor = Panel),
+        shape = RoundedCornerShape(18.dp)
+    ) {
         Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("Voz del lector", fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Text("Selecciona el motor de voz sin desconectar el LIVE.", color = Muted, fontSize = 13.sp)
