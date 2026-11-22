@@ -85,6 +85,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     var connected by remember { mutableStateOf(false) }
     var connecting by remember { mutableStateOf(false) }
     val comments = remember { mutableStateListOf<LiveComment>() }
+    val skippedCommentIds = remember { mutableStateListOf<String>() }
     val commentSideEffectLock = remember { Any() }
     val processedCommentSideEffects = remember { LinkedHashSet<String>() }
     val djMusicState by DjMusicController.state.collectAsState()
@@ -118,6 +119,19 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
         connecting = false
         synchronized(commentSideEffectLock) { processedCommentSideEffects.clear() }
         status = "Desconectado"
+    }
+
+    fun skipQueuedComment(commentId: String) {
+        if (speechQueue.skipComment(commentId) && commentId !in skippedCommentIds) {
+            skippedCommentIds.add(commentId)
+        }
+    }
+
+    fun clearLiveChat() {
+        comments.clear()
+        skippedCommentIds.clear()
+        historyComments = emptyList()
+        scope.launch(Dispatchers.IO) { runtimeServices.clearHistory() }
     }
 
     DisposableEffect(Unit) {
@@ -351,9 +365,21 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             Spacer(Modifier.height(16.dp))
                             Text("Chat en vivo", fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
                             Spacer(Modifier.height(8.dp))
-                            CommentList(comments, Modifier.weight(1f))
+                            CommentList(
+                                comments,
+                                Modifier.weight(1f),
+                                onSkipComment = ::skipQueuedComment,
+                                onClearChat = ::clearLiveChat,
+                                skippedCommentIds = skippedCommentIds.toSet()
+                            )
                         }
-                        "Chat en vivo" -> CommentList(comments, Modifier.fillMaxSize())
+                        "Chat en vivo" -> CommentList(
+                            comments,
+                            Modifier.fillMaxSize(),
+                            onSkipComment = ::skipQueuedComment,
+                            onClearChat = ::clearLiveChat,
+                            skippedCommentIds = skippedCommentIds.toSet()
+                        )
                         "Historial" -> {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text("Historial guardado localmente", color = Muted)
@@ -506,16 +532,62 @@ private fun StatCard(title: String, value: String, modifier: Modifier = Modifier
 }
 
 @Composable
-private fun CommentList(comments: List<LiveComment>, modifier: Modifier = Modifier) {
+private fun CommentList(
+    comments: List<LiveComment>,
+    modifier: Modifier = Modifier,
+    onSkipComment: (String) -> Unit = {},
+    onClearChat: () -> Unit = {},
+    skippedCommentIds: Set<String> = emptySet()
+) {
     Card(modifier, colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
-        if (comments.isEmpty()) Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
-            Text("Los comentarios aparecerán aquí cuando se conecte a un LIVE.", color = Muted)
-        } else LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(comments) { comment ->
-                Row(Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(10.dp)).padding(12.dp), verticalAlignment = Alignment.Top) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(comment.displayName, color = if (comment.isModerator) Cyan else Color.White, fontWeight = FontWeight.SemiBold)
-                        Text(comment.text, color = Color(0xFFE5E6F0))
+        Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("CHAT EN VIVO", color = Cyan, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text("${comments.size} mensajes", color = Muted, fontSize = 11.sp)
+                IconButton(onClick = onClearChat, enabled = comments.isNotEmpty(), modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Default.DeleteOutline, contentDescription = "Limpiar chat", tint = if (comments.isNotEmpty()) Muted else Muted.copy(alpha = 0.35f))
+                }
+            }
+            if (comments.isEmpty()) {
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Text("Los comentarios aparecerán aquí cuando se conecte a un LIVE.", color = Muted)
+                }
+            } else {
+                LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(comments, key = { it.id }) { comment ->
+                        Row(
+                            Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(10.dp)).padding(12.dp),
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (comment.isModerator || comment.isFollower == true) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        if (comment.isModerator) {
+                                            Surface(color = Violet.copy(alpha = 0.18f), shape = RoundedCornerShape(6.dp)) {
+                                                Text("Moderador", Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = Color(0xFFC6B5FF), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                        if (comment.isFollower == true) {
+                                            Surface(color = Cyan.copy(alpha = 0.16f), shape = RoundedCornerShape(6.dp)) {
+                                                Text("Follower", Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = Cyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                                Text(comment.displayName, color = if (comment.isModerator) Cyan else Color.White, fontWeight = FontWeight.SemiBold)
+                                comment.replyToDisplayName?.takeIf { it.isNotBlank() }?.let {
+                                    Text("↪ Respondió a @$it", color = Violet, fontSize = 11.sp)
+                                }
+                                Text(comment.text, color = Color(0xFFE5E6F0))
+                            }
+                            TextButton(
+                                enabled = comment.id !in skippedCommentIds,
+                                onClick = { onSkipComment(comment.id) }
+                            ) {
+                                Text(if (comment.id in skippedCommentIds) "OMITIDO" else "OMITIR", color = if (comment.id in skippedCommentIds) Muted else Cyan, fontSize = 10.sp)
+                            }
+                        }
                     }
                 }
             }
