@@ -108,9 +108,9 @@ class DesktopYoutubeSearchView(
         return runCatching {
             val currentUrl = target.location.orEmpty()
             val documentUrl = target.executeScript("document.location.href") as? String ?: return@runCatching false
-            if (!currentUrl.contains("tklbot_request=$requestId") ||
-                !documentUrl.contains("tklbot_request=$requestId") ||
-                !documentUrl.contains("youtube.com")
+            if (!currentUrl.contains("youtube.com") ||
+                !documentUrl.contains("youtube.com") ||
+                documentUrl.substringBefore("#") != currentUrl.substringBefore("#")
             ) return@runCatching false
             val window = target.executeScript("window") as JSObject
             window.setMember("TikLBotMusicSearch", SearchBridge())
@@ -122,8 +122,8 @@ class DesktopYoutubeSearchView(
 
     private fun startSearchInjectionPolling(target: WebEngine, requestId: Int) {
         var attempts = 0
-        lateinit var timer: Timeline
-        timer = Timeline(KeyFrame(Duration.millis(500.0)) {
+        val timer = Timeline()
+        timer.keyFrames.add(KeyFrame(Duration.millis(500.0)) {
             if (requestId != activeRequest.get() || requestId != loadingRequestId) {
                 timer.stop()
             } else {
@@ -262,8 +262,8 @@ class DesktopYoutubePlayerView(
     private fun startPlayerBridgePolling(target: WebEngine) {
         bridgeTimer?.stop()
         var attempts = 0
-        lateinit var timer: Timeline
-        timer = Timeline(KeyFrame(Duration.millis(150.0)) {
+        val timer = Timeline()
+        timer.keyFrames.add(KeyFrame(Duration.millis(150.0)) {
             if (closed) {
                 timer.stop()
             } else {
