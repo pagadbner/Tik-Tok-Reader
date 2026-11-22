@@ -1,6 +1,8 @@
 package com.myclivebot.windows
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -36,6 +38,7 @@ import com.myclivebot.core.PiperVoiceCatalog
 import com.myclivebot.core.PiperSpeechEngine
 import com.myclivebot.core.TikTokProfileLookup
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.Desktop
@@ -58,6 +61,9 @@ private val Cyan = Color(0xFF39D7E8)
 private val Muted = Color(0xFFA7ABC2)
 
 fun main() {
+    // SwingPanel is used by the embedded YouTube browser/player. Enable interop
+    // blending before Compose starts so its native surface cannot cover navigation.
+    System.setProperty("compose.interop.blending", "true")
     applicationWindow()
 }
 
@@ -69,6 +75,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     val runtimeServices = remember { DesktopRuntimeServices() }
     var historyComments by remember { mutableStateOf<List<LiveComment>>(emptyList()) }
     var profileBusy by remember { mutableStateOf(false) }
+    var profileLookupRequest by remember { mutableIntStateOf(0) }
     var profileLive by remember { mutableStateOf<Boolean?>(null) }
     var profileAvatar by remember { mutableStateOf<ImageIcon?>(null) }
     var selected by remember { mutableStateOf("Home") }
@@ -116,7 +123,59 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
         onDispose { connector?.close(); commentPipeline.close(); speechQueue.close(); speechEngine.release(); runtimeServices.close() }
     }
 
+    LaunchedEffect(username, profileLookupRequest) {
+        profileBusy = false
+        val cleanUsername = username.trim().removePrefix("@").substringBefore("/").lowercase()
+        if (!cleanUsername.matches(Regex("[a-z0-9._]{1,24}"))) {
+            profileAvatar = null
+            profileLive = null
+            return@LaunchedEffect
+        }
+        profileAvatar = null
+        profileLive = null
+        delay(550)
+        profileBusy = true
+        try {
+            val avatarUrl = TikTokProfileLookup.fetchAvatarUrl(cleanUsername)
+            val avatar = withContext(Dispatchers.IO) {
+                avatarUrl?.let { imageUrl ->
+                    val connection = URL(imageUrl).openConnection().apply {
+                        connectTimeout = 8_000
+                        readTimeout = 8_000
+                        setRequestProperty("User-Agent", "Mozilla/5.0")
+                    }
+                    connection.getInputStream().use { ImageIO.read(it) }
+                        ?.getScaledInstance(128, 128, Image.SCALE_SMOOTH)
+                        ?.let(::ImageIcon)
+                }
+            }
+            val liveState = TikTokProfileLookup.fetchLiveStatus(cleanUsername)
+            val currentUsername = username.trim().removePrefix("@").substringBefore("/").lowercase()
+            if (currentUsername == cleanUsername) {
+                profileAvatar = avatar
+                profileLive = liveState
+            }
+        } catch (_: Exception) {
+            val currentUsername = username.trim().removePrefix("@").substringBefore("/").lowercase()
+            if (currentUsername == cleanUsername) {
+                profileAvatar = null
+                profileLive = null
+            }
+        } finally {
+            val currentUsername = username.trim().removePrefix("@").substringBefore("/").lowercase()
+            if (currentUsername == cleanUsername) profileBusy = false
+        }
+    }
+
     LaunchedEffect(Unit) {
+        launch {
+            try {
+                withContext(Dispatchers.IO) { speechEngine.initialize() }
+                voiceStatus = "Motor de voz preparado."
+            } catch (error: Exception) {
+                voiceStatus = "No se pudo preparar el motor de voz: ${error.message ?: "revisa el proveedor y la voz seleccionada"}"
+            }
+        }
         updateBusy = true
         try {
             update = withContext(Dispatchers.IO) { DesktopUpdateManager.checkForUpdate("0.13.15") }
@@ -143,7 +202,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         TikTokReaderLogo(42.dp)
                         Column {
-                            Text("Tik Tok Reader", fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                            Text("Tik Tok Reader", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             Text("DESKTOP • 0.13.15", fontSize = 10.sp, color = Muted)
                         }
                     }
@@ -275,21 +334,9 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                         Text(if (username.isBlank()) "Perfil de TikTok" else "@$username", fontWeight = FontWeight.SemiBold)
                                         Text(when (profileLive) { true -> "Transmitiendo en LIVE"; false -> "No está en LIVE"; null -> "Consulta el avatar y estado público del perfil" }, color = if (profileLive == true) Cyan else Muted, fontSize = 12.sp)
                                     }
-                                    OutlinedButton(enabled = username.isNotBlank() && !profileBusy, onClick = {
-                                        scope.launch {
-                                            profileBusy = true
-                                            profileLive = null
-                                            try {
-                                                val avatarUrl = TikTokProfileLookup.fetchAvatarUrl(username)
-                                                profileAvatar = withContext(Dispatchers.IO) {
-                                                    avatarUrl?.let { url ->
-                                                        ImageIO.read(URL(url))?.getScaledInstance(128, 128, Image.SCALE_SMOOTH)?.let(::ImageIcon)
-                                                    }
-                                                }
-                                                profileLive = TikTokProfileLookup.fetchLiveStatus(username)
-                                            } finally { profileBusy = false }
-                                        }
-                                    }) { Text(if (profileBusy) "Consultando…" else "Consultar") }
+                                    OutlinedButton(enabled = username.isNotBlank() && !profileBusy, onClick = { profileLookupRequest++ }) {
+                                        Text(if (profileBusy) "Buscando…" else "Actualizar")
+                                    }
                                 }
                             }
                             Spacer(Modifier.height(16.dp))
@@ -333,6 +380,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                             voiceMuted,
                             onSettingsChange = ::saveReaderSettings,
                             onMutedChange = { voiceMuted = it; speechEngine.setMuted(it) },
+                            onTestVoice = { speechQueue.enqueue("Hola, esta es una prueba de voz de Tik Tok Reader.", priority = true) },
                             status = voiceStatus
                         )
                         "Automatizaciones" -> AutomationPanel(readerSettings, ::saveReaderSettings)
@@ -478,6 +526,7 @@ private fun VoicePanel(
     muted: Boolean,
     onSettingsChange: (ReaderSettings) -> Unit,
     onMutedChange: (Boolean) -> Unit,
+    onTestVoice: () -> Unit,
     status: String
 ) {
     var providerMenuExpanded by remember { mutableStateOf(false) }
@@ -606,12 +655,48 @@ private fun VoicePanel(
                 )
                 SettingToggle("Elegir voz aleatoria", settings.apiRandomVoice) { onSettingsChange(settings.copy(apiRandomVoice = it)) }
             }
-            SettingToggle("Silenciar voz", muted, onMutedChange)
-            Text("Volumen", color = Muted, fontSize = 12.sp)
-            Slider(value = settings.volume, onValueChange = { onSettingsChange(settings.copy(volume = it)) }, valueRange = 0f..1f)
-            Text("Velocidad", color = Muted, fontSize = 12.sp)
-            Slider(value = settings.speed, onValueChange = { onSettingsChange(settings.copy(speed = it)) }, valueRange = 0.65f..1.5f)
-            Text(status, color = if (status.startsWith("Error")) Color(0xFFFF8A8A) else Muted, fontSize = 11.sp)
+            Card(colors = CardDefaults.cardColors(containerColor = PanelRaised), shape = RoundedCornerShape(14.dp)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Controles de audio", fontWeight = FontWeight.SemiBold, color = Color.White, modifier = Modifier.weight(1f))
+                        TextButton(onClick = onTestVoice, enabled = provider != "piper" || piperInstalled) {
+                            Icon(Icons.Default.VolumeUp, null)
+                            Spacer(Modifier.width(5.dp))
+                            Text("Probar voz")
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Volumen", color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        Text("${(settings.volume * 100).toInt()}%", color = Cyan, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = settings.volume,
+                        onValueChange = { onSettingsChange(settings.copy(volume = it)) },
+                        valueRange = 0f..1f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Cyan,
+                            activeTrackColor = Violet,
+                            inactiveTrackColor = Ink
+                        )
+                    )
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Velocidad", color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        Text("${settings.speed}x", color = Cyan, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = settings.speed,
+                        onValueChange = { onSettingsChange(settings.copy(speed = it)) },
+                        valueRange = 0.65f..1.5f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Cyan,
+                            activeTrackColor = Violet,
+                            inactiveTrackColor = Ink
+                        )
+                    )
+                    SettingToggle("Silenciar voz", muted, onMutedChange)
+                }
+            }
+            Text(status, color = if (status.startsWith("Error") || status.startsWith("No se pudo")) Color(0xFFFF8A8A) else Muted, fontSize = 11.sp)
             Text("Piper genera audio localmente por fragmentos; el control de velocidad puede modificar ligeramente el tono.", color = Muted, fontSize = 11.sp)
         }
     }
@@ -787,7 +872,10 @@ private fun DjMusicPanel(state: DjMusicState) {
         playerView?.setMuted(state.muted)
     }
 
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -927,7 +1015,7 @@ private fun DjMusicPanel(state: DjMusicState) {
             }
         }
 
-        Card(Modifier.fillMaxWidth().weight(1f), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+        Card(Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 360.dp), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Cola de reproducción · ${state.queue.size}", color = Cyan, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
