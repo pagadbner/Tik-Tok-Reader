@@ -227,6 +227,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                                 onStatus = { value ->
                                                     runtimeServices.publishStatus(value)
                                                     SwingUtilities.invokeLater {
+                                                    status = value
                                                     connected = value.startsWith("Conectado al LIVE")
                                                     when {
                                                         connected -> connecting = false
