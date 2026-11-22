@@ -2,6 +2,9 @@ package com.myclivebot.windows
 
 import com.myclivebot.core.DjMusicTrack
 import javafx.application.Platform
+import javafx.animation.KeyFrame
+import javafx.animation.Timeline
+import javafx.util.Duration
 import javafx.concurrent.Worker
 import javafx.embed.swing.JFXPanel
 import javafx.scene.Scene
@@ -28,6 +31,8 @@ class DesktopYoutubeSearchView(
     @Volatile private var engine: WebEngine? = null
     @Volatile private var pendingSearch: Pair<String, Int>? = null
     @Volatile private var loadingRequestId: Int = 0
+    @Volatile private var injectedRequestId: Int = 0
+    private var injectionTimer: Timeline? = null
 
     init {
         Platform.setImplicitExit(false)
@@ -36,24 +41,11 @@ class DesktopYoutubeSearchView(
             engine = view.engine
             scene = Scene(view)
             view.engine.loadWorker.stateProperty().addListener { _, _, state ->
-                when (state) {
-                    Worker.State.SUCCEEDED -> {
-                        val id = loadingRequestId
-                        if (id == activeRequest.get()) {
-                            runCatching {
-                                val window = view.engine.executeScript("window") as JSObject
-                                window.setMember("TikLBotMusicSearch", SearchBridge())
-                                view.engine.executeScript(searchScript(id))
-                            }.onFailure {
-                                dispatchResults(id, "[]")
-                            }
-                        }
-                    }
-                    Worker.State.FAILED -> {
-                        val id = loadingRequestId
-                        if (id == activeRequest.get()) dispatchResults(id, "[]")
-                    }
-                    else -> Unit
+                val id = loadingRequestId
+                if (id == activeRequest.get() &&
+                    (state == Worker.State.RUNNING || state == Worker.State.SUCCEEDED)
+                ) {
+                    tryInjectSearch(view.engine, id)
                 }
             }
             pendingSearch?.let { (query, requestId) ->
@@ -75,14 +67,17 @@ class DesktopYoutubeSearchView(
     private fun loadSearch(target: WebEngine, query: String, requestId: Int) {
         if (requestId != activeRequest.get()) return
         loadingRequestId = requestId
+        injectedRequestId = 0
+        injectionTimer?.stop()
         val videoId = Regex("""(?:v=|youtu\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{11})""")
             .find(query)?.groupValues?.get(1)
         val url = if (videoId != null) {
-            "https://www.youtube.com/watch?v=$videoId"
+            "https://www.youtube.com/watch?v=$videoId&tklbot_request=$requestId"
         } else {
-            "https://www.youtube.com/results?search_query=" + URLEncoder.encode(query, "UTF-8")
+            "https://www.youtube.com/results?search_query=" + URLEncoder.encode(query, "UTF-8") + "&tklbot_request=$requestId"
         }
         target.load(url)
+        startSearchInjectionPolling(target, requestId)
     }
 
     inner class SearchBridge {
@@ -100,7 +95,50 @@ class DesktopYoutubeSearchView(
     override fun close() {
         activeRequest.incrementAndGet()
         pendingSearch = null
-        Platform.runLater { runCatching { engine?.load("about:blank") } }
+        Platform.runLater {
+            injectionTimer?.stop()
+            injectionTimer = null
+            runCatching { engine?.load("about:blank") }
+        }
+    }
+
+    private fun tryInjectSearch(target: WebEngine, requestId: Int): Boolean {
+        if (requestId != activeRequest.get() || requestId != loadingRequestId) return false
+        if (injectedRequestId == requestId) return true
+        return runCatching {
+            val currentUrl = target.location.orEmpty()
+            val documentUrl = target.executeScript("document.location.href") as? String ?: return@runCatching false
+            if (!currentUrl.contains("tklbot_request=$requestId") ||
+                !documentUrl.contains("tklbot_request=$requestId") ||
+                !documentUrl.contains("youtube.com")
+            ) return@runCatching false
+            val window = target.executeScript("window") as JSObject
+            window.setMember("TikLBotMusicSearch", SearchBridge())
+            target.executeScript(searchScript(requestId))
+            injectedRequestId = requestId
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun startSearchInjectionPolling(target: WebEngine, requestId: Int) {
+        var attempts = 0
+        lateinit var timer: Timeline
+        timer = Timeline(KeyFrame(Duration.millis(500.0)) {
+            if (requestId != activeRequest.get() || requestId != loadingRequestId) {
+                timer.stop()
+            } else {
+                attempts++
+                if (tryInjectSearch(target, requestId)) {
+                    timer.stop()
+                } else if (attempts >= 50) {
+                    timer.stop()
+                    dispatchResults(requestId, "[]")
+                }
+            }
+        })
+        timer.cycleCount = Timeline.INDEFINITE
+        injectionTimer = timer
+        timer.play()
     }
 
     private fun searchScript(requestId: Int): String = """
@@ -185,6 +223,7 @@ class DesktopYoutubePlayerView(
     @Volatile private var html = ""
     @Volatile private var pendingPlayerUrl: String? = null
     @Volatile private var closed = false
+    private var bridgeTimer: Timeline? = null
 
     init {
         Platform.setImplicitExit(false)
@@ -194,26 +233,14 @@ class DesktopYoutubePlayerView(
             engine = view.engine
             scene = Scene(view)
             view.engine.loadWorker.stateProperty().addListener { _, _, state ->
-                if (state == Worker.State.SUCCEEDED) {
-                    runCatching {
-                        val window = view.engine.executeScript("window") as JSObject
-                        window.setMember("TikLBotMusicPlayer", PlayerBridge())
-                        view.engine.executeScript("""
-                            window.__tiklbotBridgeReady=true;
-                            (window.__tiklbotPending||[]).forEach(function(event){
-                              var callback=window.TikLBotMusicPlayer[event[0]];
-                              if(callback)callback.apply(window.TikLBotMusicPlayer,event[1]||[]);
-                            });
-                            window.__tiklbotPending=[];
-                        """.trimIndent())
-                    }
-                } else if (state == Worker.State.FAILED) {
+                if (state == Worker.State.FAILED && !closed) {
                     SwingUtilities.invokeLater { onError(5) }
                 }
             }
             pendingPlayerUrl?.let { url ->
                 pendingPlayerUrl = null
                 view.engine.load(url)
+                startPlayerBridgePolling(view.engine)
             }
         }
     }
@@ -225,8 +252,52 @@ class DesktopYoutubePlayerView(
         Platform.runLater {
             val current = engine
             if (current == null) pendingPlayerUrl = url
-            else current.load(url)
+            else {
+                current.load(url)
+                startPlayerBridgePolling(current)
+            }
         }
+    }
+
+    private fun startPlayerBridgePolling(target: WebEngine) {
+        bridgeTimer?.stop()
+        var attempts = 0
+        lateinit var timer: Timeline
+        timer = Timeline(KeyFrame(Duration.millis(150.0)) {
+            if (closed) {
+                timer.stop()
+            } else {
+                attempts++
+                val installed = runCatching {
+                    val ready = target.executeScript(
+                        "typeof window.notifyPlayer === 'function' && typeof window.__tiklbotPending !== 'undefined' && typeof window.TikLBotMusicPlayer !== 'undefined'"
+                    ) as? Boolean ?: false
+                    if (!ready) false
+                    else {
+                        val window = target.executeScript("window") as JSObject
+                        window.setMember("TikLBotMusicPlayer", PlayerBridge())
+                        target.executeScript("""
+                            window.__tiklbotBridgeReady=true;
+                            (window.__tiklbotPending||[]).forEach(function(event){
+                              var callback=window.TikLBotMusicPlayer[event[0]];
+                              if(callback)callback.apply(window.TikLBotMusicPlayer,event[1]||[]);
+                            });
+                            window.__tiklbotPending=[];
+                        """.trimIndent())
+                        true
+                    }
+                }.getOrDefault(false)
+                if (installed) {
+                    timer.stop()
+                } else if (attempts >= 200) {
+                    timer.stop()
+                    SwingUtilities.invokeLater { onError(5) }
+                }
+            }
+        })
+        timer.cycleCount = Timeline.INDEFINITE
+        bridgeTimer = timer
+        timer.play()
     }
 
     fun clearTrack() = evaluate("clearPlayer()")
@@ -318,6 +389,10 @@ function seekBy(s){if(player)player.seekTo(Math.max(0,player.getCurrentTime()+s)
         closed = true
         pendingPlayerUrl = null
         runCatching { server.close() }
-        Platform.runLater { runCatching { engine?.load("about:blank") } }
+        Platform.runLater {
+            bridgeTimer?.stop()
+            bridgeTimer = null
+            runCatching { engine?.load("about:blank") }
+        }
     }
 }
