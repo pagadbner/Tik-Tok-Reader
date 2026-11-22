@@ -7,7 +7,16 @@ import com.myclivebot.core.TikTokTtsVoiceCatalog
 import java.util.prefs.Preferences
 
 object DesktopSettingsStore {
-    private val prefs = Preferences.userRoot().node("com/myclivebot/tiklbot/windows")
+    private val prefs = Preferences.userRoot().node("com/myclivebot/tiktokreader/windows").also { current ->
+        // Keep existing settings from earlier Windows builds after the product rename.
+        runCatching {
+            val legacy = Preferences.userRoot().node("com/myclivebot/tiklbot/windows")
+            if (current.keys().isEmpty()) {
+                legacy.keys().forEach { key -> legacy.get(key, null)?.let { current.put(key, it) } }
+                current.flush()
+            }
+        }
+    }
 
     fun load(): ReaderSettings {
         val customCommands = buildMap {
