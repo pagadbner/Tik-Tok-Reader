@@ -21,7 +21,7 @@ Aplicación de escritorio independiente basada en Kotlin/JVM y Compose Desktop. 
 
 ## Pendiente antes de declarar la conversión completa
 
-- Implementar una recuperación de `ttwid` en Windows equivalente en fiabilidad a la lectura de cookies HttpOnly del WebView Android. La consulta HTTP actual se mantiene como primera opción; no se simula un fallback si el navegador no puede leer la cookie.
+- La recuperación alternativa de `ttwid` mediante JavaFX WebView ya está implementada y aislada en Windows; falta validarla en un equipo Windows real con una conexión TikTok LIVE antes de considerarla fiable.
 - Probar los cuatro motores de voz en un equipo Windows real, incluyendo latencia, cancelación y salida de audio.
 - Probar la conexión real a TikTok LIVE, DJ Music, audio, instalación limpia y actualización de una versión anterior en un equipo Windows.
 - Verificar en Windows real el icono nativo generado desde el SVG y el funcionamiento del actualizador con UAC.
