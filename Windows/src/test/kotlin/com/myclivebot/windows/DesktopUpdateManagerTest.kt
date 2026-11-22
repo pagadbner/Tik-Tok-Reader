@@ -9,11 +9,11 @@ import kotlin.test.assertNull
 class DesktopUpdateManagerTest {
     private fun assets(includeChecksum: Boolean = true) = JSONArray().apply {
         put(JSONObject()
-            .put("name", "TikLBot-Windows-Setup.exe")
+            .put("name", "TikTokReader-Windows-Setup.exe")
             .put("browser_download_url", "https://example.invalid/TikLBot-Windows-Setup.exe"))
         if (includeChecksum) {
             put(JSONObject()
-                .put("name", "TikLBot-Windows-Setup.exe.sha256")
+                .put("name", "TikTokReader-Windows-Setup.exe.sha256")
                 .put("browser_download_url", "https://example.invalid/TikLBot-Windows-Setup.exe.sha256"))
         }
     }
