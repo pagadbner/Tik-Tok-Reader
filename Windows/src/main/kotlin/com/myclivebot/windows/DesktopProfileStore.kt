@@ -27,7 +27,7 @@ object DesktopProfileStore {
     @Synchronized
     fun save(username: String, avatarUrl: String? = null): List<DesktopRecentProfile> {
         val clean = username.trim().removePrefix("@").substringBefore("/")
-        require(clean.matches(Regex("[A-Za-z0-9._]{1,24}"))) { "Usuario de TikTok no válido." }
+        require(clean.matches(Regex("[A-Za-z0-9._]{2,24}"))) { "Usuario de TikTok no válido." }
         val previous = load().firstOrNull { it.username.equals(clean, ignoreCase = true) }
         val next = (listOf(DesktopRecentProfile(clean, avatarUrl?.takeIf { it.startsWith("https://") } ?: previous?.avatarUrl)) +
             load().filterNot { it.username.equals(clean, ignoreCase = true) }).take(MAX_PROFILES)
