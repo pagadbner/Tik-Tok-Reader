@@ -144,7 +144,7 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
     LaunchedEffect(username, profileLookupRequest) {
         profileBusy = false
         val cleanUsername = username.trim().removePrefix("@").substringBefore("/").lowercase()
-        if (!cleanUsername.matches(Regex("[a-z0-9._]{1,24}"))) {
+        if (!cleanUsername.matches(Regex("[a-z0-9._]{2,24}"))) {
             profileAvatar = null
             profileAvatarUrl = null
             profileLive = null
