@@ -34,11 +34,10 @@ object DesktopTtwidCookieProvider {
     fun install(): Boolean = synchronized(installLock) {
         cookieManager?.let { return@synchronized true }
         val current = CookieHandler.getDefault()
-        val manager = when (current) {
-            null -> CookieManager(null, CookiePolicy.ACCEPT_ALL).also { CookieHandler.setDefault(it) }
-            is CookieManager -> current
-            else -> return@synchronized false
-        }
+        // OkHttp uses its own CookieJar in this app. Replace an unrelated JDK
+        // handler rather than silently disabling the Windows WebView cookie fallback.
+        val manager = (current as? CookieManager)
+            ?: CookieManager(null, CookiePolicy.ACCEPT_ALL).also { CookieHandler.setDefault(it) }
         manager.setCookiePolicy(CookiePolicy.ACCEPT_ALL)
         cookieManager = manager
         true
