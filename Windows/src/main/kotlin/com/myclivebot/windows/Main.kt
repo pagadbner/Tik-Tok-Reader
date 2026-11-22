@@ -1617,7 +1617,6 @@ private fun DjMusicPanel(state: DjMusicState) {
             SwingUtilities.invokeLater {
                 runCatching { searchRef.getAndSet(null)?.close() }
                 runCatching { playerRef.getAndSet(null)?.close() }
-                runCatching { searchWindowRef.getAndSet(null)?.dispose() }
                 runCatching { playerWindowRef.getAndSet(null)?.dispose() }
             }
             searchView = null
