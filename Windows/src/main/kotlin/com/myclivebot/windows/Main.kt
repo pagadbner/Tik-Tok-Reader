@@ -287,11 +287,18 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                     )
                                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                         Button(enabled = !connected && !connecting && username.isNotBlank(), onClick = {
+                                            val cleanUsername = username.trim().removePrefix("@").substringBefore("/").lowercase()
+                                            if (!cleanUsername.matches(Regex("[a-z0-9._]{2,24}"))) {
+                                                status = "Escribe un @usuario de TikTok válido (2–24 letras, números, puntos o guiones bajos)."
+                                                return@Button
+                                            }
+                                            username = cleanUsername
                                             comments.clear()
+                                            skippedCommentIds.clear()
                                             synchronized(commentSideEffectLock) { processedCommentSideEffects.clear() }
                                             connecting = true
                                             connected = false
-                                            recentProfiles = DesktopProfileStore.save(username, profileAvatarUrl)
+                                            recentProfiles = DesktopProfileStore.save(cleanUsername, profileAvatarUrl)
                                             status = "Preparando conexión…"
                                             val live = TikTokLiveConnector(
                                                 onComment = { comment ->
@@ -343,10 +350,12 @@ private fun applicationWindow() = androidx.compose.ui.window.application {
                                                 cookieFallback = { DesktopTtwidCookieProvider.acquireTtwid() }
                                             )
                                             connector = live
-                                            live.connect(username)
+                                            live.connect(cleanUsername)
                                         }) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("Conectar") }
-                                        OutlinedButton(enabled = connected, onClick = { stopLive() }) {
-                                            Icon(Icons.Default.Stop, null); Spacer(Modifier.width(6.dp)); Text("Desconectar")
+                                        OutlinedButton(enabled = connected || connecting, onClick = { stopLive() }) {
+                                            Icon(Icons.Default.Stop, null)
+                                            Spacer(Modifier.width(6.dp))
+                                            Text(if (connecting && !connected) "Cancelar" else "Desconectar")
                                         }
                                     }
                                 }
