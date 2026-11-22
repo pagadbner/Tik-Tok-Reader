@@ -46,9 +46,17 @@ jobs:
       - name: Install WiX and Inno Setup
         shell: pwsh
         run: |
-          choco install wixtoolset innosetup --no-progress -y
+          choco install wixtoolset innosetup imagemagick --no-progress -y
           $env:PATH += ";C:\\Program Files (x86)\\WiX Toolset v3.14\\bin;C:\\Program Files (x86)\\Inno Setup 6"
           "PATH=$env:PATH" >> $env:GITHUB_ENV
+
+      - name: Generate native Windows icon
+        shell: pwsh
+        run: |
+          $magick = Get-Command magick.exe -ErrorAction SilentlyContinue
+          if (!$magick) { throw "ImageMagick no está disponible para generar el icono nativo." }
+          & $magick.Source -background none "Windows/src/main/resources/tiklbot-icon.svg" -define icon:auto-resize=256,128,64,48,32,16 "Windows/src/main/resources/tiklbot-icon.ico"
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path "Windows/src/main/resources/tiklbot-icon.ico")) { throw "No se pudo generar el icono ICO." }
 
       - name: Set up Gradle 8.11.1
         uses: gradle/actions/setup-gradle@v4
