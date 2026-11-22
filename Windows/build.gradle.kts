@@ -37,6 +37,8 @@ dependencies {
     implementation(compose.materialIconsExtended)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.json:json:20240303")
+    // Chromium engine for the Windows YouTube search/player, matching Android WebView behavior.
+    implementation("me.friwi:jcefmaven:146.0.10")
     implementation("javazoom:jlayer:1.0.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("org.apache.commons:commons-compress:1.27.1")
