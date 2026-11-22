@@ -9,20 +9,19 @@ import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.browser.CefMessageRouter
 import org.cef.callback.CefQueryCallback
+import org.cef.callback.CefCallback
+import org.cef.handler.CefResourceHandlerAdapter
+import org.cef.network.CefResponse
+import org.cef.misc.IntRef
+import org.cef.misc.StringRef
 import org.cef.handler.CefLoadHandlerAdapter
 import org.cef.handler.CefMessageRouterHandlerAdapter
 import org.cef.handler.CefRequestHandlerAdapter
 import org.cef.handler.CefResourceRequestHandler
-import org.cef.handler.CefResourceRequestHandlerAdapter
 import org.cef.misc.BoolRef
-import org.cef.network.CefRequest
 import org.json.JSONObject
 import java.awt.BorderLayout
-import java.io.BufferedReader
 import java.io.File
-import java.io.InputStreamReader
-import java.net.InetAddress
-import java.net.ServerSocket
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.CompletableFuture
@@ -398,9 +397,11 @@ class DesktopYoutubePlayerView(
     private val onReady: () -> Unit,
     private val onState: (Int) -> Unit
 ) : JPanel(BorderLayout()), AutoCloseable {
-    private val server = ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))
-    private val origin = "http://127.0.0.1:" + server.localPort
-    @Volatile private var html = ""
+    // Match Android WebView.loadDataWithBaseURL("https://com.myclivebot/", html, ...).
+    // CEF serves this one document locally under the same HTTPS origin, so Chromium
+    // itself generates the origin/referrer context for YouTube's IFrame API.
+    private val appBaseUrl = "https://com.myclivebot/"
+    @Volatile private var htmlBytes: ByteArray = ByteArray(0)
     @Volatile private var closed = false
     private val client = cefApp.createClient()
     private val router = createDjMusicMessageRouter(client) { payload ->
@@ -422,9 +423,6 @@ class DesktopYoutubePlayerView(
     private val browser = client.createBrowser("about:blank", false, false)
 
     init {
-        // Android WebView sets this identity through loadDataWithBaseURL("https://com.myclivebot/", ...).
-        // Desktop CEF does not derive an application Referer from its local HTML origin, so provide
-        // the same explicit Referer on YouTube player/API/media requests.
         client.addRequestHandler(object : CefRequestHandlerAdapter() {
             override fun getResourceRequestHandler(
                 browser: CefBrowser,
@@ -435,37 +433,65 @@ class DesktopYoutubePlayerView(
                 requestInitiator: String,
                 disableDefaultHandling: BoolRef
             ): CefResourceRequestHandler? {
+                // Intercept only our synthetic Android-equivalent base document.
+                // All YouTube/API/media requests continue through Chromium unchanged.
+                if (!request.url.startsWith(appBaseUrl, ignoreCase = true)) return null
                 return object : CefResourceRequestHandlerAdapter() {
-                    override fun onBeforeResourceLoad(
+                    override fun getResourceHandler(
                         browser: CefBrowser,
                         frame: CefFrame,
                         request: CefRequest
-                    ): Boolean {
-                        val host = runCatching {
-                            java.net.URI(request.url).host.orEmpty().lowercase()
-                        }.getOrDefault("")
-                        val isYouTubeRequest =
-                            host == "youtube.com" || host.endsWith(".youtube.com") ||
-                            host == "youtube-nocookie.com" || host.endsWith(".youtube-nocookie.com") ||
-                            host == "youtube.googleapis.com" || host == "googlevideo.com" ||
-                            host.endsWith(".googlevideo.com")
-                        if (isYouTubeRequest) {
-                            val headers = LinkedHashMap<String, String>()
-                            request.getHeaderMap(headers)
-                            headers["Referer"] = "https://github.com/pagadbner/Tik-Tok-Reader/"
-                            request.setHeaderMap(headers)
+                    ): org.cef.handler.CefResourceHandler {
+                        val document = htmlBytes
+                        return object : org.cef.handler.CefResourceHandlerAdapter() {
+                            private var offset = 0
+
+                            override fun processRequest(
+                                request: CefRequest,
+                                callback: org.cef.callback.CefCallback
+                            ): Boolean {
+                                offset = 0
+                                callback.Continue()
+                                return true
+                            }
+
+                            override fun getResponseHeaders(
+                                response: org.cef.network.CefResponse,
+                                responseLength: org.cef.misc.IntRef,
+                                redirectUrl: org.cef.misc.StringRef
+                            ) {
+                                response.setStatus(200)
+                                response.setStatusText("OK")
+                                response.setMimeType("text/html")
+                                response.setHeaderByName("Cache-Control", "no-store", true)
+                                responseLength.set(document.size)
+                                redirectUrl.set("")
+                            }
+
+                            override fun readResponse(
+                                dataOut: ByteArray,
+                                bytesToRead: Int,
+                                bytesRead: org.cef.misc.IntRef,
+                                callback: org.cef.callback.CefCallback
+                            ): Boolean {
+                                val remaining = document.size - offset
+                                if (remaining <= 0) {
+                                    bytesRead.set(0)
+                                    return false
+                                }
+                                val count = minOf(bytesToRead, remaining)
+                                document.copyInto(dataOut, 0, offset, offset + count)
+                                offset += count
+                                bytesRead.set(count)
+                                return true
+                            }
                         }
-                        return false
                     }
                 }
             }
         })
         browser.uiComponent.isFocusable = false
         add(browser.uiComponent, BorderLayout.CENTER)
-        Thread(::serve, "TikLBot-YouTube-Local-Origin").apply {
-            isDaemon = true
-            start()
-        }
     }
 
     fun loadTrack(track: DjMusicTrack, volume: Int, muted: Boolean) {
@@ -473,10 +499,10 @@ class DesktopYoutubePlayerView(
             "ID de video de YouTube no válido."
         }
         if (closed) return
-        html = playerHtml(track.videoId, volume.coerceIn(0, 100), muted)
-        val url = origin + "/player?video=" + track.videoId
+        htmlBytes = playerHtml(track.videoId, volume.coerceIn(0, 100), muted)
+            .toByteArray(StandardCharsets.UTF_8)
         SwingUtilities.invokeLater {
-            if (!closed) browser.loadURL(url)
+            if (!closed) browser.loadURL(appBaseUrl + "player?video=" + track.videoId)
         }
     }
 
@@ -501,7 +527,7 @@ class DesktopYoutubePlayerView(
     }
 
     private fun playerHtml(videoId: String, volume: Int, muted: Boolean): String {
-        val safeOrigin = origin
+        val safeOrigin = "https://com.myclivebot"
         val muteScript = if (muted) "e.target.mute();" else "e.target.unMute();"
         return """<!doctype html>
 <html><head><meta name="referrer" content="strict-origin-when-cross-origin">
@@ -522,7 +548,7 @@ function notifyPlayer(event,args){
 <script>
 var player;
 function onYouTubeIframeAPIReady(){
- player=new YT.Player('player',{width:'100%',height:'100%',videoId:'$videoId',
+ player=new YT.Player('player',{width:'100%',height:'220',videoId:'$videoId',
   playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'$safeOrigin'},
   events:{
    onReady:function(e){e.target.setVolume($volume);$muteScript;notifyPlayer('onPlayerReady');e.target.playVideo();},
@@ -539,41 +565,10 @@ function seekBy(s){if(player)player.seekTo(Math.max(0,player.getCurrentTime()+s)
 </script></body></html>"""
     }
 
-    private fun serve() {
-        while (!closed) {
-            try {
-                server.accept().use { socket ->
-                    val reader = BufferedReader(
-                        InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII)
-                    )
-                    val requestLine = reader.readLine().orEmpty()
-                    while (reader.readLine()?.isNotEmpty() == true) Unit
-                    val requestPath = requestLine.split(' ').getOrNull(1).orEmpty()
-                    // The query string follows /player; match the path, not "/player " literally.
-                    val isPlayer = requestPath.substringBefore('?') == "/player"
-                    val body = if (isPlayer) html.toByteArray(StandardCharsets.UTF_8) else ByteArray(0)
-                    val status = if (isPlayer) "200 OK" else "404 Not Found"
-                    val header = "HTTP/1.1 $status\r\n" +
-                        "Content-Type: text/html; charset=utf-8\r\n" +
-                        "Content-Length: " + body.size + "\r\n" +
-                        "Connection: close\r\n" +
-                        "Cache-Control: no-store\r\n\r\n"
-                    socket.getOutputStream().apply {
-                        write(header.toByteArray(StandardCharsets.US_ASCII))
-                        write(body)
-                        flush()
-                    }
-                }
-            } catch (_: Exception) {
-                if (!closed) continue
-            }
-        }
-    }
-
     override fun close() {
         if (closed) return
         closed = true
-        runCatching { server.close() }
+        htmlBytes = ByteArray(0)
         SwingUtilities.invokeLater {
             runCatching { browser.close(true) }
             runCatching { router.dispose() }
