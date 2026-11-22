@@ -22,7 +22,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: tiklbot-windows-${{ github.event_name }}-${{ github.ref || github.event.workflow_run.head_sha }}
+  group: tiktokreader-windows-${{ github.event_name }}-${{ github.ref || github.event.workflow_run.head_sha }}
   cancel-in-progress: true
 
 jobs:
