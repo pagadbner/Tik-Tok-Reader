@@ -1475,7 +1475,6 @@ private fun DjMusicPanel(state: DjMusicState) {
     var activeSearchId by remember { mutableIntStateOf(0) }
     var searchView by remember { mutableStateOf<DesktopYoutubeSearchView?>(null) }
     var playerView by remember { mutableStateOf<DesktopYoutubePlayerView?>(null) }
-    var playerWindow by remember { mutableStateOf<JFrame?>(null) }
     var engineRequested by remember { mutableStateOf(false) }
     var accessMenu by remember { mutableStateOf(false) }
     val searchCounter = remember { AtomicInteger(0) }
@@ -1535,7 +1534,6 @@ private fun DjMusicPanel(state: DjMusicState) {
         val disposed = java.util.concurrent.atomic.AtomicBoolean(false)
         val searchRef = java.util.concurrent.atomic.AtomicReference<DesktopYoutubeSearchView?>(null)
         val playerRef = java.util.concurrent.atomic.AtomicReference<DesktopYoutubePlayerView?>(null)
-        val playerWindowRef = java.util.concurrent.atomic.AtomicReference<JFrame?>(null)
 
         DjMusicController.setMessage("Preparando el motor Chromium para DJ Music…")
         DesktopJcefRuntime.initialize().whenComplete { cefApp, initError ->
@@ -1584,25 +1582,14 @@ private fun DjMusicPanel(state: DjMusicState) {
                                     if (value == -1) DjMusicController.setMessage("YouTube bloqueó el inicio automático. Pulsa Reproducir.")
                                 }
                             )
-                            val window = JFrame("Tik Tok Reader · DJ Music").apply {
-                                defaultCloseOperation = WindowConstants.HIDE_ON_CLOSE
-                                contentPane.add(player, BorderLayout.CENTER)
-                                setSize(820, 480)
-                                minimumSize = java.awt.Dimension(640, 360)
-                                setLocationRelativeTo(null)
-                            }
-
                             if (disposed.get()) {
                                 search.close()
                                 player.close()
-                                window.dispose()
                             } else {
                                 searchRef.set(search)
                                 playerRef.set(player)
-                                playerWindowRef.set(window)
                                 searchView = search
                                 playerView = player
-                                playerWindow = window
                             }
                         } catch (error: Exception) {
                             DjMusicController.setMessage("No se pudo iniciar DJ Music: ${error.message ?: "error de Chromium"}")
@@ -1617,11 +1604,9 @@ private fun DjMusicPanel(state: DjMusicState) {
             SwingUtilities.invokeLater {
                 runCatching { searchRef.getAndSet(null)?.close() }
                 runCatching { playerRef.getAndSet(null)?.close() }
-                runCatching { playerWindowRef.getAndSet(null)?.dispose() }
             }
             searchView = null
             playerView = null
-            playerWindow = null
         }
         }
     }
@@ -1665,17 +1650,9 @@ private fun DjMusicPanel(state: DjMusicState) {
             if (track != null) {
                 runCatching {
                     player.loadTrack(track, state.volume, state.muted)
-                    SwingUtilities.invokeLater {
-                        playerWindow?.let { window ->
-                            window.isVisible = true
-                            window.toFront()
-                            window.requestFocus()
-                        }
-                    }
                 }.onFailure { DjMusicController.setMessage("No se pudo abrir el reproductor: ${it.message ?: "error"}") }
             } else {
                 player.clearTrack()
-                SwingUtilities.invokeLater { playerWindow?.isVisible = false }
             }
         }
     }
@@ -1777,25 +1754,26 @@ private fun DjMusicPanel(state: DjMusicState) {
                 if (current != null) {
                     Text("Solicitada por ${current.requestedBy}", color = Muted, fontSize = 11.sp)
                 }
+                Text("REPRODUCTOR OFICIAL DE YOUTUBE", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 Card(
-                    Modifier.fillMaxWidth().height(150.dp),
+                    Modifier.fillMaxWidth().height(220.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.Black),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Reproductor independiente", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    val embeddedPlayer = playerView
+                    if (embeddedPlayer != null) {
+                        androidx.compose.ui.awt.SwingPanel(
+                            factory = { embeddedPlayer },
+                            modifier = Modifier.fillMaxSize(),
+                            update = { }
+                        )
+                    } else {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text(
-                                if (current == null) "Selecciona una canción para abrir el reproductor."
-                                else "El video se reproduce en una ventana separada para mantener fluida la aplicación.",
+                                if (current == null) "El reproductor aparecerá aquí cuando selecciones una canción."
+                                else "Preparando el reproductor de YouTube…",
                                 color = Muted
                             )
-                            OutlinedButton(enabled = current != null, onClick = {
-                                engineRequested = true
-                                SwingUtilities.invokeLater {
-                                    playerWindow?.let { it.isVisible = true; it.toFront(); it.requestFocus() }
-                                }
-                            }) { Text("Mostrar reproductor") }
                         }
                     }
                 }
