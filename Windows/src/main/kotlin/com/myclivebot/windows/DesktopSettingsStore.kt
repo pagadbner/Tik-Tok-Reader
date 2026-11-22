@@ -64,7 +64,7 @@ object DesktopSettingsStore {
             customCommands = customCommands,
             welcomeEnabled = prefs.getBoolean("welcome_enabled", false),
             welcomeTemplate = prefs.get("welcome_template", "¡Bienvenido al LIVE, {user}!"),
-            giftMinimumRepeatCount = prefs.getInt("gift_minimum_repeat_count", 1).coerceIn(1, 100),
+            giftMinimumRepeatCount = prefs.getInt("gift_minimum_repeat_count", 1).coerceIn(1, 999),
             giftAlertTemplate = prefs.get("gift_alert_template", ""),
             useProfileUsername = prefs.getBoolean("use_profile_username", false)
         )
@@ -107,7 +107,7 @@ object DesktopSettingsStore {
         }
         prefs.putBoolean("welcome_enabled", settings.welcomeEnabled)
         prefs.put("welcome_template", settings.welcomeTemplate)
-        prefs.putInt("gift_minimum_repeat_count", settings.giftMinimumRepeatCount.coerceIn(1, 100))
+        prefs.putInt("gift_minimum_repeat_count", settings.giftMinimumRepeatCount.coerceIn(1, 999))
         prefs.put("gift_alert_template", settings.giftAlertTemplate)
         prefs.putBoolean("use_profile_username", settings.useProfileUsername)
         prefs.flush()
