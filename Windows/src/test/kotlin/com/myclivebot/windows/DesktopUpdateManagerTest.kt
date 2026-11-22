@@ -10,11 +10,11 @@ class DesktopUpdateManagerTest {
     private fun assets(includeChecksum: Boolean = true) = JSONArray().apply {
         put(JSONObject()
             .put("name", "TikTokReader-Windows-Setup.exe")
-            .put("browser_download_url", "https://example.invalid/TikLBot-Windows-Setup.exe"))
+            .put("browser_download_url", "https://example.invalid/TikTokReader-Windows-Setup.exe"))
         if (includeChecksum) {
             put(JSONObject()
                 .put("name", "TikTokReader-Windows-Setup.exe.sha256")
-                .put("browser_download_url", "https://example.invalid/TikLBot-Windows-Setup.exe.sha256"))
+                .put("browser_download_url", "https://example.invalid/TikTokReader-Windows-Setup.exe.sha256"))
         }
     }
 
@@ -26,8 +26,8 @@ class DesktopUpdateManagerTest {
             "0.13.15"
         )
         assertEquals("0.13.16", update?.versionName)
-        assertEquals("https://example.invalid/TikLBot-Windows-Setup.exe", update?.installerUrl)
-        assertEquals("https://example.invalid/TikLBot-Windows-Setup.exe.sha256", update?.checksumUrl)
+        assertEquals("https://example.invalid/TikTokReader-Windows-Setup.exe", update?.installerUrl)
+        assertEquals("https://example.invalid/TikTokReader-Windows-Setup.exe.sha256", update?.checksumUrl)
     }
 
     @Test
