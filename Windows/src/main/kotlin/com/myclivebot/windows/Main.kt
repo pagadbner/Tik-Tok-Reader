@@ -1489,68 +1489,92 @@ private fun DjMusicPanel(state: DjMusicState) {
         val searchWindowRef = java.util.concurrent.atomic.AtomicReference<JFrame?>(null)
         val playerWindowRef = java.util.concurrent.atomic.AtomicReference<JFrame?>(null)
 
-        // JFXPanel startup can block. Never construct JavaFX/Swing windows on Compose's UI thread.
-        SwingUtilities.invokeLater {
-            if (!disposed.get()) {
+        // Start JavaFX off the UI thread before creating JFXPanel instances on Swing's EDT.
+        // This prevents the first JavaFX toolkit startup from freezing Compose navigation.
+        Thread({
+            try {
+                val ready = java.util.concurrent.CountDownLatch(1)
                 try {
-                    val search = DesktopYoutubeSearchView { requestId, json ->
-                        handleSearchResults.value(requestId, json)
+                    javafx.application.Platform.startup {
+                        javafx.application.Platform.setImplicitExit(false)
+                        ready.countDown()
                     }
-                    val searchWindow = JFrame("Tik Tok Reader · YouTube Search").apply {
-                        defaultCloseOperation = WindowConstants.DO_NOTHING_ON_CLOSE
-                        type = java.awt.Window.Type.UTILITY
-                        isUndecorated = true
-                        contentPane.add(search, BorderLayout.CENTER)
-                        setSize(640, 480)
-                        setLocation(-32000, -32000)
-                        isVisible = true
+                } catch (_: IllegalStateException) {
+                    javafx.application.Platform.runLater {
+                        javafx.application.Platform.setImplicitExit(false)
+                        ready.countDown()
                     }
-                    val player = DesktopYoutubePlayerView(
-                        onEnded = { DjMusicController.skip("La canción terminó.") },
-                        onError = { code ->
-                            val detail = when (code) {
-                                2 -> "ID o parámetro inválido"
-                                5 -> "falló el reproductor HTML5"
-                                100 -> "el video no existe o es privado"
-                                101, 150 -> "el propietario no permite la reproducción incrustada"
-                                153 -> "YouTube no recibió el HTTP Referer de la aplicación"
-                                else -> "error $code"
+                }
+                if (!ready.await(25, java.util.concurrent.TimeUnit.SECONDS)) {
+                    error("JavaFX no terminó de inicializarse.")
+                }
+                if (!disposed.get()) SwingUtilities.invokeLater {
+                    if (!disposed.get()) {
+                        try {
+                            val search = DesktopYoutubeSearchView { requestId, json ->
+                                handleSearchResults.value(requestId, json)
                             }
-                            DjMusicController.setMessage("YouTube no pudo reproducir el video: $detail. Prueba otra coincidencia.")
-                        },
-                        onReady = { playerReady = true },
-                        onState = { value ->
-                            playerPlaying = value == 1
-                            if (value == -1) DjMusicController.setMessage("YouTube bloqueó el inicio automático. Pulsa Reproducir.")
-                        }
-                    )
-                    val window = JFrame("Tik Tok Reader · DJ Music").apply {
-                        defaultCloseOperation = WindowConstants.HIDE_ON_CLOSE
-                        contentPane.add(player, BorderLayout.CENTER)
-                        setSize(820, 480)
-                        minimumSize = java.awt.Dimension(640, 360)
-                        setLocationRelativeTo(null)
-                    }
+                            val searchWindow = JFrame("Tik Tok Reader · YouTube Search").apply {
+                                defaultCloseOperation = WindowConstants.DO_NOTHING_ON_CLOSE
+                                type = java.awt.Window.Type.UTILITY
+                                isUndecorated = true
+                                contentPane.add(search, BorderLayout.CENTER)
+                                setSize(640, 480)
+                                setLocation(-32000, -32000)
+                                isVisible = true
+                            }
+                            val player = DesktopYoutubePlayerView(
+                                onEnded = { DjMusicController.skip("La canción terminó.") },
+                                onError = { code ->
+                                    val detail = when (code) {
+                                        2 -> "ID o parámetro inválido"
+                                        5 -> "falló el reproductor HTML5"
+                                        100 -> "el video no existe o es privado"
+                                        101, 150 -> "el propietario no permite la reproducción incrustada"
+                                        153 -> "YouTube no recibió el HTTP Referer de la aplicación"
+                                        else -> "error $code"
+                                    }
+                                    DjMusicController.setMessage("YouTube no pudo reproducir el video: $detail. Prueba otra coincidencia.")
+                                },
+                                onReady = { playerReady = true },
+                                onState = { value ->
+                                    playerPlaying = value == 1
+                                    if (value == -1) DjMusicController.setMessage("YouTube bloqueó el inicio automático. Pulsa Reproducir.")
+                                }
+                            )
+                            val window = JFrame("Tik Tok Reader · DJ Music").apply {
+                                defaultCloseOperation = WindowConstants.HIDE_ON_CLOSE
+                                contentPane.add(player, BorderLayout.CENTER)
+                                setSize(820, 480)
+                                minimumSize = java.awt.Dimension(640, 360)
+                                setLocationRelativeTo(null)
+                            }
 
-                    if (disposed.get()) {
-                        search.close()
-                        player.close()
-                        searchWindow.dispose()
-                        window.dispose()
-                    } else {
-                        searchRef.set(search)
-                        playerRef.set(player)
-                        searchWindowRef.set(searchWindow)
-                        playerWindowRef.set(window)
-                        searchView = search
-                        playerView = player
-                        playerWindow = window
+                            if (disposed.get()) {
+                                search.close()
+                                player.close()
+                                searchWindow.dispose()
+                                window.dispose()
+                            } else {
+                                searchRef.set(search)
+                                playerRef.set(player)
+                                searchWindowRef.set(searchWindow)
+                                playerWindowRef.set(window)
+                                searchView = search
+                                playerView = player
+                                playerWindow = window
+                            }
+                        } catch (error: Exception) {
+                            DjMusicController.setMessage("No se pudo iniciar DJ Music: ${error.message ?: "error de JavaFX"}")
+                        }
                     }
-                } catch (error: Exception) {
-                    DjMusicController.setMessage("No se pudo iniciar DJ Music: ${error.message ?: "error de JavaFX"}")
+                }
+            } catch (error: Exception) {
+                if (!disposed.get()) {
+                    DjMusicController.setMessage("No se pudo preparar DJ Music: ${error.message ?: "error de JavaFX"}")
                 }
             }
-        }
+        }, "TikLBot-JavaFX-Startup").apply { isDaemon = true; start() }
 
         onDispose {
             disposed.set(true)
